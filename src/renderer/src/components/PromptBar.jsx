@@ -1,26 +1,27 @@
 import { useState } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import { useAutosizeTextarea } from '../hooks/useAutosizeTextarea'
-import { SendIcon, StopIcon } from './icons'
+import { useAiStatus } from '../hooks/useAiStatus'
+import { SendIcon } from './icons'
 import './PromptBar.css'
 
-// Command line for handing tasks to the Claude CLI. The CLI is not wired up
-// yet — for now Send just flips into the "running" state and Stop cancels it.
-export default function PromptBar() {
+// Chat input. Enter sends, Ctrl+Enter inserts a new line. Sending is handled by
+// the parent (useChat); while a reply is pending the send button is disabled.
+export default function PromptBar({ onSend, busy }) {
   const { t } = useI18n()
   const [text, setText] = useState('')
-  const [running, setRunning] = useState(false)
   const ref = useAutosizeTextarea(text, 8)
+  const { state, cli } = useAiStatus()
+  const statusLabel =
+    state === 'ready' ? t('chat.ready') : state === 'offline' ? t('chat.offline') : t('chat.starting')
 
-  const canSend = text.trim().length > 0
+  const canSend = text.trim().length > 0 && !busy
 
-  const send = () => {
+  const submit = () => {
     if (!canSend) return
-    setRunning(true)
-    // TODO: pass `text` to the Claude CLI and stream the result back
+    onSend(text)
+    setText('')
   }
-
-  const stop = () => setRunning(false)
 
   const insertNewline = () => {
     const el = ref.current
@@ -39,12 +40,18 @@ export default function PromptBar() {
       insertNewline()
     } else if (!e.shiftKey) {
       e.preventDefault()
-      send()
+      submit()
     }
   }
 
   return (
     <div className="promptbar">
+      <div className="promptbar__status" title={statusLabel}>
+        <span className={`promptbar__dot promptbar__dot--${state}`} />
+        <span className="promptbar__status-text">
+          {cli === 'claude' ? 'Claude' : 'Gemini'} · {statusLabel}
+        </span>
+      </div>
       <div className="promptbar__box">
         <textarea
           ref={ref}
@@ -55,15 +62,14 @@ export default function PromptBar() {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {running ? (
-          <button className="promptbar__send promptbar__send--stop" title={t('prompt.stop')} onClick={stop}>
-            <StopIcon />
-          </button>
-        ) : (
-          <button className="promptbar__send" title={t('prompt.send')} onClick={send} disabled={!canSend}>
-            <SendIcon />
-          </button>
-        )}
+        <button
+          className="promptbar__send"
+          title={t('prompt.send')}
+          onClick={submit}
+          disabled={!canSend}
+        >
+          <SendIcon />
+        </button>
       </div>
     </div>
   )

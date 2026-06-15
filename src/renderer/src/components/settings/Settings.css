@@ -13,6 +13,131 @@
   gap: 28px;
 }
 
+.settings-tabs {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto 22px;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--hover);
+  border-radius: 10px;
+}
+
+.settings-tabs__btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.settings-tabs__btn:hover {
+  color: var(--text);
+}
+
+.settings-tabs__btn--active {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* AI memory / tasks lists */
+.ai-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-list__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 18px;
+}
+
+.ai-list__row + .ai-list__row {
+  border-top: 1px solid var(--border);
+}
+
+.ai-list__row--done {
+  opacity: 0.5;
+}
+
+.ai-list__row--done .ai-list__time {
+  color: var(--muted);
+}
+
+.ai-list__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-list__time {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.ai-list__text {
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.ai-list__del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.ai-list__del:hover {
+  color: var(--weekend);
+  background: var(--hover);
+}
+
+.ai-list__empty {
+  padding: 16px 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ai-add {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.ai-add__input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  outline: none;
+}
+
+.ai-add__input:focus {
+  border-color: var(--accent);
+}
+
 .settings-section__title {
   font-size: 13px;
   font-weight: 700;

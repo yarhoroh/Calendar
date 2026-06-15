@@ -2,7 +2,26 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } from 'el
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { detectGemini, installGemini } from './tools/gemini'
-import { initDb, getItems, saveItems, itemsWithTime, isEmpty, importMap } from './db'
+import { detectClaude, runAgent, warmUp } from './ai'
+import { warmAcp, stopAcp, askAcp, clearAcp } from './acp'
+import { initTts, speak } from './tts'
+import { startTtsServer, stopTtsServer } from './ttsServer'
+import {
+  initDb,
+  getItems,
+  saveItems,
+  itemsWithTime,
+  isEmpty,
+  importMap,
+  allNotes,
+  allMemory,
+  addMemory,
+  deleteMemory,
+  allAiTasks,
+  addAiTask,
+  deleteAiTask
+} from './db'
+import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import {
   initNotify,
   setReminder,
@@ -107,7 +126,8 @@ function createWindow() {
     icon: appIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required'
     }
   })
 
@@ -252,7 +272,10 @@ ipcMain.on('settings:set-language', (_e, lang) => {
 
 // ---- notes store (local SQLite, see ./db) ------------------------------
 ipcMain.handle('items:get', (_e, key) => getItems(key))
-ipcMain.on('items:save', (_e, key, items) => saveItems(key, items))
+ipcMain.on('items:save', (_e, key, items) => {
+  saveItems(key, items)
+  mainWindow?.webContents.send('items:changed', key)
+})
 
 // one-time import of the old notes.json into the database
 function migrateNotesJson() {
@@ -309,6 +332,78 @@ ipcMain.on('settings:set-reminder-duration', (_e, v) => {
 // ---- local AI tools ----------------------------------------------------
 ipcMain.handle('gemini:detect', () => detectGemini())
 ipcMain.handle('gemini:install', () => installGemini())
+ipcMain.handle('ai:detect-claude', () => detectClaude())
+ipcMain.handle('settings:get-ai', () => loadSettings().ai || 'gemini')
+ipcMain.on('settings:set-ai', (_e, v) => {
+  const s = loadSettings()
+  s.ai = v
+  saveSettings(s)
+  warmAi(v)
+})
+
+// Warm the chosen CLI and tell the renderer its state, so the chat can show a
+// "starting / ready / not found" indicator instead of leaving the user guessing.
+let aiState = 'warming' // 'warming' | 'ready' | 'offline'
+function broadcastAiStatus() {
+  const cli = loadSettings().ai || 'gemini'
+  mainWindow?.webContents?.send('ai:status', { state: aiState, cli })
+}
+function warmAi(cli) {
+  aiState = 'warming'
+  broadcastAiStatus()
+  // gemini runs as a persistent ACP session; claude is one-shot, so just warm
+  // the binary (and shut the ACP process down to free it).
+  const warming = cli === 'gemini' ? warmAcp() : (stopAcp(), warmUp('claude'))
+  Promise.resolve(warming).then((ok) => {
+    aiState = ok ? 'ready' : 'offline'
+    broadcastAiStatus()
+  })
+}
+ipcMain.handle('ai:status', () => ({ state: aiState, cli: loadSettings().ai || 'gemini' }))
+function aiContext() {
+  // include done tasks too (marked [done]) so the AI can see and delete them
+  return { notes: allNotes(), memory: allMemory(), tasks: allAiTasks() }
+}
+ipcMain.handle('ai:send', (_e, { messages }) => {
+  const cli = loadSettings().ai || 'gemini'
+  const ctx = aiContext()
+  return cli === 'gemini' ? askAcp({ messages, ctx }) : runAgent({ cli, messages, ctx })
+})
+
+// ---- AI memory + self-tasks (viewable/editable in Settings) -------------
+function broadcastAiData() {
+  mainWindow?.webContents?.send('aiData:changed')
+}
+ipcMain.handle('memory:get', () => allMemory())
+ipcMain.handle('memory:add', (_e, text) => {
+  const row = addMemory(text)
+  broadcastAiData()
+  return row
+})
+ipcMain.handle('memory:delete', (_e, id) => {
+  deleteMemory(id)
+  broadcastAiData()
+})
+ipcMain.handle('aiTask:get', () => allAiTasks())
+ipcMain.handle('aiTask:add', (_e, payload) => {
+  const row = addAiTask(payload)
+  if (row) scheduleAiTask(row)
+  broadcastAiData()
+  return row
+})
+ipcMain.handle('aiTask:delete', (_e, id) => {
+  cancelAiTask(id)
+  deleteAiTask(id)
+  broadcastAiData()
+})
+ipcMain.handle('ai:clear', () => {
+  const cli = loadSettings().ai || 'gemini'
+  if (cli === 'gemini') return clearAcp()
+  return true // claude has no server-side context to wipe
+})
+
+// ---- text-to-speech ----------------------------------------------------
+ipcMain.handle('tts:speak', (_e, payload) => speak(payload))
 
 // ---- single instance + lifecycle ---------------------------------------
 const gotLock = app.requestSingleInstanceLock()
@@ -331,6 +426,13 @@ if (!gotLock) {
       getSound: () => loadSettings().reminderSound !== false
     })
     scheduleStoredReminders()
+    initAiTasks({
+      onFire: (task) => mainWindow?.webContents?.send('aiTask:fire', { text: task.text })
+    })
+    scheduleAllAiTasks()
+    initTts({ getMain: () => mainWindow })
+    startTtsServer()
+    warmAi(loadSettings().ai || 'gemini')
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
@@ -338,5 +440,10 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
+  })
+
+  app.on('will-quit', () => {
+    stopAcp()
+    stopTtsServer()
   })
 }

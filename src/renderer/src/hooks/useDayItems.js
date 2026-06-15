@@ -48,11 +48,17 @@ export function useDayItems(key) {
 
   useEffect(() => {
     let alive = true
-    Promise.resolve(api.getItems?.(key)).then((arr) => {
-      if (alive) setItems(normalize(arr))
+    const load = () =>
+      Promise.resolve(api.getItems?.(key)).then((arr) => {
+        if (alive) setItems(normalize(arr))
+      })
+    load()
+    const off = api.onItemsChanged?.((changedKey) => {
+      if (changedKey === key) load()
     })
     return () => {
       alive = false
+      off?.()
     }
   }, [key])
 

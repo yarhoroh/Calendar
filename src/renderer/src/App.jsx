@@ -7,23 +7,32 @@ import CalendarView from './views/CalendarView'
 import SettingsView from './views/SettingsView'
 import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
+import { useTtsPlayer } from './hooks/useTtsPlayer'
+import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 
 // Composition root: holds the active view and wires the titlebar, the current
 // view and the close dialog. Reminder toasts live in a separate window; here we
 // only listen for "open this day" requests coming from a clicked toast.
 export default function App() {
   const [view, setView] = useState('calendar')
-  const [focusRequest, setFocusRequest] = useState(null)
+  const [command, setCommand] = useState(null)
   const [showChat, setShowChat] = useState(false)
   const { theme, toggleTheme } = useTheme()
   const win = useWindowControls()
+  useTtsPlayer()
+
+  // calendar/UI commands from reminders or the AI chat
+  const runCommand = (cmd) => {
+    setView('calendar')
+    setCommand({ ...cmd, n: Date.now() })
+  }
+
+  useAiTaskRunner({ onCommand: runCommand })
 
   useEffect(() => {
-    api.onReminderOpen?.((dayKey) => {
-      setView('calendar')
-      setFocusRequest({ key: dayKey, n: Date.now() })
-    })
+    api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
     Promise.resolve(api.getShowChat?.()).then((v) => setShowChat(!!v))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const toggleChat = () =>
@@ -53,7 +62,7 @@ export default function App() {
       <main className="content">
         <ErrorBoundary>
           {view === 'calendar' ? (
-          <CalendarView focusRequest={focusRequest} showChat={showChat} />
+          <CalendarView command={command} showChat={showChat} onCommand={runCommand} />
         ) : (
           <SettingsView showChat={showChat} onToggleChat={toggleChat} />
         )}

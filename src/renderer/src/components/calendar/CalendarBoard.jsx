@@ -18,7 +18,7 @@ const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 // container. `origin` is the (fractional) day offset from today shown at the
 // left edge; only the visible columns are rendered and dates are derived on
 // the fly, so you can scroll forever in either direction.
-export default function CalendarBoard({ focusRequest }) {
+export default function CalendarBoard({ command }) {
   const { t, lang } = useI18n()
   const { settings, loaded, update } = useCalendarSettings()
   const viewportRef = useRef(null)
@@ -108,11 +108,25 @@ export default function CalendarBoard({ focusRequest }) {
     animateOrigin(daysDiff(date, today), 300)
   }
 
-  // jump here when a reminder toast is opened
+  // commands from reminders / AI chat: navigate + control the UI
   useEffect(() => {
-    if (focusRequest) animateOrigin(daysDiff(parseKey(focusRequest.key), today), 320)
+    if (!command) return
+    const { kind, date } = command
+    if (kind === 'goto' && date) {
+      setEveryday(false)
+      animateOrigin(daysDiff(parseKey(date), today), 320)
+    } else if (kind === 'today') {
+      setEveryday(false)
+      animateOrigin(0, 280)
+    } else if (kind === 'everyday') {
+      setEveryday(true)
+    } else if (kind === 'expand') {
+      setEveryday(false)
+      update({ expanded: true })
+      if (date) animateOrigin(daysDiff(parseKey(date), today), 0)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusRequest])
+  }, [command])
 
   const onWheel = (e) => {
     // vertical wheel scrolls the column under the cursor; only horizontal

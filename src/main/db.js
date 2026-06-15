@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { join } from 'path'
 import { app } from 'electron'
+import { randomUUID } from 'crypto'
 
 // Local SQLite store for notes. Reads only the requested day (indexed), so it
 // scales regardless of how much history accumulates. The renderer is unaware —
@@ -27,6 +28,21 @@ export function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(day);
     CREATE INDEX IF NOT EXISTS idx_notes_time ON notes(time);
+
+    CREATE TABLE IF NOT EXISTS ai_memory (
+      id TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      created TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_tasks (
+      id TEXT PRIMARY KEY,
+      at TEXT NOT NULL,
+      text TEXT NOT NULL,
+      done INTEGER DEFAULT 0,
+      created TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_tasks_at ON ai_tasks(at);
   `)
 }
 
@@ -83,6 +99,13 @@ export function itemsWithTime() {
     .map((r) => ({ ...rowToItem(r), day: r.day }))
 }
 
+// compact dump of every note (for giving the AI context to search/answer)
+export function allNotes() {
+  return db
+    .prepare('SELECT id, day, title, text, status, time FROM notes ORDER BY day, position')
+    .all()
+}
+
 export function isEmpty() {
   return db.prepare('SELECT COUNT(*) AS c FROM notes').get().c === 0
 }
@@ -90,4 +113,44 @@ export function isEmpty() {
 // one-time import from the legacy notes.json map { day: [items] }
 export function importMap(map) {
   for (const day of Object.keys(map || {})) saveItems(day, map[day] || [])
+}
+
+// ---- AI memory: small persistent facts/preferences the AI keeps -----------
+export function allMemory() {
+  return db.prepare('SELECT id, text, created FROM ai_memory ORDER BY created').all()
+}
+export function addMemory(text) {
+  const row = { id: randomUUID(), text: String(text || '').trim(), created: new Date().toISOString() }
+  if (!row.text) return null
+  db.prepare('INSERT INTO ai_memory (id, text, created) VALUES (@id, @text, @created)').run(row)
+  return row
+}
+export function deleteMemory(id) {
+  db.prepare('DELETE FROM ai_memory WHERE id = ?').run(id)
+}
+
+// ---- AI tasks: scheduled jobs that trigger the AI at a time ---------------
+export function allAiTasks() {
+  return db.prepare('SELECT id, at, text, done, created FROM ai_tasks ORDER BY at').all()
+}
+export function pendingAiTasks() {
+  return db.prepare('SELECT id, at, text, done, created FROM ai_tasks WHERE done = 0 ORDER BY at').all()
+}
+export function addAiTask({ at, text }) {
+  const row = {
+    id: randomUUID(),
+    at: String(at || '').trim(),
+    text: String(text || '').trim(),
+    done: 0,
+    created: new Date().toISOString()
+  }
+  if (!row.at || !row.text) return null
+  db.prepare('INSERT INTO ai_tasks (id, at, text, done, created) VALUES (@id, @at, @text, @done, @created)').run(row)
+  return row
+}
+export function deleteAiTask(id) {
+  db.prepare('DELETE FROM ai_tasks WHERE id = ?').run(id)
+}
+export function markAiTaskDone(id) {
+  db.prepare('UPDATE ai_tasks SET done = 1 WHERE id = ?').run(id)
 }

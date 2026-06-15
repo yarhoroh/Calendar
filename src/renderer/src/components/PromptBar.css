@@ -1,17 +1,58 @@
 .promptbar {
   flex: 0 0 auto;
-  padding: 12px 16px 14px;
+  padding: 6px 8px 8px;
   border-top: 1px solid var(--border);
+}
+
+.promptbar__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 5px;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.promptbar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--muted);
+}
+
+.promptbar__dot--ready {
+  background: var(--accent);
+}
+
+.promptbar__dot--offline {
+  background: var(--weekend);
+}
+
+.promptbar__dot--warming {
+  background: var(--st-doing);
+  animation: promptbar-pulse 1s ease-in-out infinite;
+}
+
+@keyframes promptbar-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .promptbar__box {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 8px 8px 8px 14px;
+  border-radius: 10px;
+  padding: 4px 4px 4px 10px;
   transition: border-color 0.12s;
 }
 

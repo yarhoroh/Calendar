@@ -1,28 +1,68 @@
+import { useState } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import SettingsSection from '../components/settings/SettingsSection'
 import GeminiSetting from '../components/settings/GeminiSetting'
+import ClaudeSetting from '../components/settings/ClaudeSetting'
+import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
 import ReminderSoundSetting from '../components/settings/ReminderSoundSetting'
 import AutostartSetting from '../components/settings/AutostartSetting'
 import ShowChatSetting from '../components/settings/ShowChatSetting'
+import VoiceSetting from '../components/settings/VoiceSetting'
+import MemoryPanel from '../components/settings/MemoryPanel'
+import AiTasksPanel from '../components/settings/AiTasksPanel'
 
-// Settings page — grows by adding more sections / rows.
+// Settings page — two tabs: general app settings, and the assistant's own data
+// (memory + scheduled tasks) so the user can see and control what the AI keeps.
 export default function SettingsView({ showChat, onToggleChat }) {
   const { t } = useI18n()
+  const [tab, setTab] = useState('general')
+
   return (
     <div className="settings">
+      <div className="settings-tabs">
+        <button
+          className={'settings-tabs__btn' + (tab === 'general' ? ' settings-tabs__btn--active' : '')}
+          onClick={() => setTab('general')}
+        >
+          {t('settings.tabGeneral')}
+        </button>
+        <button
+          className={'settings-tabs__btn' + (tab === 'ai' ? ' settings-tabs__btn--active' : '')}
+          onClick={() => setTab('ai')}
+        >
+          {t('settings.tabAi')}
+        </button>
+      </div>
+
       <div className="settings__list">
-        <SettingsSection>
-          <LanguageSetting />
-          <ReminderDurationSetting />
-          <ReminderSoundSetting />
-          <ShowChatSetting checked={showChat} onChange={onToggleChat} />
-          <AutostartSetting />
-        </SettingsSection>
-        <SettingsSection title={t('settings.tools')}>
-          <GeminiSetting />
-        </SettingsSection>
+        {tab === 'general' ? (
+          <>
+            <SettingsSection>
+              <LanguageSetting />
+              <ReminderDurationSetting />
+              <ReminderSoundSetting />
+              <ShowChatSetting checked={showChat} onChange={onToggleChat} />
+              <VoiceSetting />
+              <AutostartSetting />
+            </SettingsSection>
+            <SettingsSection title={t('settings.tools')}>
+              <AiEngineSetting />
+              <GeminiSetting />
+              <ClaudeSetting />
+            </SettingsSection>
+          </>
+        ) : (
+          <>
+            <SettingsSection title={t('settings.memory')}>
+              <MemoryPanel />
+            </SettingsSection>
+            <SettingsSection title={t('settings.aiTasks')}>
+              <AiTasksPanel />
+            </SettingsSection>
+          </>
+        )}
       </div>
     </div>
   )

@@ -13,7 +13,10 @@ locally, no cloud.
 - **Infinite day strip** — scroll left/right forever, smooth inertia and snap-to-day.
 - **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses (todo / in progress / done / cancelled), drag to reorder.
 - **"Every day" board** — recurring notes shown on every day.
+- **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
+- **File attachments** — attach multiple files to any note via the paperclip, or **drag-and-drop from the desktop**; click a file to open it in its default app (Word/Excel/PDF/…). Files are linked by path, so edits stay in the original.
 - **Reminders** — set a time on a note; when it's due a toast pops up in a separate window (with sound), clicking it opens that day.
+- **Working days** — choose which weekdays count as working; "every day" reminders fire only on those days.
 - **SQLite storage** — fast and reliable, only the requested day is read.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 
@@ -24,6 +27,7 @@ Chat with a local AI (**Gemini CLI** or **Claude CLI**) — your data is not sen
 - **Creates notes & reminders by voice/text:** "meeting the day after tomorrow at 9am".
 - **Searches across all notes:** "what meetings do I have this week?".
 - **Sorts and deletes** notes by criteria.
+- **Works with files:** attach a file to a note, or open an attached file on request ("open the file from my report note").
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.
 
 ### 🔊 Voice (TTS) — built-in, offline

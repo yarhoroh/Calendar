@@ -51,8 +51,7 @@
 }
 
 .day-col__head--today {
-  background: linear-gradient(to bottom left, var(--today-1), var(--today-2));
-  opacity: 0.72;
+  background: var(--today-tint);
 }
 
 /* clicking a column's header or empty body marks it active */
@@ -61,16 +60,7 @@
 }
 
 .day-col--active .day-col__head--today {
-  opacity: 1;
-}
-
-.day-col__head--today .day-col__num {
-  color: #fff;
-}
-
-.day-col__head--today .day-col__wd,
-.day-col__head--today .day-col__mo {
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--today-tint-active);
 }
 
 .day-col__body {

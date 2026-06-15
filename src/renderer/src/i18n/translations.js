@@ -46,6 +46,7 @@ export const translations = {
       tools: 'Local AI tools',
       language: 'Language',
       autostart: 'Launch on startup',
+      reminderSound: 'Notification sound',
       notifyDuration: { label: 'Notification duration', always: 'Always on', s5: '5 sec', s10: '10 sec' },
       gemini: {
         desc: 'Local AI assistant that will help manage the calendar.',
@@ -97,6 +98,7 @@ export const translations = {
       tools: 'Локальні AI-інструменти',
       language: 'Мова',
       autostart: 'Запускати під час старту системи',
+      reminderSound: 'Звук сповіщення',
       notifyDuration: { label: 'Тривалість сповіщення', always: 'Завжди', s5: '5 сек', s10: '10 сек' },
       gemini: {
         desc: 'Локальний AI-помічник, який допомагатиме керувати календарем.',

@@ -3,6 +3,7 @@ import SettingsSection from '../components/settings/SettingsSection'
 import GeminiSetting from '../components/settings/GeminiSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
+import ReminderSoundSetting from '../components/settings/ReminderSoundSetting'
 import AutostartSetting from '../components/settings/AutostartSetting'
 
 // Settings page — grows by adding more sections / rows.
@@ -14,6 +15,7 @@ export default function SettingsView() {
         <SettingsSection>
           <LanguageSetting />
           <ReminderDurationSetting />
+          <ReminderSoundSetting />
           <AutostartSetting />
         </SettingsSection>
         <SettingsSection title={t('settings.tools')}>

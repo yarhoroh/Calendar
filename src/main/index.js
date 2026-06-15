@@ -8,7 +8,8 @@ import {
   clearReminder,
   scheduleAll,
   resizeToContent,
-  openInMain
+  openInMain,
+  sendTheme
 } from './notify'
 
 let mainWindow = null
@@ -227,6 +228,7 @@ ipcMain.on('settings:set-theme', (_e, theme) => {
   const s = loadSettings()
   s.theme = theme
   saveSettings(s)
+  sendTheme(theme)
 })
 
 ipcMain.handle('settings:get-calendar', () => loadSettings().calendar || {})
@@ -284,6 +286,13 @@ ipcMain.on('settings:set-autostart', (_e, flag) => {
   app.setLoginItemSettings({ openAtLogin: !!flag })
 })
 
+ipcMain.handle('settings:get-reminder-sound', () => loadSettings().reminderSound !== false)
+ipcMain.on('settings:set-reminder-sound', (_e, flag) => {
+  const s = loadSettings()
+  s.reminderSound = !!flag
+  saveSettings(s)
+})
+
 ipcMain.handle('settings:get-reminder-duration', () => loadSettings().reminderDuration ?? 0)
 ipcMain.on('settings:set-reminder-duration', (_e, v) => {
   const s = loadSettings()
@@ -310,7 +319,8 @@ if (!gotLock) {
       preload: join(__dirname, '../preload/index.js'),
       rendererUrl: process.env.ELECTRON_RENDERER_URL,
       getMain: () => mainWindow,
-      showMain: showWindow
+      showMain: showWindow,
+      getSound: () => loadSettings().reminderSound !== false
     })
     scheduleAll(loadNotes())
     app.on('activate', () => {

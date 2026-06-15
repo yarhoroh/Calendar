@@ -44,16 +44,16 @@
 }
 
 .status-mini--doing {
-  border-color: var(--today-1);
-  background: var(--today-1);
+  border-color: var(--st-doing);
+  background: var(--st-doing);
 }
 
 .status-mini--done {
-  border-color: var(--today-2);
-  background: var(--today-2);
+  border-color: var(--st-done);
+  background: var(--st-done);
 }
 
 .status-mini--cancelled {
-  border-color: var(--danger);
-  background: var(--danger);
+  border-color: var(--st-cancelled);
+  background: var(--st-cancelled);
 }

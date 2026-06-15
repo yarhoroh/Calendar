@@ -114,7 +114,7 @@
 }
 
 .status-ring--doing {
-  border-color: var(--today-1);
+  border-color: var(--st-doing);
 }
 
 .status-ring--doing::after {
@@ -122,15 +122,15 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--today-1);
+  background: var(--st-doing);
 }
 
 .status-ring--done {
-  border-color: var(--today-2);
-  background: var(--today-2);
+  border-color: var(--st-done);
+  background: var(--st-done);
 }
 
 .status-ring--cancelled {
-  border-color: var(--danger);
-  background: var(--danger);
+  border-color: var(--st-cancelled);
+  background: var(--st-cancelled);
 }

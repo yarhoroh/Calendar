@@ -37,6 +37,14 @@ export function I18nProvider({ children }) {
   return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>
 }
 
+// Fallback keeps components from crashing if the context is ever missing
+// (e.g. a transient React Fast Refresh desync during development).
+const FALLBACK = {
+  lang: DEFAULT_LANG,
+  setLang: () => {},
+  t: (key) => resolve(translations[DEFAULT_LANG], key) ?? key
+}
+
 export function useI18n() {
-  return useContext(I18nContext)
+  return useContext(I18nContext) || FALLBACK
 }

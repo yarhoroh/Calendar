@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
 
 // Standalone notification module: owns a small always-on-top window pinned to
@@ -42,6 +42,7 @@ function send(payload) {
   const w = ensureWindow()
   w.showInactive()
   w.webContents.send('reminder:fire', payload)
+  if (opts.getSound?.() !== false) shell.beep()
 }
 
 export function initNotify(options) {
@@ -103,4 +104,9 @@ export function resizeToContent(height) {
 export function openInMain(dayKey) {
   opts.showMain?.()
   opts.getMain?.()?.webContents.send('reminder:open', dayKey)
+}
+
+// keep the notification window's theme in sync with the app
+export function sendTheme(theme) {
+  if (win && !win.isDestroyed()) win.webContents.send('theme:set', theme)
 }

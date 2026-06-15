@@ -15,6 +15,7 @@ const api = {
   // theme persistence
   getTheme: () => ipcRenderer.invoke('settings:get-theme'),
   setTheme: (theme) => ipcRenderer.send('settings:set-theme', theme),
+  onThemeChange: (cb) => ipcRenderer.on('theme:set', (_e, theme) => cb(theme)),
 
   // calendar settings persistence
   getCalendar: () => ipcRenderer.invoke('settings:get-calendar'),
@@ -41,6 +42,10 @@ const api = {
   // autostart
   getAutostart: () => ipcRenderer.invoke('settings:get-autostart'),
   setAutostart: (flag) => ipcRenderer.send('settings:set-autostart', flag),
+
+  // reminder sound
+  getReminderSound: () => ipcRenderer.invoke('settings:get-reminder-sound'),
+  setReminderSound: (flag) => ipcRenderer.send('settings:set-reminder-sound', flag),
 
   // local AI tools
   gemini: {

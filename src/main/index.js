@@ -326,6 +326,7 @@ function workingDays() {
   const v = loadSettings().workingDays
   return Array.isArray(v) ? v : DEFAULT_WORKING_DAYS
 }
+ipcMain.handle('app:version', () => app.getVersion())
 ipcMain.handle('settings:get-working-days', () => workingDays())
 ipcMain.on('settings:set-working-days', (_e, days) => {
   const s = loadSettings()

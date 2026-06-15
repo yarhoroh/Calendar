@@ -9,7 +9,7 @@ import './DayItem.css'
 
 // A saved note (view only). Double-click to edit, drag to reorder. Reminder +
 // status controls sit in the top-right.
-export default function DayItem({ item, dayKey, plain, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
+export default function DayItem({ item, dayKey, plain, noStatus, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
   const { t } = useI18n()
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
@@ -162,8 +162,8 @@ export default function DayItem({ item, dayKey, plain, onEdit, onUpdate, onRemov
           )}
         </div>
 
-        {!plain && (
-        <div className="day-item__ctrl">
+        {!noStatus && (
+        <div className="day-item__ctrl day-item__ctrl--status">
           <button
             className="day-item__ctrl-btn"
             onClick={(e) => {

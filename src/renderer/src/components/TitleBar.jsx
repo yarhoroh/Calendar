@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import api from '../lib/api'
 import PinToggle from './PinToggle'
 import ViewSwitch from './ViewSwitch'
 import ThemeToggle from './ThemeToggle'
@@ -18,11 +20,17 @@ export default function TitleBar({
   onToggleMaximize,
   onClose
 }) {
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    Promise.resolve(api.getVersion?.()).then((v) => v && setVersion(v))
+  }, [])
+
   return (
     <header className="titlebar">
       <div className="titlebar__brand">
         <span className="titlebar__logo">📅</span>
         <span className="titlebar__name">Calendar</span>
+        {version && <span className="titlebar__version">v{version}</span>}
       </div>
 
       <div className="titlebar__controls">

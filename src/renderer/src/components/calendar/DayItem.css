@@ -104,6 +104,10 @@
   position: relative;
 }
 
+.day-item__ctrl--status {
+  margin-left: 4px;
+}
+
 .day-item__ctrl-btn {
   width: 22px;
   height: 22px;

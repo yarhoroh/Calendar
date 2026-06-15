@@ -40,7 +40,10 @@ function saveSettings(next) {
 }
 
 function appIcon() {
-  return nativeImage.createFromPath(join(app.getAppPath(), 'resources', 'icon.png'))
+  const path = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'resources', 'icon.png')
+  return nativeImage.createFromPath(path)
 }
 
 // ---- window position / size persistence --------------------------------

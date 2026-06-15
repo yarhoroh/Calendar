@@ -47,6 +47,10 @@ const api = {
   getReminderSound: () => ipcRenderer.invoke('settings:get-reminder-sound'),
   setReminderSound: (flag) => ipcRenderer.send('settings:set-reminder-sound', flag),
 
+  // chat field visibility
+  getShowChat: () => ipcRenderer.invoke('settings:get-show-chat'),
+  setShowChat: (flag) => ipcRenderer.send('settings:set-show-chat', flag),
+
   // local AI tools
   gemini: {
     detect: () => ipcRenderer.invoke('gemini:detect'),

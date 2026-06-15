@@ -1,4 +1,5 @@
 import '@fontsource-variable/inter'
+import './styles/fonts.css'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import ToastApp from './ToastApp'

@@ -5,9 +5,10 @@ import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
 import ReminderSoundSetting from '../components/settings/ReminderSoundSetting'
 import AutostartSetting from '../components/settings/AutostartSetting'
+import ShowChatSetting from '../components/settings/ShowChatSetting'
 
 // Settings page — grows by adding more sections / rows.
-export default function SettingsView() {
+export default function SettingsView({ showChat, onToggleChat }) {
   const { t } = useI18n()
   return (
     <div className="settings">
@@ -16,6 +17,7 @@ export default function SettingsView() {
           <LanguageSetting />
           <ReminderDurationSetting />
           <ReminderSoundSetting />
+          <ShowChatSetting checked={showChat} onChange={onToggleChat} />
           <AutostartSetting />
         </SettingsSection>
         <SettingsSection title={t('settings.tools')}>

@@ -52,8 +52,8 @@
 }
 
 .item-editor__btn.is-active {
-  background: var(--active);
-  color: var(--text);
+  background: #10b981;
+  color: #ffffff;
 }
 
 .item-editor__btn--save:hover {

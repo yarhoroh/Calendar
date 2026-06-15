@@ -16,13 +16,13 @@
   --st-doing: #f59e0b;
   --st-done: #10b981;
   --st-cancelled: #e06c75;
-  --today-tint: rgba(16, 185, 129, 0.14);
-  --today-tint-active: rgba(16, 185, 129, 0.26);
+  --today-tint: rgba(52, 211, 153, 0.16);
+  --today-tint-active: rgba(52, 211, 153, 0.32);
   --scrollbar: rgba(255, 255, 255, 0.16);
   --grid: rgba(255, 255, 255, 0.014);
   --divider: rgba(255, 255, 255, 0.04);
   --active: rgba(99, 102, 241, 0.2);
-  --font: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font: 'Poppins', 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --titlebar-h: 44px;
 }
 
@@ -64,10 +64,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background:
-    radial-gradient(1200px 600px at 100% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(99, 102, 241, 0.16), transparent 55%),
-    var(--bg);
+  background: var(--bg);
 }
 
 /* slim, rounded, theme-aware scrollbars everywhere */

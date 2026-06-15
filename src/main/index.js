@@ -1,7 +1,8 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { detectGemini, installGemini } from './tools/gemini'
+import { initDb, getItems, saveItems, itemsWithTime, isEmpty, importMap } from './db'
 import {
   initNotify,
   scheduleReminder,
@@ -246,32 +247,27 @@ ipcMain.on('settings:set-language', (_e, lang) => {
   applyTrayMenu()
 })
 
-// ---- notes store (per-date, ordered) -----------------------------------
-function notesFile() {
-  return join(app.getPath('userData'), 'notes.json')
-}
-function loadNotes() {
+// ---- notes store (local SQLite, see ./db) ------------------------------
+ipcMain.handle('items:get', (_e, key) => getItems(key))
+ipcMain.on('items:save', (_e, key, items) => saveItems(key, items))
+
+// one-time import of the old notes.json into the database
+function migrateNotesJson() {
+  const file = join(app.getPath('userData'), 'notes.json')
+  if (!existsSync(file) || !isEmpty()) return
   try {
-    if (existsSync(notesFile())) return JSON.parse(readFileSync(notesFile(), 'utf-8'))
+    importMap(JSON.parse(readFileSync(file, 'utf-8')))
+    renameSync(file, `${file}.bak`)
   } catch {
-    // ignore corrupt store
-  }
-  return {}
-}
-function saveNotes(map) {
-  try {
-    writeFileSync(notesFile(), JSON.stringify(map))
-  } catch {
-    // ignore write errors
+    // ignore migration errors
   }
 }
-ipcMain.handle('items:get', (_e, key) => loadNotes()[key] || [])
-ipcMain.on('items:save', (_e, key, items) => {
-  const map = loadNotes()
-  if (items && items.length) map[key] = items
-  else delete map[key]
-  saveNotes(map)
-})
+
+function scheduleStoredReminders() {
+  const map = {}
+  for (const it of itemsWithTime()) (map[it.day] = map[it.day] || []).push(it)
+  scheduleAll(map)
+}
 
 // ---- reminders & notifications (see ./notify) --------------------------
 ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body }) => {
@@ -290,6 +286,13 @@ ipcMain.handle('settings:get-reminder-sound', () => loadSettings().reminderSound
 ipcMain.on('settings:set-reminder-sound', (_e, flag) => {
   const s = loadSettings()
   s.reminderSound = !!flag
+  saveSettings(s)
+})
+
+ipcMain.handle('settings:get-show-chat', () => loadSettings().showChat === true)
+ipcMain.on('settings:set-show-chat', (_e, flag) => {
+  const s = loadSettings()
+  s.showChat = !!flag
   saveSettings(s)
 })
 
@@ -315,6 +318,8 @@ if (!gotLock) {
     app.setAppUserModelId('com.calendar.app')
     createWindow()
     createTray()
+    initDb()
+    migrateNotesJson()
     initNotify({
       preload: join(__dirname, '../preload/index.js'),
       rendererUrl: process.env.ELECTRON_RENDERER_URL,
@@ -322,7 +327,7 @@ if (!gotLock) {
       showMain: showWindow,
       getSound: () => loadSettings().reminderSound !== false
     })
-    scheduleAll(loadNotes())
+    scheduleStoredReminders()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

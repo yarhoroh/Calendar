@@ -14,6 +14,7 @@ import { useWindowControls } from './hooks/useWindowControls'
 export default function App() {
   const [view, setView] = useState('calendar')
   const [focusRequest, setFocusRequest] = useState(null)
+  const [showChat, setShowChat] = useState(false)
   const { theme, toggleTheme } = useTheme()
   const win = useWindowControls()
 
@@ -22,7 +23,15 @@ export default function App() {
       setView('calendar')
       setFocusRequest({ key: dayKey, n: Date.now() })
     })
+    Promise.resolve(api.getShowChat?.()).then((v) => setShowChat(!!v))
   }, [])
+
+  const toggleChat = () =>
+    setShowChat((v) => {
+      const next = !v
+      api.setShowChat?.(next)
+      return next
+    })
 
   const toggleView = () => setView((v) => (v === 'calendar' ? 'settings' : 'calendar'))
 
@@ -43,7 +52,11 @@ export default function App() {
 
       <main className="content">
         <ErrorBoundary>
-          {view === 'calendar' ? <CalendarView focusRequest={focusRequest} /> : <SettingsView />}
+          {view === 'calendar' ? (
+          <CalendarView focusRequest={focusRequest} showChat={showChat} />
+        ) : (
+          <SettingsView showChat={showChat} onToggleChat={toggleChat} />
+        )}
         </ErrorBoundary>
       </main>
 

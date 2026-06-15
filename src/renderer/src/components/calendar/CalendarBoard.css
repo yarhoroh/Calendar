@@ -9,8 +9,8 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 2px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -19,36 +19,37 @@
   place-items: center;
   height: 30px;
   min-width: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  padding: 0 11px;
+  border: none;
   border-radius: 8px;
-  background: var(--panel);
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
 
 .cal-btn:hover {
   background: var(--hover);
+  color: var(--text);
 }
 
 .calendar-board__month {
   position: relative;
-  margin-left: 4px;
+  margin-left: 6px;
 }
 
 .calendar-board__label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
   text-transform: capitalize;
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 5px 10px;
   border-radius: 8px;
   font-family: inherit;
   transition: background 0.12s;

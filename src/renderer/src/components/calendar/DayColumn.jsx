@@ -29,9 +29,11 @@ function DayColumn({
       onClick={() => onActivate(date)}
     >
       <div className={headClass} onDoubleClick={() => onToggleExpand(date)}>
-        <span className="day-col__wd">{weekday(date)}</span>
         <span className="day-col__num">{dayNum(date)}</span>
-        <span className="day-col__mo">{monthShort(date)}</span>
+        <span className="day-col__meta">
+          <span className="day-col__wd">{weekday(date)}</span>
+          <span className="day-col__mo">{monthShort(date)}</span>
+        </span>
       </div>
       <div className="day-col__body">
         <DayItems dayKey={dateKey(date)} />

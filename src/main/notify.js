@@ -50,8 +50,7 @@ export function initNotify(options) {
   ensureWindow()
 }
 
-export function scheduleReminder(payload, whenMs) {
-  clearReminder(payload.id)
+function scheduleOnce(payload, whenMs) {
   const delay = whenMs - Date.now()
   if (!Number.isFinite(delay) || delay <= 0 || delay > 2147483647) return
   timers.set(
@@ -61,6 +60,39 @@ export function scheduleReminder(payload, whenMs) {
       send(payload)
     }, delay)
   )
+}
+
+function nextDaily(hh, mm) {
+  const d = new Date()
+  d.setHours(hh, mm, 0, 0)
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1)
+  return d.getTime()
+}
+
+// fires every day at hh:mm (used for the "every day" virtual day)
+function scheduleDaily(payload, hh, mm) {
+  const tick = () => {
+    send(payload)
+    timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
+  }
+  timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
+}
+
+// The reminder is just a time (HH:mm). For a dated note it fires on that note's
+// own day; for the "everyday" board it recurs daily. (Old full datetimes are
+// tolerated by taking the time part.)
+export function setReminder(payload, when) {
+  clearReminder(payload.id)
+  if (!when) return
+  const hhmm = String(when).includes('T') ? String(when).split('T')[1] : String(when)
+  const [hh, mm] = hhmm.split(':').map(Number)
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return
+  if (payload.dayKey === 'everyday') {
+    scheduleDaily(payload, hh, mm)
+  } else {
+    const pad = (n) => String(n).padStart(2, '0')
+    scheduleOnce(payload, new Date(`${payload.dayKey}T${pad(hh)}:${pad(mm)}`).getTime())
+  }
 }
 
 export function clearReminder(id) {
@@ -75,10 +107,7 @@ export function scheduleAll(map) {
   for (const key of Object.keys(map)) {
     for (const it of map[key]) {
       if (it.time) {
-        scheduleReminder(
-          { id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text) },
-          new Date(it.time).getTime()
-        )
+        setReminder({ id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text) }, it.time)
       }
     }
   }

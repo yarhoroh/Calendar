@@ -66,6 +66,13 @@ export function parseKey(key) {
   return new Date(y, m - 1, d)
 }
 
+// numeric date, e.g. "01.06.2026"
+export function dateNumeric(d) {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${dd}.${mm}.${d.getFullYear()}`
+}
+
 export const weekday = (d) => wkShort.format(d)
 export const monthShort = (d) => moShort.format(d)
 export const dayNum = (d) => d.getDate()

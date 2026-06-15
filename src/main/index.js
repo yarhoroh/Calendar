@@ -5,7 +5,7 @@ import { detectGemini, installGemini } from './tools/gemini'
 import { initDb, getItems, saveItems, itemsWithTime, isEmpty, importMap } from './db'
 import {
   initNotify,
-  scheduleReminder,
+  setReminder,
   clearReminder,
   scheduleAll,
   resizeToContent,
@@ -274,7 +274,7 @@ function scheduleStoredReminders() {
 
 // ---- reminders & notifications (see ./notify) --------------------------
 ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body }) => {
-  scheduleReminder({ id, dayKey, title: title || 'Calendar', body: body || '' }, new Date(when).getTime())
+  setReminder({ id, dayKey, title: title || 'Calendar', body: body || '' }, when)
 })
 ipcMain.on('reminder:clear', (_e, id) => clearReminder(id))
 ipcMain.on('notify:resize', (_e, height) => resizeToContent(height))

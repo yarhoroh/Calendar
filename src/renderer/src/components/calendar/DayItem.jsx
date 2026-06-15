@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
@@ -12,13 +12,11 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
   const { t } = useI18n()
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
+  const remBtnRef = useRef(null)
 
   const struck = item.status === 'done' || item.status === 'cancelled'
-  const remClass = item.time
-    ? new Date(item.time).getTime() > Date.now()
-      ? ' day-item__ctrl-btn--on'
-      : ' day-item__ctrl-btn--fired'
-    : ''
+  const fired = dayKey !== 'everyday' && item.time ? new Date(item.time).getTime() <= Date.now() : false
+  const remClass = item.time ? (fired ? ' day-item__ctrl-btn--fired' : ' day-item__ctrl-btn--on') : ''
 
   const setTime = (when) => {
     onUpdate(item.id, { time: when })
@@ -78,8 +76,14 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
       </div>
 
       <div className="day-item__controls">
-        <div className="day-item__ctrl">
+        <div className="day-item__ctrl day-item__ctrl--rem">
+          {item.time && (
+            <span className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}>
+              {item.time.split('T')[1] || item.time}
+            </span>
+          )}
           <button
+            ref={remBtnRef}
             className={'day-item__ctrl-btn' + remClass}
             title={t('items.reminder')}
             onClick={(e) => {
@@ -91,7 +95,9 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
           </button>
           {reminderOpen && (
             <ReminderPopover
+              anchorRef={remBtnRef}
               value={item.time}
+              timeOnly={dayKey === 'everyday'}
               onChange={setTime}
               onClear={clearTime}
               onClose={() => setReminderOpen(false)}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import DayColumn from './DayColumn'
+import DayItems from './DayItems'
 import MonthPicker from './MonthPicker'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
-import { sameDay, startOfToday, addDays, isWeekend, monthLabel, daysDiff, parseKey } from '../../lib/dates'
+import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
 import { useI18n } from '../../i18n/I18nContext'
 import './CalendarBoard.css'
@@ -29,6 +30,7 @@ export default function CalendarBoard({ focusRequest }) {
   const [activeTs, setActiveTs] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
+  const [everyday, setEveryday] = useState(false)
 
   const expanded = settings.expanded
   const colW = expanded ? containerWidth || colWidth : colWidth
@@ -95,10 +97,14 @@ export default function CalendarBoard({ focusRequest }) {
   }
 
   const nav = (dir) => animateOrigin(Math.round(originRef.current) + dir, 240)
-  const goToday = () => animateOrigin(0, 280)
+  const goToday = () => {
+    setEveryday(false)
+    animateOrigin(0, 280)
+  }
 
   const jumpToDate = (date) => {
     setPickerOpen(false)
+    setEveryday(false)
     animateOrigin(daysDiff(date, today), 300)
   }
 
@@ -200,14 +206,30 @@ export default function CalendarBoard({ focusRequest }) {
   return (
     <div className="calendar-board">
       <div className="calendar-board__toolbar">
-        <button className="cal-btn" title={t('calendar.prev')} onClick={() => nav(-1)}>
+        <button
+          className="cal-btn"
+          title={t('calendar.prev')}
+          disabled={everyday}
+          onClick={() => nav(-1)}
+        >
           <ChevronLeftIcon />
         </button>
-        <button className="cal-btn" title={t('calendar.next')} onClick={() => nav(1)}>
+        <button
+          className="cal-btn"
+          title={t('calendar.next')}
+          disabled={everyday}
+          onClick={() => nav(1)}
+        >
           <ChevronRightIcon />
         </button>
         <button className="cal-btn" onClick={goToday}>
           {t('calendar.today')}
+        </button>
+        <button
+          className={'cal-btn' + (everyday ? ' cal-btn--active' : '')}
+          onClick={() => setEveryday((e) => !e)}
+        >
+          {t('calendar.everyday')}
         </button>
         <div className="calendar-board__month">
           <button
@@ -215,7 +237,7 @@ export default function CalendarBoard({ focusRequest }) {
             onClick={() => setPickerOpen((o) => !o)}
             title={t('calendar.pickDate')}
           >
-            {monthLabel(leftDate)}
+            {dateNumeric(leftDate)}
           </button>
           {pickerOpen && (
             <MonthPicker
@@ -228,31 +250,37 @@ export default function CalendarBoard({ focusRequest }) {
         </div>
       </div>
 
-      <div
-        ref={viewportRef}
-        className={'calendar-board__viewport' + (grabbing ? ' calendar-board__viewport--grabbing' : '')}
-        onWheel={onWheel}
-        onMouseDown={onMouseDown}
-      >
-        {columns.map((k) => {
-          const date = addDays(today, k)
-          return (
-            <DayColumn
-              key={k}
-              date={date}
-              lang={lang}
-              style={{ left: `${(k - origin) * colW}px`, width: `${colW}px` }}
-              isToday={sameDay(date, today)}
-              isWeekend={isWeekend(date)}
-              isActive={activeTs === date.getTime()}
-              resizable={!expanded}
-              onActivate={handleActivate}
-              onToggleExpand={handleToggleExpand}
-              onResizeStart={handleResizeStart}
-            />
-          )
-        })}
-      </div>
+      {everyday ? (
+        <div className="calendar-board__everyday">
+          <DayItems dayKey="everyday" />
+        </div>
+      ) : (
+        <div
+          ref={viewportRef}
+          className={'calendar-board__viewport' + (grabbing ? ' calendar-board__viewport--grabbing' : '')}
+          onWheel={onWheel}
+          onMouseDown={onMouseDown}
+        >
+          {columns.map((k) => {
+            const date = addDays(today, k)
+            return (
+              <DayColumn
+                key={k}
+                date={date}
+                lang={lang}
+                style={{ left: `${(k - origin) * colW}px`, width: `${colW}px` }}
+                isToday={sameDay(date, today)}
+                isWeekend={isWeekend(date)}
+                isActive={activeTs === date.getTime()}
+                resizable={!expanded}
+                onActivate={handleActivate}
+                onToggleExpand={handleToggleExpand}
+                onResizeStart={handleResizeStart}
+              />
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

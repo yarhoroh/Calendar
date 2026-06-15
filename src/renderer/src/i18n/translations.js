@@ -34,7 +34,7 @@ export const translations = {
       send: 'Send',
       stop: 'Stop'
     },
-    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date' },
+    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day' },
     items: {
       placeholder: 'Write a note…',
       titlePlaceholder: 'Title',
@@ -87,7 +87,7 @@ export const translations = {
       send: 'Надіслати',
       stop: 'Зупинити'
     },
-    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату' },
+    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня' },
     items: {
       placeholder: 'Напишіть нотатку…',
       titlePlaceholder: 'Заголовок',

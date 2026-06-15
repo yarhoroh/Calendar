@@ -1,4 +1,5 @@
 import { memo, useRef, useState } from 'react'
+import api from '../../lib/api'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { loadFormat } from '../../lib/itemFormat'
 import DayItem from './DayItem'
@@ -27,8 +28,20 @@ function DayItems({ dayKey }) {
             initialBold={!!it.bold}
             initialItalic={!!it.italic}
             initialSize={it.size || 1}
+            initialTime={it.time || null}
+            timeOnly={dayKey === 'everyday'}
             onSave={(f) => {
-              update(it.id, { title: f.title || null, text: f.text, bold: f.bold, italic: f.italic, size: f.size })
+              update(it.id, {
+                title: f.title || null,
+                text: f.text,
+                bold: f.bold,
+                italic: f.italic,
+                size: f.size,
+                time: f.time || null
+              })
+              if (f.time)
+                api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text })
+              else api.clearReminder?.(it.id)
               stop()
             }}
             onCancel={stop}
@@ -64,14 +77,25 @@ function DayItems({ dayKey }) {
               initialBold={fmt.bold}
               initialItalic={fmt.italic}
               initialSize={fmt.size}
+              timeOnly={dayKey === 'everyday'}
               onSave={(f) => {
-                add({
+                const item = {
                   ...newItem(f.text),
                   title: f.title || null,
                   bold: f.bold,
                   italic: f.italic,
-                  size: f.size
-                })
+                  size: f.size,
+                  time: f.time || null
+                }
+                add(item)
+                if (item.time)
+                  api.setReminder?.({
+                    id: item.id,
+                    when: item.time,
+                    dayKey,
+                    title: item.title || 'Calendar',
+                    body: item.text
+                  })
                 stop()
               }}
               onCancel={stop}

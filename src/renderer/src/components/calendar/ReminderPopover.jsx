@@ -1,11 +1,27 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../../i18n/I18nContext'
+import TimePicker from './TimePicker'
 import './ReminderPopover.css'
 
-// Pick a date+time for a reminder. Closes on outside click.
-export default function ReminderPopover({ value, onChange, onClear, onClose }) {
+// Portal popover with a custom 24h time picker. The reminder is just a time —
+// the date is the note's own day (or recurring for the "every day" board).
+export default function ReminderPopover({ anchorRef, value, onChange, onClear, onClose }) {
   const { t } = useI18n()
   const ref = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  useLayoutEffect(() => {
+    const a = anchorRef?.current?.getBoundingClientRect()
+    const width = 170
+    if (a) {
+      let left = a.left
+      if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8
+      setPos({ top: a.bottom + 4, left: Math.max(8, left) })
+    } else {
+      setPos({ top: 60, left: 60 })
+    }
+  }, [anchorRef])
 
   useEffect(() => {
     const onDown = (e) => {
@@ -15,19 +31,21 @@ export default function ReminderPopover({ value, onChange, onClear, onClose }) {
     return () => document.removeEventListener('mousedown', onDown)
   }, [onClose])
 
-  return (
-    <div className="reminder-pop" ref={ref}>
-      <input
-        className="reminder-pop__input"
-        type="datetime-local"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-      />
+  if (!pos) return null
+
+  return createPortal(
+    <div className="reminder-pop" ref={ref} style={{ top: pos.top, left: pos.left }}>
+      <TimePicker value={value} onChange={onChange} />
       {value && (
-        <button className="reminder-pop__clear" onClick={onClear}>
+        <button
+          className="reminder-pop__clear"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onClear}
+        >
           {t('items.clearReminder')}
         </button>
       )}
-    </div>
+    </div>,
+    document.body
   )
 }

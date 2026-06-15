@@ -31,9 +31,30 @@
   transition: background 0.12s, color 0.12s;
 }
 
-.cal-btn:hover {
+.cal-btn:not(:disabled):hover {
   background: var(--hover);
   color: var(--text);
+}
+
+.cal-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.cal-btn--active {
+  background: var(--active);
+  color: var(--text);
+}
+
+.calendar-board__everyday {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 .calendar-board__month {
@@ -43,8 +64,8 @@
 
 .calendar-board__label {
   font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--muted);
   text-transform: capitalize;
   background: transparent;
   border: none;

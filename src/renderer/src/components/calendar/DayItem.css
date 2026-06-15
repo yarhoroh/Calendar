@@ -7,8 +7,34 @@
   border-bottom: 1px solid var(--divider);
 }
 
-.day-item:hover {
-  background: rgba(16, 185, 129, 0.06);
+.day-item:hover .day-item__title,
+.day-item:hover .day-item__text {
+  color: var(--accent);
+}
+
+.day-item__ctrl--rem {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.day-item__time {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.day-item__time--on {
+  color: var(--st-done);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.day-item__time--fired {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.14);
 }
 
 .day-item__content {

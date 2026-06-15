@@ -2,21 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n/I18nContext'
 import { useAutosizeTextarea } from '../../hooks/useAutosizeTextarea'
 import { saveFormat } from '../../lib/itemFormat'
-import { CheckIcon, CloseIcon } from '../icons'
+import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
+import ReminderPopover from './ReminderPopover'
 import './ItemEditor.css'
 
 const SIZES = [1, 2, 3]
 
-// Inline note editor. Title + plain multi-line body. The toolbar holds sticky
-// toggles (bold / italic / size) that apply to the whole note and remember the
-// last chosen values for the next note. Enter = new line, Ctrl+Enter = save,
-// blur = auto-save.
+// Inline note editor. Title + plain multi-line body. Sticky toggles (bold /
+// italic / size) plus a reminder (calendar) button to set the time right here.
+// Enter = new line, Ctrl+Enter = save, blur = auto-save.
 export default function ItemEditor({
   initialTitle = '',
   initialText = '',
   initialBold = false,
   initialItalic = false,
   initialSize = 1,
+  initialTime = null,
+  timeOnly = false,
   onSave,
   onCancel,
   onDelete
@@ -27,7 +29,10 @@ export default function ItemEditor({
   const [bold, setBold] = useState(initialBold)
   const [italic, setItalic] = useState(initialItalic)
   const [size, setSize] = useState(initialSize)
+  const [time, setTime] = useState(initialTime)
+  const [remOpen, setRemOpen] = useState(false)
   const ref = useAutosizeTextarea(text, 10)
+  const remBtnRef = useRef(null)
 
   useEffect(() => {
     const el = ref.current
@@ -38,18 +43,16 @@ export default function ItemEditor({
   }, [])
 
   const remember = (f) => saveFormat({ bold, italic, size, ...f })
-  const toggleBold = () => {
+  const toggleBold = () =>
     setBold((v) => {
       remember({ bold: !v })
       return !v
     })
-  }
-  const toggleItalic = () => {
+  const toggleItalic = () =>
     setItalic((v) => {
       remember({ italic: !v })
       return !v
     })
-  }
   const pickSize = (s) => {
     setSize(s)
     remember({ size: s })
@@ -58,7 +61,7 @@ export default function ItemEditor({
   const commit = () => {
     const tt = title.trim()
     if (!tt && !text.trim()) onDelete()
-    else onSave({ title: tt, text, bold, italic, size })
+    else onSave({ title: tt, text, bold, italic, size, time })
   }
 
   const onBlur = (e) => {
@@ -115,7 +118,34 @@ export default function ItemEditor({
             {s}×
           </button>
         ))}
+
         <span className="item-editor__spacer" />
+
+        <div className="item-editor__rem">
+          {time && <span className="day-item__time day-item__time--on">{time.split('T')[1] || time}</span>}
+          <button
+            ref={remBtnRef}
+            className={'item-editor__btn' + (time ? ' is-active' : '')}
+            title={t('items.reminder')}
+            onMouseDown={noBlur(() => setRemOpen((o) => !o))}
+          >
+            <CalendarIcon />
+          </button>
+          {remOpen && (
+            <ReminderPopover
+              anchorRef={remBtnRef}
+              value={time}
+              timeOnly={timeOnly}
+              onChange={setTime}
+              onClear={() => {
+                setTime(null)
+                setRemOpen(false)
+              }}
+              onClose={() => setRemOpen(false)}
+            />
+          )}
+        </div>
+
         <button className="item-editor__btn item-editor__btn--save" onMouseDown={noBlur(commit)}>
           <CheckIcon />
         </button>

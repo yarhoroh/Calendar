@@ -31,6 +31,13 @@
   flex: 1;
 }
 
+.item-editor__rem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .item-editor__btn {
   min-width: 26px;
   height: 26px;

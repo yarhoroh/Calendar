@@ -41,35 +41,27 @@ function roundRect(x0, y0, x1, y1, rad, color) {
   }
 }
 
-const indigo = [99, 102, 241]
-const indigoDark = [79, 70, 229]
+const indigo = [16, 185, 129]
+const indigoDark = [5, 150, 105]
 const paper = [248, 250, 252]
 const ring = [199, 205, 222]
 const orange = [245, 158, 11]
 
-// body of the calendar
-roundRect(40, 56, 216, 216, 30, indigo)
-// header strip
-roundRect(40, 56, 216, 104, 30, indigoDark)
-roundRect(40, 92, 216, 104, 0, indigoDark)
-// paper area
-roundRect(52, 108, 204, 204, 16, paper)
+// calendar body
+roundRect(40, 52, 216, 216, 32, indigo)
+// header band
+roundRect(40, 52, 216, 98, 32, indigoDark)
+roundRect(40, 80, 216, 98, 0, indigoDark)
 // binder rings
-roundRect(90, 40, 106, 74, 7, ring)
-roundRect(150, 40, 166, 74, 7, ring)
-
-// mini day grid (4 x 3), one highlighted
-const gx = 66
-const gy = 122
-const cell = 26
-const gap = 10
-for (let r = 0; r < 3; r++) {
-  for (let c = 0; c < 4; c++) {
-    const x = gx + c * (cell + gap)
-    const y = gy + r * (cell + gap)
-    const isToday = r === 1 && c === 2
-    roundRect(x, y, x + cell, y + cell, 6, isToday ? orange : indigo)
-  }
+roundRect(92, 36, 108, 68, 7, paper)
+roundRect(148, 36, 164, 68, 7, paper)
+// white page
+roundRect(56, 110, 200, 202, 14, paper)
+// checklist: green dot + grey line per row
+const line = [205, 213, 225]
+for (const y of [124, 150, 176]) {
+  roundRect(72, y, 88, y + 16, 8, indigo)
+  roundRect(98, y + 4, 184, y + 12, 4, line)
 }
 
 // ---- encode PNG ----

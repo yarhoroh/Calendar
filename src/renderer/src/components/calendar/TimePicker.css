@@ -1,0 +1,45 @@
+.timepicker {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 168px;
+}
+
+.timepicker__col {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timepicker__sep {
+  align-self: center;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.timepicker__cell {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.timepicker__cell:hover {
+  background: var(--hover);
+}
+
+.timepicker__cell.is-sel {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+}

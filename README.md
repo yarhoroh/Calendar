@@ -7,6 +7,18 @@ locally, no cloud.
 
 ---
 
+## 📸 Screenshots
+
+| Calendar, notes & file attachments | Reminders with a custom time picker |
+| --- | --- |
+| ![Calendar with notes and attachments](pic/calendar.png) | ![Reminder time picker](pic/reminders.png) |
+
+| Settings — working days, voice, local AI | Built-in AI assistant |
+| --- | --- |
+| ![Settings](pic/settings.png) | ![AI assistant](pic/assistant.png) |
+
+---
+
 ## ✨ Features
 
 ### Calendar & notes

@@ -1,0 +1,71 @@
+.calendar-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.calendar-board__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cal-btn {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.cal-btn:hover {
+  background: var(--hover);
+}
+
+.calendar-board__month {
+  position: relative;
+  margin-left: 4px;
+}
+
+.calendar-board__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: capitalize;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+
+.calendar-board__label:hover {
+  background: var(--hover);
+}
+
+/* no scroll container — columns are absolutely positioned and virtualized */
+.calendar-board__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-board__viewport--grabbing {
+  cursor: grabbing;
+}

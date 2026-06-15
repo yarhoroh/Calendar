@@ -1,0 +1,156 @@
+.settings {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px;
+}
+
+.settings__list {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.settings-section__title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.settings-section__body {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border);
+}
+
+.setting-row__info {
+  min-width: 0;
+}
+
+.setting-row__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.setting-row__desc {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 440px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setting-row__control {
+  flex: 0 0 auto;
+}
+
+.tool-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tool-status__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.lang-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--hover);
+  border-radius: 10px;
+}
+
+.lang-switch__btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.lang-switch__btn:hover {
+  color: var(--text);
+}
+
+.lang-switch__btn--active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.switch input {
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.switch span {
+  position: absolute;
+  inset: 0;
+  background: var(--hover);
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+
+.switch span::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switch input:checked + span {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+.switch input:checked + span::before {
+  transform: translateX(18px);
+}

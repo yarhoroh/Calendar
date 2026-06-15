@@ -1,0 +1,104 @@
+.day-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1px 0.5px 0;
+  gap: 1px;
+  contain: layout paint;
+}
+
+.day-col__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 3px;
+  background: var(--hover);
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+}
+
+.day-col__wd {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+
+.day-col__num {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.day-col__mo {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.day-col__head--weekend .day-col__num,
+.day-col__head--weekend .day-col__wd,
+.day-col__head--weekend .day-col__mo {
+  color: var(--weekend);
+}
+
+.day-col__head--today {
+  background: linear-gradient(to bottom left, var(--today-1), var(--today-2));
+  opacity: 0.72;
+}
+
+/* clicking a column's header or empty body marks it active */
+.day-col--active .day-col__head:not(.day-col__head--today) {
+  background: var(--active);
+}
+
+.day-col--active .day-col__head--today {
+  opacity: 1;
+}
+
+.day-col__head--today .day-col__num {
+  color: #fff;
+}
+
+.day-col__head--today .day-col__wd,
+.day-col__head--today .day-col__mo {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.day-col__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+}
+
+.day-col__resize {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.day-col__resize:hover {
+  background: var(--accent);
+  opacity: 0.5;
+  border-radius: 3px;
+}

@@ -1,0 +1,99 @@
+/* Design tokens + global reset + app shell layout. */
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --border: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.08);
+  --text: #e6e8ef;
+  --muted: #9aa0ad;
+  --accent: #6366f1;
+  --accent-2: #8b5cf6;
+  --danger: #ef4444;
+  --weekend: #e06c75;
+  --today-1: #10b981;
+  --today-2: #047857;
+  --scrollbar: rgba(255, 255, 255, 0.16);
+  --grid: rgba(255, 255, 255, 0.014);
+  --divider: rgba(255, 255, 255, 0.04);
+  --active: rgba(99, 102, 241, 0.2);
+  --font: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --titlebar-h: 44px;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4f5fb;
+  --panel: #ffffff;
+  --border: rgba(15, 18, 30, 0.1);
+  --hover: rgba(15, 18, 30, 0.06);
+  --text: #1c2030;
+  --muted: #626a7d;
+  --scrollbar: rgba(15, 18, 30, 0.2);
+  --grid: rgba(15, 18, 30, 0.02);
+  --divider: rgba(15, 18, 30, 0.05);
+  --active: rgba(99, 102, 241, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background:
+    radial-gradient(1200px 600px at 100% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(99, 102, 241, 0.16), transparent 55%),
+    var(--bg);
+}
+
+/* slim, rounded, theme-aware scrollbars everywhere */
+*::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* the active view fills the whole content area and owns its own layout */
+.content > * {
+  flex: 1;
+  min-width: 0;
+}

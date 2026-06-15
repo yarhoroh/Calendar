@@ -1,0 +1,136 @@
+.day-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 6px 7px 8px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.day-item:hover {
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.day-item__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.day-item__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.day-item__text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.day-item__text--collapsed {
+  max-height: 50px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+/* size levels */
+.day-item__content--s2 .day-item__title {
+  font-size: 16px;
+}
+.day-item__content--s2 .day-item__text {
+  font-size: 18px;
+}
+.day-item__content--s3 .day-item__title {
+  font-size: 20px;
+}
+.day-item__content--s3 .day-item__text {
+  font-size: 24px;
+}
+
+.day-item--struck .day-item__text,
+.day-item--struck .day-item__title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/* ---- top-right controls (equal sizes) ---- */
+.day-item__controls {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: flex;
+  gap: 2px;
+}
+
+.day-item__ctrl {
+  position: relative;
+}
+
+.day-item__ctrl-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.day-item__ctrl-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.day-item__ctrl-btn--on {
+  color: var(--today-2);
+}
+
+.day-item__ctrl-btn--fired {
+  color: #f59e0b;
+}
+
+.status-ring {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.status-ring svg {
+  width: 10px;
+  height: 10px;
+}
+
+.status-ring--doing {
+  border-color: var(--today-1);
+}
+
+.status-ring--doing::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--today-1);
+}
+
+.status-ring--done {
+  border-color: var(--today-2);
+  background: var(--today-2);
+}
+
+.status-ring--cancelled {
+  border-color: var(--danger);
+  background: var(--danger);
+}

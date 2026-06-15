@@ -1,0 +1,129 @@
+import { useState } from 'react'
+import api from '../../lib/api'
+import { useI18n } from '../../i18n/I18nContext'
+import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
+import StatusMenu from './StatusMenu'
+import ReminderPopover from './ReminderPopover'
+import './DayItem.css'
+
+// A saved note (view only). Double-click to edit, drag to reorder. Reminder +
+// status controls sit in the top-right.
+export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
+  const { t } = useI18n()
+  const [statusMenu, setStatusMenu] = useState(false)
+  const [reminderOpen, setReminderOpen] = useState(false)
+
+  const struck = item.status === 'done' || item.status === 'cancelled'
+  const remClass = item.time
+    ? new Date(item.time).getTime() > Date.now()
+      ? ' day-item__ctrl-btn--on'
+      : ' day-item__ctrl-btn--fired'
+    : ''
+
+  const setTime = (when) => {
+    onUpdate(item.id, { time: when })
+    api.setReminder?.({
+      id: item.id,
+      when,
+      dayKey,
+      title: item.title || 'Calendar',
+      body: item.text || ''
+    })
+  }
+  const clearTime = () => {
+    onUpdate(item.id, { time: null })
+    api.clearReminder?.(item.id)
+    setReminderOpen(false)
+  }
+
+  return (
+    <div
+      className={'day-item' + (struck ? ' day-item--struck' : '')}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart(item.id)
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault()
+        onDrop(item.id)
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onEdit()
+      }}
+    >
+      <div className={'day-item__content' + (item.size > 1 ? ` day-item__content--s${item.size}` : '')}>
+        {item.title && (
+          <div
+            className="day-item__title"
+            onClick={(e) => {
+              e.stopPropagation()
+              onUpdate(item.id, { collapsed: !item.collapsed })
+            }}
+          >
+            {item.title}
+          </div>
+        )}
+        <div
+          className={'day-item__text' + (item.collapsed ? ' day-item__text--collapsed' : '')}
+          style={{
+            fontWeight: item.bold ? 700 : undefined,
+            fontStyle: item.italic ? 'italic' : undefined
+          }}
+        >
+          {item.text}
+        </div>
+      </div>
+
+      <div className="day-item__controls">
+        <div className="day-item__ctrl">
+          <button
+            className={'day-item__ctrl-btn' + remClass}
+            title={t('items.reminder')}
+            onClick={(e) => {
+              e.stopPropagation()
+              setReminderOpen((v) => !v)
+            }}
+          >
+            <CalendarIcon />
+          </button>
+          {reminderOpen && (
+            <ReminderPopover
+              value={item.time}
+              onChange={setTime}
+              onClear={clearTime}
+              onClose={() => setReminderOpen(false)}
+            />
+          )}
+        </div>
+
+        <div className="day-item__ctrl">
+          <button
+            className="day-item__ctrl-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              setStatusMenu((v) => !v)
+            }}
+          >
+            <span className={`status-ring status-ring--${item.status}`}>
+              {item.status === 'done' && <CheckIcon />}
+              {item.status === 'cancelled' && <CloseIcon />}
+            </span>
+          </button>
+          {statusMenu && (
+            <StatusMenu
+              current={item.status}
+              onPick={(s) => {
+                onUpdate(item.id, { status: s })
+                setStatusMenu(false)
+              }}
+              onClose={() => setStatusMenu(false)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

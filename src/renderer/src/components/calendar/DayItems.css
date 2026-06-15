@@ -1,0 +1,14 @@
+.day-items {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 4px;
+  gap: 1px;
+}
+
+/* clickable empty area — fills the rest of the column, click to add a note */
+.day-items__add {
+  flex: 1;
+  min-height: 40px;
+  cursor: text;
+}

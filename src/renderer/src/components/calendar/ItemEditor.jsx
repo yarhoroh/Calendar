@@ -19,6 +19,7 @@ export default function ItemEditor({
   initialSize = 1,
   initialTime = null,
   timeOnly = false,
+  plain = false,
   onSave,
   onCancel,
   onDelete
@@ -121,30 +122,32 @@ export default function ItemEditor({
 
         <span className="item-editor__spacer" />
 
-        <div className="item-editor__rem">
-          {time && <span className="day-item__time day-item__time--on">{time.split('T')[1] || time}</span>}
-          <button
-            ref={remBtnRef}
-            className={'item-editor__btn' + (time ? ' is-active' : '')}
-            title={t('items.reminder')}
-            onMouseDown={noBlur(() => setRemOpen((o) => !o))}
-          >
-            <CalendarIcon />
-          </button>
-          {remOpen && (
-            <ReminderPopover
-              anchorRef={remBtnRef}
-              value={time}
-              timeOnly={timeOnly}
-              onChange={setTime}
-              onClear={() => {
-                setTime(null)
-                setRemOpen(false)
-              }}
-              onClose={() => setRemOpen(false)}
-            />
-          )}
-        </div>
+        {!plain && (
+          <div className="item-editor__rem">
+            {time && <span className="day-item__time day-item__time--on">{time.split('T')[1] || time}</span>}
+            <button
+              ref={remBtnRef}
+              className={'item-editor__btn' + (time ? ' is-active' : '')}
+              title={t('items.reminder')}
+              onMouseDown={noBlur(() => setRemOpen((o) => !o))}
+            >
+              <CalendarIcon />
+            </button>
+            {remOpen && (
+              <ReminderPopover
+                anchorRef={remBtnRef}
+                value={time}
+                timeOnly={timeOnly}
+                onChange={setTime}
+                onClear={() => {
+                  setTime(null)
+                  setRemOpen(false)
+                }}
+                onClose={() => setRemOpen(false)}
+              />
+            )}
+          </div>
+        )}
 
         <button className="item-editor__btn item-editor__btn--save" onMouseDown={noBlur(commit)}>
           <CheckIcon />

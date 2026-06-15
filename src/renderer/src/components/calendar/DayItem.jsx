@@ -1,18 +1,37 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
-import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
+import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
 import StatusMenu from './StatusMenu'
 import ReminderPopover from './ReminderPopover'
+import AttachmentsPopover from './AttachmentsPopover'
 import './DayItem.css'
 
 // A saved note (view only). Double-click to edit, drag to reorder. Reminder +
 // status controls sit in the top-right.
-export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
+export default function DayItem({ item, dayKey, plain, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
   const { t } = useI18n()
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [attachCount, setAttachCount] = useState(0)
+  const [fileOver, setFileOver] = useState(false)
   const remBtnRef = useRef(null)
+  const clipBtnRef = useRef(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = () =>
+      Promise.resolve(api.listAttachments?.(item.id)).then((r) => alive && setAttachCount((r || []).length))
+    load()
+    const off = api.onAttachChanged?.((p) => {
+      if (!p || p.noteId === item.id) load()
+    })
+    return () => {
+      alive = false
+      off?.()
+    }
+  }, [item.id])
 
   const struck = item.status === 'done' || item.status === 'cancelled'
   const fired = dayKey !== 'everyday' && item.time ? new Date(item.time).getTime() <= Date.now() : false
@@ -36,16 +55,30 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
 
   return (
     <div
-      className={'day-item' + (struck ? ' day-item--struck' : '')}
+      className={'day-item' + (struck ? ' day-item--struck' : '') + (fileOver ? ' day-item--drop' : '')}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
         onDragStart(item.id)
       }}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
+      onDragOver={(e) => {
         e.preventDefault()
-        onDrop(item.id)
+        if (e.dataTransfer.types?.includes('Files')) setFileOver(true)
+      }}
+      onDragLeave={() => setFileOver(false)}
+      onDrop={async (e) => {
+        e.preventDefault()
+        setFileOver(false)
+        const dropped = Array.from(e.dataTransfer.files || [])
+        if (dropped.length) {
+          // files dragged from the OS → attach each by its real path
+          for (const f of dropped) {
+            const p = api.pathForFile?.(f)
+            if (p) await api.addAttachmentPath?.(item.id, p)
+          }
+          return
+        }
+        onDrop(item.id) // internal note reorder
       }}
       onDoubleClick={(e) => {
         e.stopPropagation()
@@ -76,6 +109,7 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
       </div>
 
       <div className="day-item__controls">
+        {!plain && (
         <div className="day-item__ctrl day-item__ctrl--rem">
           {item.time && (
             <span className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}>
@@ -104,7 +138,31 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
             />
           )}
         </div>
+        )}
 
+        <div className="day-item__ctrl">
+          <button
+            ref={clipBtnRef}
+            className={'day-item__ctrl-btn' + (attachCount ? ' day-item__ctrl-btn--on' : '')}
+            title={t('attach.title')}
+            onClick={(e) => {
+              e.stopPropagation()
+              setAttachOpen((v) => !v)
+            }}
+          >
+            <PaperclipIcon />
+            {attachCount > 0 && <span className="day-item__clip-count">{attachCount}</span>}
+          </button>
+          {attachOpen && (
+            <AttachmentsPopover
+              anchorRef={clipBtnRef}
+              noteId={item.id}
+              onClose={() => setAttachOpen(false)}
+            />
+          )}
+        </div>
+
+        {!plain && (
         <div className="day-item__ctrl">
           <button
             className="day-item__ctrl-btn"
@@ -129,6 +187,7 @@ export default function DayItem({ item, dayKey, onEdit, onUpdate, onRemove, onDr
             />
           )}
         </div>
+        )}
       </div>
     </div>
   )

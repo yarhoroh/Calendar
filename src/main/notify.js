@@ -69,10 +69,12 @@ function nextDaily(hh, mm) {
   return d.getTime()
 }
 
-// fires every day at hh:mm (used for the "every day" virtual day)
+// fires every day at hh:mm (used for the "every day" virtual day), but only on
+// the configured working days — non-working days are skipped (still rescheduled)
 function scheduleDaily(payload, hh, mm) {
   const tick = () => {
-    send(payload)
+    const wd = opts.getWorkingDays?.()
+    if (!wd || wd.includes(new Date().getDay())) send(payload)
     timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
   }
   timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))

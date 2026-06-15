@@ -14,6 +14,7 @@ function DayItems({ dayKey }) {
   const [editingId, setEditingId] = useState(null)
   const dragId = useRef(null)
   const downEditing = useRef(null)
+  const plain = dayKey === 'general' // general board: plain notes, no reminder/status
 
   const stop = () => setEditingId(null)
 
@@ -30,6 +31,7 @@ function DayItems({ dayKey }) {
             initialSize={it.size || 1}
             initialTime={it.time || null}
             timeOnly={dayKey === 'everyday'}
+            plain={plain}
             onSave={(f) => {
               update(it.id, {
                 title: f.title || null,
@@ -55,6 +57,7 @@ function DayItems({ dayKey }) {
             key={it.id}
             item={it}
             dayKey={dayKey}
+            plain={plain}
             onEdit={() => setEditingId(it.id)}
             onUpdate={update}
             onRemove={remove}
@@ -78,6 +81,7 @@ function DayItems({ dayKey }) {
               initialItalic={fmt.italic}
               initialSize={fmt.size}
               timeOnly={dayKey === 'everyday'}
+              plain={plain}
               onSave={(f) => {
                 const item = {
                   ...newItem(f.text),

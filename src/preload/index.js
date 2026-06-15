@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const api = {
   // custom titlebar controls
@@ -64,6 +64,19 @@ const api = {
     ipcRenderer.on('aiTask:fire', h)
     return () => ipcRenderer.removeListener('aiTask:fire', h)
   },
+
+  // attachments (files linked to notes)
+  listAttachments: (noteId) => ipcRenderer.invoke('attach:list', noteId),
+  addAttachments: (noteId) => ipcRenderer.invoke('attach:add', noteId),
+  pathForFile: (file) => webUtils.getPathForFile(file), // OS drag-and-drop → real path
+  addAttachmentPath: (noteId, path) => ipcRenderer.invoke('attach:addPath', { noteId, path }),
+  removeAttachment: (id) => ipcRenderer.invoke('attach:remove', id),
+  openAttachment: (id) => ipcRenderer.invoke('attach:open', id),
+  onAttachChanged: (cb) => {
+    const h = (_e, p) => cb(p)
+    ipcRenderer.on('attach:changed', h)
+    return () => ipcRenderer.removeListener('attach:changed', h)
+  },
   getAiStatus: () => ipcRenderer.invoke('ai:status'),
   onAiStatus: (cb) => {
     const h = (_e, s) => cb(s)
@@ -88,6 +101,8 @@ const api = {
   // reminder sound
   getReminderSound: () => ipcRenderer.invoke('settings:get-reminder-sound'),
   setReminderSound: (flag) => ipcRenderer.send('settings:set-reminder-sound', flag),
+  getWorkingDays: () => ipcRenderer.invoke('settings:get-working-days'),
+  setWorkingDays: (days) => ipcRenderer.send('settings:set-working-days', days),
 
   // chat field visibility
   getShowChat: () => ipcRenderer.invoke('settings:get-show-chat'),

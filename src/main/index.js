@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } from 'electron'
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, shell } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { detectGemini, installGemini } from './tools/gemini'
@@ -19,7 +19,12 @@ import {
   deleteMemory,
   allAiTasks,
   addAiTask,
-  deleteAiTask
+  deleteAiTask,
+  attachmentsFor,
+  allAttachments,
+  addAttachment,
+  removeAttachment,
+  attachmentById
 } from './db'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import {
@@ -315,6 +320,19 @@ ipcMain.on('settings:set-reminder-sound', (_e, flag) => {
   saveSettings(s)
 })
 
+// working days: weekday indices (0=Sun..6=Sat) on which "every day" reminders fire
+const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5]
+function workingDays() {
+  const v = loadSettings().workingDays
+  return Array.isArray(v) ? v : DEFAULT_WORKING_DAYS
+}
+ipcMain.handle('settings:get-working-days', () => workingDays())
+ipcMain.on('settings:set-working-days', (_e, days) => {
+  const s = loadSettings()
+  s.workingDays = Array.isArray(days) ? days.filter((d) => d >= 0 && d <= 6) : DEFAULT_WORKING_DAYS
+  saveSettings(s)
+})
+
 ipcMain.handle('settings:get-show-chat', () => loadSettings().showChat === true)
 ipcMain.on('settings:set-show-chat', (_e, flag) => {
   const s = loadSettings()
@@ -361,8 +379,12 @@ function warmAi(cli) {
 }
 ipcMain.handle('ai:status', () => ({ state: aiState, cli: loadSettings().ai || 'gemini' }))
 function aiContext() {
+  const notes = allNotes()
+  const byNote = {}
+  for (const a of allAttachments()) (byNote[a.note_id] = byNote[a.note_id] || []).push({ id: a.id, name: a.name })
+  for (const n of notes) n.files = byNote[n.id] || []
   // include done tasks too (marked [done]) so the AI can see and delete them
-  return { notes: allNotes(), memory: allMemory(), tasks: allAiTasks() }
+  return { notes, memory: allMemory(), tasks: allAiTasks() }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'gemini'
@@ -396,6 +418,38 @@ ipcMain.handle('aiTask:delete', (_e, id) => {
   deleteAiTask(id)
   broadcastAiData()
 })
+
+// ---- attachments: files linked to notes ---------------------------------
+function broadcastAttach(noteId) {
+  mainWindow?.webContents?.send('attach:changed', { noteId })
+}
+ipcMain.handle('attach:list', (_e, noteId) => attachmentsFor(noteId))
+ipcMain.handle('attach:add', async (_e, noteId) => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    title: 'Attach files'
+  })
+  if (!r.canceled) {
+    for (const p of r.filePaths) addAttachment(noteId, p)
+    broadcastAttach(noteId)
+  }
+  return attachmentsFor(noteId)
+})
+ipcMain.handle('attach:addPath', (_e, { noteId, path }) => {
+  const row = addAttachment(noteId, path)
+  if (row) broadcastAttach(noteId)
+  return row
+})
+ipcMain.handle('attach:remove', (_e, id) => {
+  const a = attachmentById(id)
+  removeAttachment(id)
+  broadcastAttach(a?.note_id)
+  return true
+})
+ipcMain.handle('attach:open', (_e, id) => {
+  const a = attachmentById(id)
+  return a?.path ? shell.openPath(a.path) : 'not found'
+})
 ipcMain.handle('ai:clear', () => {
   const cli = loadSettings().ai || 'gemini'
   if (cli === 'gemini') return clearAcp()
@@ -423,7 +477,8 @@ if (!gotLock) {
       rendererUrl: process.env.ELECTRON_RENDERER_URL,
       getMain: () => mainWindow,
       showMain: showWindow,
-      getSound: () => loadSettings().reminderSound !== false
+      getSound: () => loadSettings().reminderSound !== false,
+      getWorkingDays: () => workingDays()
     })
     scheduleStoredReminders()
     initAiTasks({

@@ -59,7 +59,7 @@
 
 .calendar-board__month {
   position: relative;
-  margin-left: 6px;
+  margin-left: auto;
 }
 
 .calendar-board__label {

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { app } from 'electron'
 import { randomUUID } from 'crypto'
 
@@ -43,6 +43,15 @@ export function initDb() {
       created TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_ai_tasks_at ON ai_tasks(at);
+
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      note_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      created TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
   `)
 }
 
@@ -153,4 +162,29 @@ export function deleteAiTask(id) {
 }
 export function markAiTaskDone(id) {
   db.prepare('UPDATE ai_tasks SET done = 1 WHERE id = ?').run(id)
+}
+
+// ---- attachments: files linked to a note (by reference, not copied) -------
+export function attachmentsFor(noteId) {
+  return db
+    .prepare('SELECT id, note_id, name, path, created FROM attachments WHERE note_id = ? ORDER BY created')
+    .all(noteId)
+}
+export function allAttachments() {
+  return db.prepare('SELECT id, note_id, name, path FROM attachments').all()
+}
+export function addAttachment(noteId, filePath) {
+  const p = String(filePath || '').trim()
+  if (!noteId || !p) return null
+  const row = { id: randomUUID(), note_id: noteId, name: basename(p), path: p, created: new Date().toISOString() }
+  db.prepare(
+    'INSERT INTO attachments (id, note_id, name, path, created) VALUES (@id, @note_id, @name, @path, @created)'
+  ).run(row)
+  return row
+}
+export function removeAttachment(id) {
+  db.prepare('DELETE FROM attachments WHERE id = ?').run(id)
+}
+export function attachmentById(id) {
+  return db.prepare('SELECT id, note_id, name, path FROM attachments WHERE id = ?').get(id)
 }

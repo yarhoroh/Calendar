@@ -34,7 +34,7 @@ export const translations = {
       send: 'Send',
       stop: 'Stop'
     },
-    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day' },
+    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General' },
     items: {
       placeholder: 'Write a note…',
       titlePlaceholder: 'Title',
@@ -43,6 +43,7 @@ export const translations = {
       status: { todo: 'To do', doing: 'In progress', done: 'Done', cancelled: 'Cancelled' }
     },
     chat: { clear: 'Clear context', ready: 'AI ready', starting: 'Starting AI…', offline: 'AI not found' },
+    attach: { title: 'Attachments', add: 'add files', remove: 'Remove', empty: 'No files attached.' },
     settings: {
       tools: 'Local AI tools',
       aiEngine: 'AI engine',
@@ -53,6 +54,8 @@ export const translations = {
       voice: 'Voice',
       voiceDesc: 'Local text-to-speech (Piper). The AI and reminders can speak.',
       voiceTest: 'Test',
+      workingDays: 'Working days',
+      workingDaysDesc: '"Every day" reminders fire only on these days.',
       tabGeneral: 'General',
       tabAi: 'Assistant',
       memory: 'AI memory',
@@ -101,7 +104,7 @@ export const translations = {
       send: 'Надіслати',
       stop: 'Зупинити'
     },
-    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня' },
+    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні' },
     items: {
       placeholder: 'Напишіть нотатку…',
       titlePlaceholder: 'Заголовок',
@@ -110,6 +113,7 @@ export const translations = {
       status: { todo: 'Не виконано', doing: 'В роботі', done: 'Виконано', cancelled: 'Скасовано' }
     },
     chat: { clear: 'Очистити контекст', ready: 'AI готовий', starting: 'Запуск AI…', offline: 'AI не знайдено' },
+    attach: { title: 'Вкладення', add: 'додати файли', remove: 'Прибрати', empty: 'Файлів немає.' },
     settings: {
       tools: 'Локальні AI-інструменти',
       aiEngine: 'AI-рушій',
@@ -120,6 +124,8 @@ export const translations = {
       voice: 'Голос',
       voiceDesc: 'Локальна озвучка (Piper). AI та нагадування можуть говорити.',
       voiceTest: 'Перевірити',
+      workingDays: 'Робочі дні',
+      workingDaysDesc: 'Нагадування «кожен день» спрацьовують лише в ці дні.',
       tabGeneral: 'Загальні',
       tabAi: 'Асистент',
       memory: 'Пам’ять AI',

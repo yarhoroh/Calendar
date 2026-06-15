@@ -30,7 +30,8 @@ export default function CalendarBoard({ command }) {
   const [activeTs, setActiveTs] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
-  const [everyday, setEveryday] = useState(false)
+  const [board, setBoard] = useState('') // '' | 'everyday' | 'general'
+  const virtual = board !== ''
 
   const expanded = settings.expanded
   const colW = expanded ? containerWidth || colWidth : colWidth
@@ -98,13 +99,13 @@ export default function CalendarBoard({ command }) {
 
   const nav = (dir) => animateOrigin(Math.round(originRef.current) + dir, 240)
   const goToday = () => {
-    setEveryday(false)
+    setBoard('')
     animateOrigin(0, 280)
   }
 
   const jumpToDate = (date) => {
     setPickerOpen(false)
-    setEveryday(false)
+    setBoard('')
     animateOrigin(daysDiff(date, today), 300)
   }
 
@@ -113,15 +114,17 @@ export default function CalendarBoard({ command }) {
     if (!command) return
     const { kind, date } = command
     if (kind === 'goto' && date) {
-      setEveryday(false)
+      setBoard('')
       animateOrigin(daysDiff(parseKey(date), today), 320)
     } else if (kind === 'today') {
-      setEveryday(false)
+      setBoard('')
       animateOrigin(0, 280)
     } else if (kind === 'everyday') {
-      setEveryday(true)
+      setBoard('everyday')
+    } else if (kind === 'general') {
+      setBoard('general')
     } else if (kind === 'expand') {
-      setEveryday(false)
+      setBoard('')
       update({ expanded: true })
       if (date) animateOrigin(daysDiff(parseKey(date), today), 0)
     }
@@ -223,7 +226,7 @@ export default function CalendarBoard({ command }) {
         <button
           className="cal-btn"
           title={t('calendar.prev')}
-          disabled={everyday}
+          disabled={virtual}
           onClick={() => nav(-1)}
         >
           <ChevronLeftIcon />
@@ -231,7 +234,7 @@ export default function CalendarBoard({ command }) {
         <button
           className="cal-btn"
           title={t('calendar.next')}
-          disabled={everyday}
+          disabled={virtual}
           onClick={() => nav(1)}
         >
           <ChevronRightIcon />
@@ -240,10 +243,16 @@ export default function CalendarBoard({ command }) {
           {t('calendar.today')}
         </button>
         <button
-          className={'cal-btn' + (everyday ? ' cal-btn--active' : '')}
-          onClick={() => setEveryday((e) => !e)}
+          className={'cal-btn' + (board === 'everyday' ? ' cal-btn--active' : '')}
+          onClick={() => setBoard((b) => (b === 'everyday' ? '' : 'everyday'))}
         >
           {t('calendar.everyday')}
+        </button>
+        <button
+          className={'cal-btn' + (board === 'general' ? ' cal-btn--active' : '')}
+          onClick={() => setBoard((b) => (b === 'general' ? '' : 'general'))}
+        >
+          {t('calendar.general')}
         </button>
         <div className="calendar-board__month">
           <button
@@ -264,9 +273,9 @@ export default function CalendarBoard({ command }) {
         </div>
       </div>
 
-      {everyday ? (
+      {virtual ? (
         <div className="calendar-board__everyday">
-          <DayItems dayKey="everyday" />
+          <DayItems dayKey={board} />
         </div>
       ) : (
         <div

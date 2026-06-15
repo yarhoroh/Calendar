@@ -17,7 +17,10 @@ function formatNotes(rows) {
           const title = r.title ? `${r.title}: ` : ''
           const text = (r.text || '').replace(/\s+/g, ' ').slice(0, 200)
           const time = r.time ? ` @${r.time}` : ''
-          return `  - (id:${r.id}) [${status}]${time} ${title}${text}`
+          const files = r.files && r.files.length
+            ? ` {files: ${r.files.map((f) => `${f.name}[id:${f.id}]`).join(', ')}}`
+            : ''
+          return `  - (id:${r.id}) [${status}]${time} ${title}${text}${files}`
         })
         .join('\n')
       return `${day}:\n${lines}`
@@ -39,7 +42,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"} ]'
+  '[ {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -83,7 +86,7 @@ export function buildSystem(ctx = {}) {
     '--- AI TASKS ---',
     formatAiTasks(tasks),
     '--- END AI TASKS ---',
-    "Below are the user's existing notes; use them to answer questions (e.g. what's on this week, find a meeting). Each line is 'YYYY-MM-DD: items' ('everyday' = recurring daily). @HH:mm marks a reminder time.",
+    "Below are the user's existing notes; use them to answer questions (e.g. what's on this week, find a meeting). Each group is keyed by day: 'YYYY-MM-DD' for dated notes, 'everyday' = recurring daily notes, 'general' = a plain notes board for storing info (no schedule, no status). @HH:mm marks a reminder time.",
     '--- NOTES ---',
     formatNotes(notes),
     '--- END NOTES ---',
@@ -91,10 +94,11 @@ export function buildSystem(ctx = {}) {
     '```calendar',
     ACTION_BLOCK,
     '```',
-    "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring). Each note above shows its (id:...). reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids).",
+    "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; general = open the general (plain info) notes board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring; date \"general\" = plain info note, no time/status). Each note above shows its (id:...). reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids).",
     "speak = say text out loud through the built-in voice. Use it ONLY when the user explicitly asks to hear something (\"read me today's tasks\", \"tell me…\", \"say it out loud\") OR when one of your scheduled tasks fires and asks you to speak; NEVER speak unprompted. Set \"lang\" to the language of the spoken text (uk / ru / en).",
     'remember = store a lasting fact/preference (use the user\'s own wording). forget = delete a memory by its id (shown in MEMORY).',
     'addAiTask = schedule a task for yourself at a local datetime "YYYY-MM-DDTHH:mm"; when it fires you will be asked to do its text (e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"speak the morning agenda in Russian"}). deleteAiTask = remove a scheduled task by its id (shown in AI TASKS).',
+    'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',
     'Rules: every date in an action is YYYY-MM-DD taken from the DATES table above. Keep the spoken reply short. If the request is ambiguous, ask a clarifying question and emit NO calendar block.'
   ].join('\n')
 }

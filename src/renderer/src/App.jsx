@@ -35,6 +35,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Block the browser's default file-drop (which would navigate the window to
+  // the file). Notes handle their own drop to attach; everywhere else is a no-op.
+  useEffect(() => {
+    const prevent = (e) => e.preventDefault()
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   const toggleChat = () =>
     setShowChat((v) => {
       const next = !v

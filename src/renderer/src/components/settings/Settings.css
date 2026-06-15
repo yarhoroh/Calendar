@@ -237,6 +237,36 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
+.weekday-pick {
+  display: flex;
+  gap: 4px;
+}
+
+.weekday-pick__btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  min-width: 34px;
+  padding: 6px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.weekday-pick__btn:hover {
+  color: var(--text);
+}
+
+.weekday-pick__btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .switch {
   position: relative;
   display: inline-flex;

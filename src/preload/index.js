@@ -35,6 +35,18 @@ const api = {
     return () => ipcRenderer.removeListener('items:changed', handler)
   },
 
+  // folders (per-board note trees)
+  listFolders: (board) => ipcRenderer.invoke('folders:list', board),
+  addFolder: (payload) => ipcRenderer.invoke('folders:add', payload),
+  renameFolder: (id, name) => ipcRenderer.invoke('folders:rename', { id, name }),
+  moveFolder: (id, parentId) => ipcRenderer.invoke('folders:move', { id, parentId }),
+  deleteFolder: (id) => ipcRenderer.invoke('folders:delete', id),
+  onFoldersChanged: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('folders:changed', h)
+    return () => ipcRenderer.removeListener('folders:changed', h)
+  },
+
   // AI chat
   detectClaude: () => ipcRenderer.invoke('ai:detect-claude'),
   detectCodex: () => ipcRenderer.invoke('ai:detect-codex'),

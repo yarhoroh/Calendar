@@ -24,10 +24,21 @@ export function initDb() {
       bold INTEGER,
       italic INTEGER,
       size INTEGER,
-      collapsed INTEGER
+      collapsed INTEGER,
+      folder_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(day);
     CREATE INDEX IF NOT EXISTS idx_notes_time ON notes(time);
+
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      board TEXT NOT NULL,
+      name TEXT NOT NULL,
+      parent_id TEXT,
+      position INTEGER,
+      created TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_folders_board ON folders(board);
 
     CREATE TABLE IF NOT EXISTS ai_memory (
       id TEXT PRIMARY KEY,
@@ -75,6 +86,17 @@ export function initDb() {
       // column already exists
     }
   }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN folder_id TEXT')
+  } catch {
+    // column already exists
+  }
+  // index needs the column to exist first (older DBs add it via the ALTER above)
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id)')
+  } catch {
+    // ignore
+  }
 }
 
 function rowToItem(r) {
@@ -87,7 +109,8 @@ function rowToItem(r) {
     bold: !!r.bold,
     italic: !!r.italic,
     size: r.size || 1,
-    collapsed: !!r.collapsed
+    collapsed: !!r.collapsed,
+    folderId: r.folder_id || null
   }
 }
 
@@ -98,8 +121,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -115,7 +138,8 @@ export function saveItems(day, items) {
         bold: it.bold ? 1 : 0,
         italic: it.italic ? 1 : 0,
         size: it.size || 1,
-        collapsed: it.collapsed ? 1 : 0
+        collapsed: it.collapsed ? 1 : 0,
+        folder_id: it.folderId ?? null
       })
     )
   })
@@ -133,7 +157,7 @@ export function itemsWithTime() {
 // compact dump of every note (for giving the AI context to search/answer)
 export function allNotes() {
   return db
-    .prepare('SELECT id, day, title, text, status, time FROM notes ORDER BY day, position')
+    .prepare('SELECT id, day, title, text, status, time, folder_id FROM notes ORDER BY day, position')
     .all()
 }
 
@@ -141,7 +165,7 @@ export function allNotes() {
 // outside date ranges so they're never included accidentally) — for getNotes
 export function getItemsRange(from, to) {
   return db
-    .prepare('SELECT id, day, title, text, status, time FROM notes WHERE day >= ? AND day <= ? ORDER BY day, position')
+    .prepare('SELECT id, day, title, text, status, time, folder_id FROM notes WHERE day >= ? AND day <= ? ORDER BY day, position')
     .all(from, to)
 }
 
@@ -201,6 +225,71 @@ export function deleteAiTask(id) {
 }
 export function markAiTaskDone(id) {
   db.prepare('UPDATE ai_tasks SET done = 1 WHERE id = ?').run(id)
+}
+
+// ---- folders: per-board tree to group/filter notes ------------------------
+// board = 'today' | 'everyday' | 'general'; parent_id null = top level (under
+// the implicit "General" root). A note's folder_id points at one of these.
+function rowToFolder(r) {
+  return { id: r.id, board: r.board, name: r.name, parentId: r.parent_id || null, position: r.position || 0 }
+}
+export function listFolders(board) {
+  return db
+    .prepare('SELECT id, board, name, parent_id, position FROM folders WHERE board = ? ORDER BY position, name')
+    .all(board)
+    .map(rowToFolder)
+}
+export function allFolders() {
+  return db.prepare('SELECT id, board, name, parent_id, position FROM folders ORDER BY board, position, name').all().map(rowToFolder)
+}
+export function addFolder({ board, name, parentId }) {
+  const b = String(board || '').trim()
+  const nm = String(name || '').trim()
+  if (!b || !nm) return null
+  const max = db.prepare('SELECT MAX(position) AS m FROM folders WHERE board = ?').get(b)?.m
+  const row = {
+    id: randomUUID(),
+    board: b,
+    name: nm,
+    parent_id: parentId || null,
+    position: (Number(max) || 0) + 1,
+    created: new Date().toISOString()
+  }
+  db.prepare(
+    'INSERT INTO folders (id, board, name, parent_id, position, created) VALUES (@id, @board, @name, @parent_id, @position, @created)'
+  ).run(row)
+  return rowToFolder(row)
+}
+export function renameFolder(id, name) {
+  const nm = String(name || '').trim()
+  if (!id || !nm) return { ok: false, error: 'bad-name' }
+  db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(nm, id)
+  return { ok: true }
+}
+// move a folder under a new parent (null = top level), refusing to create a cycle
+export function moveFolder(id, parentId) {
+  if (!id) return { ok: false, error: 'no-id' }
+  const pid = parentId || null
+  if (pid === id) return { ok: false, error: 'cycle' }
+  // walk up from the new parent; if we reach `id`, the move would loop
+  let cur = pid
+  const byId = new Map(db.prepare('SELECT id, parent_id FROM folders').all().map((r) => [r.id, r.parent_id || null]))
+  while (cur) {
+    if (cur === id) return { ok: false, error: 'cycle' }
+    cur = byId.get(cur) || null
+  }
+  db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(pid, id)
+  return { ok: true }
+}
+// delete only if empty: no child folders and no notes attached (move them first)
+export function deleteFolder(id) {
+  if (!id) return { ok: false, error: 'no-id' }
+  const kids = db.prepare('SELECT COUNT(*) AS c FROM folders WHERE parent_id = ?').get(id).c
+  if (kids > 0) return { ok: false, error: 'has-subfolders' }
+  const notes = db.prepare('SELECT COUNT(*) AS c FROM notes WHERE folder_id = ?').get(id).c
+  if (notes > 0) return { ok: false, error: 'has-notes' }
+  db.prepare('DELETE FROM folders WHERE id = ?').run(id)
+  return { ok: true }
 }
 
 // ---- attachments: files linked to a note (by reference, not copied) -------

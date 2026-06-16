@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
+import { useFolderFilter } from '../../lib/folderFilter'
 import { loadFormat } from '../../lib/itemFormat'
 import DayItem from './DayItem'
 import ItemEditor from './ItemEditor'
@@ -14,6 +15,7 @@ const isDated = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k)
 // the dragged note will land.
 function DayItems({ dayKey }) {
   const { items, add, update, remove, moveToIndex, insertAt } = useDayItems(dayKey)
+  const { visibleIds, activeId } = useFolderFilter()
   const [editingId, setEditingId] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
   const [overAt, setOverAt] = useState(-1) // insertion index for the placeholder
@@ -84,8 +86,12 @@ function DayItems({ dayKey }) {
 
   const ph = (key) => <div className="day-items__placeholder" key={key} />
 
+  // when a folder is selected, show only notes in it (or its subtree); rows keep
+  // their FULL-array index so reorder/drag math stays correct
+  const visible = visibleIds ? items.filter((it) => visibleIds.has(it.folderId || null)) : items
   const rows = []
-  items.forEach((it, i) => {
+  visible.forEach((it) => {
+    const i = items.indexOf(it)
     if (overAt === i) rows.push(ph('ph-' + i))
     rows.push(
       <div className="day-items__row" data-index={i} key={it.id}>
@@ -175,7 +181,8 @@ function DayItems({ dayKey }) {
                   bold: f.bold,
                   italic: f.italic,
                   size: f.size,
-                  time: f.time || null
+                  time: f.time || null,
+                  folderId: activeId || null // file new notes into the active folder
                 }
                 add(item)
                 if (item.time)

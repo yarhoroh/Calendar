@@ -1,10 +1,15 @@
 .day-item {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  min-height: 42px;
   padding: 5px 6px 7px 8px;
   border-bottom: 1px solid var(--divider);
+}
+
+/* contain the floated controls so the border sits below everything */
+.day-item::after {
+  content: '';
+  display: block;
+  clear: both;
 }
 
 .day-item:hover .day-item__title,
@@ -48,8 +53,19 @@
 }
 
 .day-item__content {
-  flex: 1;
   min-width: 0;
+}
+
+.day-item__folder {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  max-width: 55%;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .day-item__title {
@@ -97,9 +113,15 @@
 }
 
 /* ---- top-right controls (equal sizes) ---- */
+/* icons float right; the note text wraps around them (full width below) */
+.day-item__right {
+  float: right;
+  display: flex;
+  gap: 2px;
+  margin: 0 0 2px 8px;
+}
+
 .day-item__controls {
-  flex: 0 0 auto;
-  align-self: flex-start;
   display: flex;
   gap: 2px;
 }

@@ -60,7 +60,7 @@ export async function execAction(a, onCommand, channel) {
         if (!a.text || (!a.at && !a.every))
           return { ok: false, error: 'addAiTask needs text and either a time (at) or an interval (every)' }
         const r = await api.addAiTask?.({ at: a.at, text: a.text, every: a.every, from: a.from, to: a.to, channel })
-        return r ? { ok: true } : { ok: false, error: 'task was not created' }
+        return r ? { ok: true, result: { id: r.id } } : { ok: false, error: 'task was not created' }
       }
       case 'deleteAiTask':
         if (a.id) await api.deleteAiTask?.(a.id)
@@ -80,12 +80,12 @@ export async function execAction(a, onCommand, channel) {
       case 'addReminder': {
         if (!a.date) return { ok: false, error: 'addNote needs a date' }
         const arr = (await api.getItems?.(a.date)) || []
-        const item = { ...newItem(a.text || ''), title: a.title || null, time: a.time || null }
+        const item = { ...newItem(a.text || ''), title: a.title || null, time: a.time || null, folderId: a.folder || null }
         api.saveItems?.(a.date, [...arr, item])
         if (a.time)
           api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: a.text || '' })
         navTo(onCommand, a.date)
-        return { ok: true }
+        return { ok: true, result: { id: item.id } }
       }
       case 'edit':
       case 'editNote':
@@ -101,7 +101,8 @@ export async function execAction(a, onCommand, channel) {
           title: a.title !== undefined ? a.title : it.title,
           text: a.text !== undefined ? a.text : it.text,
           time: a.time !== undefined ? a.time : it.time,
-          status: a.status !== undefined ? a.status : it.status
+          status: a.status !== undefined ? a.status : it.status,
+          folderId: a.folder !== undefined ? a.folder || null : it.folderId
         }
         arr[idx] = patched
         api.saveItems?.(a.date, arr)
@@ -110,6 +111,37 @@ export async function execAction(a, onCommand, channel) {
             api.setReminder?.({ id: it.id, when: a.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '' })
           else api.clearReminder?.(it.id)
         }
+        navTo(onCommand, a.date)
+        return { ok: true }
+      }
+      case 'addFolder': {
+        if (!a.board || !a.name) return { ok: false, error: 'addFolder needs board (today/everyday/general) and name' }
+        const r = await api.addFolder?.({ board: a.board, name: a.name, parentId: a.parent || null })
+        return r ? { ok: true, result: { id: r.id } } : { ok: false, error: 'folder was not created' }
+      }
+      case 'renameFolder': {
+        if (!a.id || !a.name) return { ok: false, error: 'renameFolder needs id and name' }
+        const r = await api.renameFolder?.(a.id, a.name)
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'rename failed' }
+      }
+      case 'moveFolder': {
+        if (!a.id) return { ok: false, error: 'moveFolder needs id' }
+        const r = await api.moveFolder?.(a.id, a.parent || null)
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'move failed' }
+      }
+      case 'deleteFolder': {
+        if (!a.id) return { ok: false, error: 'deleteFolder needs id' }
+        const r = await api.deleteFolder?.(a.id)
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'delete failed (not empty?)' }
+      }
+      case 'setNoteFolder': {
+        if (!a.date || !Array.isArray(a.ids)) return { ok: false, error: 'setNoteFolder needs date and ids' }
+        const arr = (await api.getItems?.(a.date)) || []
+        const folderId = a.folder || null
+        api.saveItems?.(
+          a.date,
+          arr.map((it) => (a.ids.includes(it.id) ? { ...it, folderId } : it))
+        )
         navTo(onCommand, a.date)
         return { ok: true }
       }
@@ -140,23 +172,58 @@ export async function execAction(a, onCommand, channel) {
   }
 }
 
-// Run all actions; if any failed, tell the model so it reports the truth to the
-// user (returns the model's honest reply text, or a plain ⚠ summary, or null).
+const MAX_ROUNDS = 5
+
+// Run the actions the model emitted, then feed the OUTCOME back so it can either
+// continue a multi-step task (e.g. it just created a folder and now needs the new
+// id to file a note into it) or report a failure truthfully. Loops until the model
+// stops emitting actions or we hit MAX_ROUNDS. Returns the model's follow-up text
+// to show the user (or null if nothing more to say).
 export async function runActions(actions, onCommand, channel) {
-  const fails = []
-  for (const a of actions) {
-    const r = await execAction(a, onCommand, channel)
-    if (r && r.ok === false) fails.push(`${a.action}: ${r.error || 'failed'}`)
+  const isTelegram = typeof channel === 'string' && channel.startsWith('telegram:')
+  let pending = actions || []
+  const texts = []
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    if (isTelegram) pending = pending.filter((a) => a.action !== 'speak') // never speak for a messenger
+    if (!pending.length) break
+
+    const results = []
+    for (const a of pending) results.push({ a, r: await execAction(a, onCommand, channel) })
+
+    const lines = results.map(({ a, r }) => {
+      if (r && r.ok === false) return `${a.action}: FAILED — ${r.error || 'failed'}`
+      const id = r && r.result && r.result.id
+      const label = a.name ? ` name "${a.name}"` : ''
+      return id ? `${a.action}: ok (new id: ${id}${label})` : `${a.action}: ok`
+    })
+
+    // bother the model again only when it likely needs to react: a new id to
+    // chain on, or a failure to handle. Plain successes need no extra round.
+    const needsFollowUp = results.some(({ r }) => (r && r.ok === false) || (r && r.result && r.result.id))
+    if (!needsFollowUp) break
+
+    const fb = await api.aiSend?.({
+      messages: [
+        {
+          role: 'user',
+          content:
+            `[action results] Outcome of the actions you just ran:\n${lines.join('\n')}\n\n` +
+            'If you still need to act now — e.g. you just created a folder/note and need its new id to do the next step — emit the next ```calendar block USING these ids. ' +
+            'If a step FAILED, tell the user briefly why and do NOT repeat the same failing action. ' +
+            'If everything is done, just confirm briefly to the user with NO action block.'
+        }
+      ]
+    })
+    if (!fb?.ok) {
+      const fails = lines.filter((l) => l.includes('FAILED'))
+      if (fails.length) texts.push(`⚠ ${fails.join('; ')}`)
+      break
+    }
+    const parsed = extractActions(fb.text)
+    if (parsed.text) texts.push(parsed.text)
+    pending = parsed.actions
   }
-  if (!fails.length) return null
-  const fb = await api.aiSend?.({
-    messages: [
-      {
-        role: 'user',
-        content: `[action result] These actions FAILED:\n${fails.join('\n')}\nTell the user briefly it didn't work (and why if useful). Do NOT claim success and do NOT repeat the same failing action.`
-      }
-    ]
-  })
-  if (!fb?.ok) return `⚠ ${fails.join('; ')}`
-  return extractActions(fb.text).text || `⚠ ${fails.join('; ')}`
+
+  return texts.length ? texts.join('\n\n') : null
 }

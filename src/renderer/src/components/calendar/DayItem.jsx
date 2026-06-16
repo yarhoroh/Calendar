@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
+import { useFolderFilter } from '../../lib/folderFilter'
 import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
 import StatusMenu from './StatusMenu'
 import ReminderPopover from './ReminderPopover'
@@ -23,6 +24,8 @@ export default function DayItem({
   onDragEnd
 }) {
   const { t } = useI18n()
+  const { names } = useFolderFilter()
+  const folderName = item.folderId ? names[item.folderId] : null
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [attachOpen, setAttachOpen] = useState(false)
@@ -112,29 +115,7 @@ export default function DayItem({
         onEdit()
       }}
     >
-      <div className={'day-item__content' + (item.size > 1 ? ` day-item__content--s${item.size}` : '')}>
-        {item.title && (
-          <div
-            className="day-item__title"
-            onClick={(e) => {
-              e.stopPropagation()
-              onUpdate(item.id, { collapsed: !item.collapsed })
-            }}
-          >
-            {item.title}
-          </div>
-        )}
-        <div
-          className={'day-item__text' + (item.collapsed ? ' day-item__text--collapsed' : '')}
-          style={{
-            fontWeight: item.bold ? 700 : undefined,
-            fontStyle: item.italic ? 'italic' : undefined
-          }}
-        >
-          {item.text}
-        </div>
-      </div>
-
+      <div className="day-item__right">
       <div className="day-item__controls">
         {!plain && (
         <div className="day-item__ctrl day-item__ctrl--rem">
@@ -216,6 +197,32 @@ export default function DayItem({
         </div>
         )}
       </div>
+      </div>
+
+      <div className={'day-item__content' + (item.size > 1 ? ` day-item__content--s${item.size}` : '')}>
+        {item.title && (
+          <div
+            className="day-item__title"
+            onClick={(e) => {
+              e.stopPropagation()
+              onUpdate(item.id, { collapsed: !item.collapsed })
+            }}
+          >
+            {item.title}
+          </div>
+        )}
+        <div
+          className={'day-item__text' + (item.collapsed ? ' day-item__text--collapsed' : '')}
+          style={{
+            fontWeight: item.bold ? 700 : undefined,
+            fontStyle: item.italic ? 'italic' : undefined
+          }}
+        >
+          {item.text}
+        </div>
+      </div>
+
+      {folderName && <span className="day-item__folder">{folderName}</span>}
 
       {menu && (
         <ContextMenu

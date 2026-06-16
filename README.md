@@ -27,6 +27,7 @@ locally, no cloud.
 - **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
 - **"Every day" board** — recurring notes shown on every day.
 - **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
+- **Folder trees & a side panel** — a left panel (per board: Today / Every day / General) that **collapses to a single button, pins** (pushes the content) or **floats** over it, and **resizes** by dragging — all of it (open/pinned/width and the selected folder) is remembered per tab. Inside it you build a **folder tree**: create / rename / move (reparent) / delete folders, **drag a note onto a folder** to file it there, and **select a folder to filter** the notes (the calendar too) — it shows that folder and everything nested; the always-present **General** root shows all. A folder can't be deleted until its notes/subfolders are moved out. Each note shows its folder's name in the corner.
 - **File attachments** — attach multiple files to any note via the paperclip, or **drag-and-drop from the desktop**; click a file to open it in its default app (Word/Excel/PDF/…). Files are linked by path, so edits stay in the original.
 - **Reminders** — set a time on a note; when it's due a toast pops up in a separate window (with sound), clicking it opens that day.
 - **Working days** — choose which weekdays count as working; "every day" reminders fire only on those days.
@@ -42,9 +43,16 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 - **Pick the model** per engine in an editable config file (`ai-config.json`), or just ask the assistant to switch model — it rewrites the config and restarts itself. (A bad model self-heals back to the default.)
 - **Reads notes on demand** — the assistant requests only the date/range it needs (`getNotes`), so it scales to any number of notes instead of stuffing them all into every prompt.
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
-- **Creates notes & reminders by voice/text:** "meeting the day after tomorrow at 9am".
-- **Sorts and deletes** notes by criteria; **works with files** (attach / open).
+- **Creates, edits, sorts and deletes** notes & reminders by voice/text: "meeting the day after tomorrow at 9am", "rename this note", "mark it done", "put it in the Work folder".
+- **Manages the folder trees** — it can create, rename, move (reparent) and delete folders on any board, and file one or many notes into them. It sees each board's tree (with ids) and every note's current folder.
+- **Multi-step actions with feedback** — after it acts, the app sends the result back (the new id of anything created, or a failure reason), so it can chain dependent steps (e.g. *create a folder → file a note into it*) and report honestly instead of claiming success when something failed.
+- **Four ways to respond** — a normal text reply, **speak** out loud, a **silent toast** near the clock, or a reply back to the **messenger** it was contacted from.
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.
+
+### 💬 Telegram & images
+- **Telegram bridge** — connect a bot token in Settings and chat with the assistant from Telegram (long-polling, works behind NAT, no public webhook). Replies — and reminders it scheduled from Telegram — go back to that chat; a **Disconnect** button clears the token.
+- **Image understanding** — send a photo (with a caption) from Telegram, or **paste / drag-and-drop / attach** an image in the in-app chat, and the assistant sees it (vision on Claude, Gemini and Codex). Pasted images show removable thumbnail previews before sending.
+- **Chat context persists** when you switch to Settings and back — cleared only when you clear it.
 
 ### 🔊 Voice (TTS) — built-in, offline
 - **Piper** engine bundled into the app (no Python), voices for **🇺🇦 / 🇷🇺 / 🇬🇧**.
@@ -59,7 +67,7 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 
 ### 🧠 Assistant memory & tasks
 - **Memory** — the assistant remembers preferences ("create tasks in Ukrainian, speak to me in Russian"). Viewable and editable in Settings.
-- **Scheduled assistant tasks** — it (or you) schedules a task for a time; when it's due the assistant "wakes up" and acts (e.g. reads the morning agenda aloud). All visible in Settings (the "Assistant" tab).
+- **Scheduled assistant tasks** — it (or you) schedules a task: **one-time** ("remind me in 30 min"), or **periodic** ("every hour", optionally within a **daily window** like 09:00–18:00). When it's due the assistant "wakes up" and acts (e.g. reads the morning agenda aloud, or nudges you to take a break). Each task remembers **where it was created** — a reminder set from Telegram is delivered back to Telegram, not spoken aloud. All visible in Settings (the "Assistant" tab).
 
 ---
 

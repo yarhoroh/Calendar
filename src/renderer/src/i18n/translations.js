@@ -48,6 +48,14 @@ export const translations = {
     },
     chat: { clear: 'Clear context', ready: 'AI ready', starting: 'Starting AI…', offline: 'AI not found' },
     panel: { open: 'Open panel', collapse: 'Collapse', pin: 'Pin / unpin', resize: 'Drag to resize' },
+    folders: {
+      newName: 'Folder name…',
+      addChild: 'New subfolder',
+      rename: 'Rename',
+      delete: 'Delete',
+      hasNotes: 'Move its notes out first.',
+      hasSubfolders: 'Delete or empty its subfolders first.'
+    },
     attach: { title: 'Attachments', add: 'add files', remove: 'Remove', empty: 'No files attached.' },
     settings: {
       tools: 'Local AI tools',
@@ -135,6 +143,14 @@ export const translations = {
     },
     chat: { clear: 'Очистити контекст', ready: 'AI готовий', starting: 'Запуск AI…', offline: 'AI не знайдено' },
     panel: { open: 'Відкрити панель', collapse: 'Згорнути', pin: 'Закріпити / відкріпити', resize: 'Потягни, щоб змінити розмір' },
+    folders: {
+      newName: 'Назва папки…',
+      addChild: 'Нова підпапка',
+      rename: 'Перейменувати',
+      delete: 'Видалити',
+      hasNotes: 'Спершу перенеси з неї нотатки.',
+      hasSubfolders: 'Спершу видали або очисти підпапки.'
+    },
     attach: { title: 'Вкладення', add: 'додати файли', remove: 'Прибрати', empty: 'Файлів немає.' },
     settings: {
       tools: 'Локальні AI-інструменти',

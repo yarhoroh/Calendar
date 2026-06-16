@@ -18,6 +18,12 @@ import {
   isEmpty,
   importMap,
   allNotes,
+  listFolders,
+  allFolders,
+  addFolder,
+  renameFolder,
+  moveFolder,
+  deleteFolder,
   allMemory,
   addMemory,
   deleteMemory,
@@ -292,6 +298,30 @@ ipcMain.on('items:save', (_e, key, items) => {
   }
 })
 
+// ---- folders (per-board note trees) -------------------------------------
+const foldersChanged = () => mainWindow?.webContents.send('folders:changed')
+ipcMain.handle('folders:list', (_e, board) => listFolders(board))
+ipcMain.handle('folders:add', (_e, p) => {
+  const r = addFolder(p || {})
+  if (r) foldersChanged()
+  return r
+})
+ipcMain.handle('folders:rename', (_e, { id, name }) => {
+  const r = renameFolder(id, name)
+  if (r.ok) foldersChanged()
+  return r
+})
+ipcMain.handle('folders:move', (_e, { id, parentId }) => {
+  const r = moveFolder(id, parentId)
+  if (r.ok) foldersChanged()
+  return r
+})
+ipcMain.handle('folders:delete', (_e, id) => {
+  const r = deleteFolder(id)
+  if (r.ok) foldersChanged()
+  return r
+})
+
 // one-time import of the old notes.json into the database
 function migrateNotesJson() {
   const file = join(app.getPath('userData'), 'notes.json')
@@ -423,7 +453,7 @@ function aiContext() {
   // notes are fetched on demand via the getNotes tool — only the small,
   // always-relevant data lives in the prompt. done tasks included (marked
   // [done]) so the AI can see and delete them.
-  return { memory: allMemory(), tasks: allAiTasks(), configPath: aiConfigPath() }
+  return { memory: allMemory(), tasks: allAiTasks(), folders: allFolders(), configPath: aiConfigPath() }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'gemini'

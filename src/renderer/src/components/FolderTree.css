@@ -1,0 +1,131 @@
+.folder-tree {
+  padding: 4px 0;
+  font-size: 13px;
+  user-select: none;
+}
+
+.folder-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding-left: 6px;
+  padding-right: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 1px solid var(--divider);
+}
+
+/* hover: just tint the text green, no background (matches the rest of the app) */
+.folder-tree__row:hover {
+  color: var(--accent);
+}
+
+/* selected: green text (no marker dot) */
+.folder-tree__row--active {
+  color: var(--accent);
+}
+
+.folder-tree__row--over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.folder-tree__row--root {
+  padding-left: 10px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.folder-tree__toggle {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.folder-tree__toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* leaf: no box, just keep the slot so names stay aligned */
+.folder-tree__toggle--hidden {
+  border-color: transparent;
+  cursor: default;
+}
+
+.folder-tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-tree__actions {
+  flex: 0 0 auto;
+  display: none;
+  gap: 1px;
+}
+
+.folder-tree__row:hover .folder-tree__actions {
+  display: flex;
+}
+
+.folder-tree__actions button {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: 12px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.folder-tree__actions button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.folder-tree__input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 2px 5px;
+  outline: none;
+}
+
+.folder-tree__add {
+  padding: 2px 4px 2px 0;
+}
+
+.folder-tree__notice {
+  margin: 2px 6px 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 6px;
+  cursor: pointer;
+}

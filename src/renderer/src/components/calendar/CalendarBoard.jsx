@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DayColumn from './DayColumn'
 import DayItems from './DayItems'
 import MonthPicker from './MonthPicker'
 import SidePanel from '../SidePanel'
+import FolderTree from '../FolderTree'
+import { useFolders } from '../../hooks/useFolders'
+import { FolderFilterContext } from '../../lib/folderFilter'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -15,7 +18,7 @@ const NOTE = 'application/x-note'
 const MIN_W = 120
 const MAX_W = 900
 const BUFFER = 2
-const PANEL_DEFAULT = { open: false, pinned: true, width: 240 }
+const PANEL_DEFAULT = { open: false, pinned: true, width: 240, selected: null }
 
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 
@@ -77,6 +80,36 @@ export default function CalendarBoard({ command }) {
   const panel = { ...PANEL_DEFAULT, ...(settings.panels?.[boardKey] || {}) }
   const updatePanel = (patch) =>
     update({ panels: { ...(settings.panels || {}), [boardKey]: { ...panel, ...patch } } })
+
+  // folder tree for this tab; selected folder is persisted per tab too
+  const { folders, add: addFolder, rename: renameFolder, move: moveFolder, remove: removeFolder } = useFolders(boardKey)
+  const sel = panel.selected ?? null
+  const setSel = (id) => updatePanel({ selected: id })
+
+  // selected folder + all its descendants → the set of folders to show
+  // (null = General root → show everything)
+  const visibleIds = useMemo(() => {
+    if (sel == null) return null
+    const set = new Set([sel])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const f of folders) {
+        const p = f.parentId || null
+        if (p && set.has(p) && !set.has(f.id)) {
+          set.add(f.id)
+          grew = true
+        }
+      }
+    }
+    return set
+  }, [sel, folders])
+
+  const folderNames = useMemo(() => Object.fromEntries(folders.map((f) => [f.id, f.name])), [folders])
+  const filterValue = useMemo(
+    () => ({ visibleIds, names: folderNames, activeId: sel }),
+    [visibleIds, folderNames, sel]
+  )
 
   // refs mirror state for the stable callbacks / animation loops
   const originRef = useRef(0)
@@ -351,8 +384,19 @@ export default function CalendarBoard({ command }) {
         </div>
       </div>
 
+      <FolderFilterContext.Provider value={filterValue}>
       <div className="calendar-board__body">
-        <SidePanel state={panel} onChange={updatePanel} />
+        <SidePanel state={panel} onChange={updatePanel}>
+          <FolderTree
+            folders={folders}
+            selected={sel}
+            onSelect={setSel}
+            onAdd={addFolder}
+            onRename={renameFolder}
+            onMove={moveFolder}
+            onRemove={removeFolder}
+          />
+        </SidePanel>
         {virtual ? (
           <div className="calendar-board__everyday">
             <DayItems dayKey={board} />
@@ -385,6 +429,7 @@ export default function CalendarBoard({ command }) {
           </div>
         )}
       </div>
+      </FolderFilterContext.Provider>
     </div>
   )
 }

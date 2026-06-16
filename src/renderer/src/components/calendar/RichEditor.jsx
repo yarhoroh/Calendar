@@ -2,12 +2,13 @@ import { useEffect, useReducer, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ImageResize from 'tiptap-extension-resize-image'
+import { setActiveEditor, clearActiveEditor } from '../../lib/activeEditor'
 import './RichEditor.css'
 
 // Modern rich-text note editor (Tiptap). Headless, so the toolbar is ours.
 // Images are stored inline as base64 and can be resized by dragging their
 // handles. `onReady(editor)` hands the instance to the parent to read HTML/text.
-export default function RichEditor({ initialHtml, onReady }) {
+export default function RichEditor({ initialHtml, onReady, meta }) {
   const editorRef = useRef(null)
   const [, force] = useReducer((x) => x + 1, 0) // re-render the toolbar on selection change
 
@@ -48,8 +49,12 @@ export default function RichEditor({ initialHtml, onReady }) {
     editorRef.current = editor
     if (!editor) return
     onReady?.(editor)
+    setActiveEditor(editor, meta) // the AI can read/edit the open note live
     editor.on('transaction', force)
-    return () => editor.off('transaction', force)
+    return () => {
+      editor.off('transaction', force)
+      clearActiveEditor(editor)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor])
 

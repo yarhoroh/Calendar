@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import api from './lib/api'
 import TitleBar from './components/TitleBar'
 import CloseDialog from './components/CloseDialog'
@@ -11,6 +11,7 @@ import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
+import { registerUi, updateUiState } from './lib/uiBridge'
 
 // Composition root: holds the active view and wires the titlebar, the current
 // view and the close dialog. Reminder toasts live in a separate window; here we
@@ -19,9 +20,33 @@ export default function App() {
   const [view, setView] = useState('calendar')
   const [command, setCommand] = useState(null)
   const [showChat, setShowChat] = useState(false)
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, applyTheme } = useTheme()
   const win = useWindowControls()
   useTtsPlayer()
+
+  // let the AI read & flip the app-level settings it owns (theme, chat panel) in
+  // real time; calendar settings are handled in CalendarBoard
+  const setShowChatValue = (next) => {
+    setShowChat(!!next)
+    api.setShowChat?.(!!next)
+  }
+  const ctrlRef = useRef({})
+  ctrlRef.current = { applyTheme, setShowChatValue, theme, showChat }
+  useEffect(() => {
+    updateUiState({ theme, showChat })
+  }, [theme, showChat])
+  useEffect(
+    () =>
+      registerUi((name, arg) => {
+        if (name !== 'setSetting') return undefined
+        const { applyTheme, setShowChatValue } = ctrlRef.current
+        const { key, value } = arg || {}
+        if (key === 'theme') return value === 'dark' || value === 'light' ? (applyTheme(value), true) : undefined
+        if (key === 'showChat') return (setShowChatValue(value), true)
+        return undefined
+      }),
+    []
+  )
 
   // calendar/UI commands from reminders or the AI chat
   const runCommand = (cmd) => {

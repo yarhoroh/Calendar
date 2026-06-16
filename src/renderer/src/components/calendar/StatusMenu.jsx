@@ -36,7 +36,7 @@ export default function StatusMenu({ current, onPick, onClose }) {
           className={'status-menu__item' + (c.id === current ? ' status-menu__item--active' : '')}
           onClick={() => onPick(c.id)}
         >
-          <span className="status-mini" style={{ background: c.color, borderColor: c.color }} />
+          <span className="status-mini status-mini--custom" style={{ '--sc': c.color }} />
           {c.name}
         </button>
       ))}

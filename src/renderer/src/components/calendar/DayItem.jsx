@@ -265,7 +265,7 @@ export default function DayItem({
                 {item.status === 'cancelled' && <CloseIcon />}
               </span>
             ) : customStatus ? (
-              <span className="status-ring" style={{ borderColor: customStatus.color, background: customStatus.color }} />
+              <span className="status-ring status-ring--custom" style={{ '--sc': customStatus.color }} />
             ) : (
               <span className="status-ring status-ring--todo" />
             )}

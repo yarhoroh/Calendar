@@ -1,6 +1,7 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import api from '../../lib/api'
+import { updateUiState, registerUi } from '../../lib/uiBridge'
 import { useI18n } from '../../i18n/I18nContext'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { useFolderFilter } from '../../lib/folderFilter'
@@ -36,9 +37,51 @@ function DayItems({ dayKey, sort }) {
   const [editingId, setEditingId] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
+
   const [overAt, setOverAt] = useState(-1) // insertion index for the placeholder
   const downEditing = useRef(null)
   const listRef = useRef(null)
+
+  // publish fullscreen/editing state so the AI knows the current mode. Only the
+  // column with an active note publishes; on close it resets the flags.
+  useEffect(() => {
+    if (expandedId || editingId) updateUiState({ fullscreen: !!expandedId, editing: !!editingId })
+    return () => {
+      if (expandedId || editingId) updateUiState({ fullscreen: false, editing: false })
+    }
+  }, [expandedId, editingId])
+
+  // control bus: let the AI enter/leave edit & fullscreen. Every column listens
+  // (read live values via the ref); a column serves a call only when it owns the
+  // target note, returning undefined otherwise so the right column responds.
+  const liveRef = useRef({})
+  liveRef.current = { items, editingId, expandedId }
+  useEffect(
+    () =>
+      registerUi((name, arg) => {
+        const { items, editingId, expandedId } = liveRef.current
+        const id = arg?.id
+        const owns = (x) => x != null && items.some((it) => it.id === x)
+        switch (name) {
+          case 'enterEdit': // edit a given note, or the one already fullscreen here
+            if (id != null) return owns(id) ? (setEditingId(id), true) : undefined
+            return expandedId != null ? (setEditingId(expandedId), true) : undefined
+          case 'enterFullscreen': // fullscreen a given note, or the one being edited here
+            if (id != null) return owns(id) ? (setExpandedId(id), true) : undefined
+            return editingId != null ? (setExpandedId(editingId), true) : undefined
+          case 'exitFullscreen':
+            return expandedId != null ? (setExpandedId(null), true) : undefined
+          case 'closeEditor':
+            if (editingId == null && expandedId == null) return undefined
+            setEditingId(null)
+            setExpandedId(null)
+            return true
+          default:
+            return undefined
+        }
+      }),
+    []
+  )
 
   // insertion index from the cursor Y — computed in one place to avoid flicker
   const computeIndex = (clientY) => {
@@ -185,6 +228,8 @@ function DayItems({ dayKey, sort }) {
             initialTime={it.time || null}
             initialDays={it.days}
             defaultDays={proj.workingDays}
+            noteId={it.id}
+            day={dayKey}
             timeOnly={dayKey === 'everyday'}
             plain={plain}
             expanded={expandedId === it.id}
@@ -257,6 +302,7 @@ function DayItems({ dayKey, sort }) {
           return (
             <ItemEditor
               defaultDays={proj.workingDays}
+              day={dayKey}
               timeOnly={dayKey === 'everyday'}
               plain={plain}
               onSave={(f) => {

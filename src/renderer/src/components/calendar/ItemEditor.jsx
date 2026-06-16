@@ -22,6 +22,8 @@ export default function ItemEditor({
   initialTime = null,
   initialDays = null,
   defaultDays = [],
+  noteId = null,
+  day = null,
   timeOnly = false,
   plain = false,
   expanded = false,
@@ -67,6 +69,9 @@ export default function ItemEditor({
   // the whole window loses focus (image file dialog / alt-tab) — keep editing then
   const onBlur = (e) => {
     if (e.currentTarget.contains(e.relatedTarget)) return
+    // the chat is a parallel tool (and the AI edits this note live) — clicking it
+    // must NOT close/save the editor
+    if (e.relatedTarget?.closest?.('.promptbar, .chat')) return
     if (!document.hasFocus()) return
     commit()
   }
@@ -130,7 +135,7 @@ export default function ItemEditor({
         </button>
       </div>
 
-      <RichEditor initialHtml={startHtml} onReady={(ed) => (editorRef.current = ed)} />
+      <RichEditor initialHtml={startHtml} meta={{ id: noteId, day }} onReady={(ed) => (editorRef.current = ed)} />
 
       {onExpand && !expanded && (
         <button className="item-editor__expand" title={t('items.expand')} onMouseDown={noBlur(onExpand)}>

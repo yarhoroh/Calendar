@@ -57,3 +57,19 @@
   border-color: var(--st-cancelled);
   background: var(--st-cancelled);
 }
+
+/* custom statuses: colored ring, transparent centre, inner dot of the colour */
+.status-mini--custom {
+  border-color: var(--sc);
+  background: transparent;
+  display: grid;
+  place-items: center;
+}
+
+.status-mini--custom::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--sc);
+}

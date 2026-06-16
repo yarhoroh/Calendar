@@ -36,6 +36,11 @@
   padding: 44px 14px 40px 4px;
 }
 
+/* when the chat is docked in fullscreen, leave room for it at the bottom */
+:root.fs-chat .day-items__row--fs {
+  bottom: var(--fs-chat-h);
+}
+
 .day-items__row--fs .day-item {
   min-height: 0;
   border-bottom: none;

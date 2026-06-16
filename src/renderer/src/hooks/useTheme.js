@@ -14,14 +14,14 @@ export function useTheme() {
     })
   }, [])
 
-  const toggleTheme = () => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark'
-      document.documentElement.dataset.theme = next
-      api.setTheme?.(next)
-      return next
-    })
+  const applyTheme = (next) => {
+    if (next !== 'dark' && next !== 'light') return
+    document.documentElement.dataset.theme = next
+    api.setTheme?.(next)
+    setTheme(next)
   }
 
-  return { theme, toggleTheme }
+  const toggleTheme = () => applyTheme(theme === 'dark' ? 'light' : 'dark')
+
+  return { theme, toggleTheme, applyTheme }
 }

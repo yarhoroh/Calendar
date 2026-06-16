@@ -332,6 +332,20 @@
   background: var(--st-doing);
 }
 
+/* custom statuses: a colored ring with a transparent centre and an inner dot of
+   the same colour (the colour comes in via the --sc inline variable) */
+.status-ring--custom {
+  border-color: var(--sc);
+}
+
+.status-ring--custom::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sc);
+}
+
 .status-ring--done {
   border-color: var(--st-done);
   background: var(--st-done);

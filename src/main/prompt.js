@@ -4,6 +4,22 @@
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const pad = (n) => String(n).padStart(2, '0')
 
+// strip a note's HTML to readable plain text (the AI must see what's actually
+// displayed, since rich notes render their HTML — not the stored `text`)
+function htmlToPlain(html) {
+  return (html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|h1|h2|h3|li|div|ul|ol)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export function formatNotes(rows) {
   if (!rows || !rows.length) return '(no notes yet)'
   const byDay = {}
@@ -15,7 +31,10 @@ export function formatNotes(rows) {
         .map((r) => {
           const status = r.status || 'todo'
           const title = r.title ? `${r.title}: ` : ''
-          const text = (r.text || '').replace(/\s+/g, ' ').slice(0, 200)
+          const text = (r.html ? htmlToPlain(r.html) : r.text || '')
+            .replace(/[ \t]+/g, ' ')
+            .slice(0, 4000)
+            .replace(/\n/g, '\n      ') // keep line breaks (indent continuation under the note)
           const time = r.time ? ` @${r.time}` : ''
           const files = r.files && r.files.length
             ? ` {files: ${r.files.map((f) => `${f.name}[id:${f.id}]`).join(', ')}}`
@@ -44,7 +63,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional","status":"todo|doing|done|customId optional","days":"[0-6] everyday-only optional","html":"<p>formatted…</p> optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"}, {"action":"addStatus","name":"...","color":"#hex optional"}, {"action":"renameStatus","id":"statusId","name":"...","color":"#hex optional"}, {"action":"deleteStatus","id":"statusId"}, {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"todo|doing|done|customId"} ]'
+  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional","status":"todo|doing|done|customId optional","days":"[0-6] everyday-only optional","html":"<p>formatted…</p> optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"}, {"action":"addStatus","name":"...","color":"#hex optional"}, {"action":"renameStatus","id":"statusId","name":"...","color":"#hex optional"}, {"action":"deleteStatus","id":"statusId"}, {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"todo|doing|done|customId"}, {"action":"replaceSelection","html":"..."}, {"action":"appendNote","html":"..."}, {"action":"setNoteContent","html":"..."}, {"action":"enterEdit","date":"YYYY-MM-DD","id":"noteId"}, {"action":"enterFullscreen","date":"YYYY-MM-DD","id":"noteId"}, {"action":"exitFullscreen"}, {"action":"closeEditor"}, {"action":"setSetting","key":"everydayInCal|expanded|focusBlur|panelOpen|theme|showChat|language|colWidth","value":true}, {"action":"openPanel","value":true}, {"action":"selectFolder","id":"folderId or null"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -105,7 +124,7 @@ export function buildSystem(ctx = {}) {
     "Treat every message as being about the user's calendar, notes or day unless they clearly change the subject. Stay in this role across the whole conversation.",
     'Do NOT run shell commands, read or write files, or use any external tools — you only chat and emit the calendar action block described below.',
     "You are NOT given the user's notes up front. When you need to read notes (to answer a question, find or sort something), request them with the getNotes action and you'll receive them, then answer.",
-    'Always reply in the same language the user writes in.',
+    "Always reply in the SAME language the user writes in (Ukrainian → Ukrainian, Russian → Russian, English → English). NEVER switch language on your own. The [APP STATE]/[EDITOR CONTEXT]/system-metadata blocks appended to messages are in English on purpose — they are NOT the user's language; ignore them when deciding your reply language. Note text you create also follows the user's language (or whatever they ask for).",
     "Some messages may arrive from a connected messenger (e.g. a Telegram bot) — they're tagged like \"[Incoming Telegram message …]\". Treat them exactly like any request: do the task (notes, reminders, answers) and reply briefly; your text reply is delivered back to that messenger automatically.",
     nowLine(now),
     'Resolve every relative date against this table (do not compute weekdays yourself):',
@@ -141,6 +160,10 @@ export function buildSystem(ctx = {}) {
     'remember = store a lasting fact/preference (use the user\'s own wording). forget = delete a memory by its id (shown in MEMORY).',
     'addAiTask = schedule a task for YOURSELF; when it fires you are asked to do its text and you notify/tell the user (reply or notify on the channel the request came from). One-time: give "at" (local "YYYY-MM-DDTHH:mm"), e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"tell the user the morning agenda"}. Periodic: give "every" in minutes, e.g. {"action":"addAiTask","every":30,"text":"remind the user to drink water"}. A periodic task can be limited to a daily window with "from"/"to" (HH:mm) — e.g. "remind me to do push-ups every hour from 9am to 6pm" → {"action":"addAiTask","every":60,"from":"09:00","to":"18:00","text":"remind the user to do push-ups"} (fires hourly only between 09:00 and 18:00). deleteAiTask = remove a task by its id (shown in AI TASKS).',
     'Reminders — choose the tool: when the user asks YOU to remind/nudge THEM to do something ("напомни мне …", "remind me to …", "ping me to …"), use addAiTask (you will deliver the reminder). Use addNote ONLY for real calendar entries/appointments tied to a day ("meeting Friday 3pm"). If a reminder has no time, ask when (or use "in a minute"/the time they implied).',
+    'APP STATE & FULL UI CONTROL: every user message ends with an [APP STATE: …] line telling you exactly where the user is right now — the current tab, whether a note is fullscreen / being edited, the selected folder, whether the side panel is open, the theme, language, chat visibility, and the calendar toggles (everyday-in-calendar, day-expanded, focus-blur). You can READ this and CHANGE all of it in real time. Use it — e.g. if they say "exit fullscreen" and fullscreen=yes, emit exitFullscreen. Editor/fullscreen: enterEdit = open a note in the editor (give its date+id, or omit the id to edit the note that is already fullscreen); enterFullscreen = blow a single note up to fullscreen (date+id, or omit id to fullscreen the note being edited); exitFullscreen = leave fullscreen; closeEditor = close the editor (it autosaves). To edit a note "live in the editor", first enterEdit it (you get ok back), THEN in your next reply use the live-editor actions below. NOTE: expand is a different thing (it zooms the whole DAY column) — for a single note use enterFullscreen, not expand.',
+    'SETTINGS — change any program setting live with setSetting {"action":"setSetting","key":"<key>","value":<value>}: everydayInCal (true/false = show recurring "everyday" notes inside the calendar days), expanded (true/false = day column fills the screen), focusBlur (true/false = dim other notes while hovering one), panelOpen (true/false = the left folders/groups panel), theme ("dark"/"light"), showChat (true/false = the chat panel — careful, false hides yourself), language ("uk"/"en"), colWidth (number of px per day column). The current value of each is in APP STATE, so only change what differs. Example: "show everyday notes in the calendar too" → {"action":"setSetting","key":"everydayInCal","value":true}.',
+    'LEFT PANEL & FOLDERS/GROUPS — openPanel {"action":"openPanel","value":true} opens (false closes) the left side panel that holds the folder/group tree. selectFolder {"action":"selectFolder","id":"<folderId from FOLDERS>"} selects a group so only its notes show (id null = General / show everything); it also opens the panel. Folder ids are in the FOLDERS section above; remember folders are per board, so switch to the right tab (today/everyday/general) first.',
+    'LIVE EDITOR: when the user has a note open you receive an [EDITOR CONTEXT] block with its current HTML and any selected fragment. To change THAT open note, edit it live (no re-save — changes appear in the editor as the user watches): replaceSelection = replace the selected text (e.g. "translate this"/"format this" → put the new html there); appendNote = add content at the end / cursor; setNoteContent = replace the whole note. Pass "html" (rich) or "text". Use these — NOT editNote — while a note is open.',
     'Formatted notes: for rich content pass "html" instead of plain "text" — simple HTML only: <p>, <h1>, <h2>, <strong>, <em>, <u>, <ul>/<ol>/<li>, <br>, and <img src="data:..."> for an inline image. The note renders formatted; the plain version is derived automatically. IMPORTANT: never put HTML tags inside "text" (they would show as literal "<h1>…" text) — use "text" for plain notes and "html" for formatted ones. Works on addNote and editNote.',
     'Everyday weekdays: for a note on the "everyday" board you can restrict which weekdays a timed note fires on with "days" — an array of weekday numbers 0=Sunday,1=Monday,2=Tuesday,3=Wednesday,4=Thursday,5=Friday,6=Saturday. E.g. "only Thursday" → {"action":"addNote","date":"everyday","text":"buy flowers","time":"15:00","days":[4]}; Mon+Wed → "days":[1,3]. Omit "days" = use the global working days. "days" also works on editNote and is ignored on real dated notes.',
     'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',

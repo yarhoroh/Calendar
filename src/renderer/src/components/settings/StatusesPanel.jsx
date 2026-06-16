@@ -23,12 +23,15 @@ export default function StatusesPanel() {
         {statuses.length === 0 && <div className="ai-list__empty">{t('settings.statusesEmpty')}</div>}
         {statuses.map((s) => (
           <div className="ai-list__row status-row" key={s.id}>
-            <input
-              type="color"
-              className="status-color"
-              value={s.color}
-              onChange={(e) => update(s.id, { color: e.target.value })}
-            />
+            <label className="status-swatch" style={{ '--sc': s.color }} title={t('settings.statusColor')}>
+              <span className="status-ring status-ring--custom" />
+              <input
+                type="color"
+                className="status-color"
+                value={s.color}
+                onChange={(e) => update(s.id, { color: e.target.value })}
+              />
+            </label>
             <div className="ai-list__body">
               <input
                 className="ai-add__input"
@@ -49,7 +52,10 @@ export default function StatusesPanel() {
         ))}
       </div>
       <div className="ai-add">
-        <input type="color" className="status-color" value={color} onChange={(e) => setColor(e.target.value)} />
+        <label className="status-swatch" style={{ '--sc': color }} title={t('settings.statusColor')}>
+          <span className="status-ring status-ring--custom" />
+          <input type="color" className="status-color" value={color} onChange={(e) => setColor(e.target.value)} />
+        </label>
         <input
           className="ai-add__input"
           placeholder={t('settings.statusAdd')}

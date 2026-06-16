@@ -111,12 +111,41 @@ export function initDb() {
   } catch {
     // column already exists
   }
+  // one-time migration: existing plain-text notes get an html body so html is
+  // the single source of truth for content going forward (idempotent — only
+  // touches notes that have text but no html yet)
+  try {
+    const rows = db.prepare("SELECT id, text FROM notes WHERE (html IS NULL OR html = '') AND text IS NOT NULL AND text <> ''").all()
+    const esc = (s) =>
+      String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+    const upd = db.prepare('UPDATE notes SET html = ? WHERE id = ?')
+    const tx = db.transaction(() => rows.forEach((r) => upd.run(`<p>${esc(r.text)}</p>`, r.id)))
+    tx()
+  } catch {
+    // ignore migration hiccups
+  }
   // index needs the column to exist first (older DBs add it via the ALTER above)
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id)')
   } catch {
     // ignore
   }
+}
+
+// plain text from an HTML body — html is the single source of truth; `text` is
+// just a derived copy kept for search / the AI
+function plainFromHtml(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|h1|h2|h3|li|div|ul|ol)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function rowToItem(r) {
@@ -154,7 +183,7 @@ export function saveItems(day, items) {
         day: d,
         position: i,
         title: it.title ?? null,
-        text: it.text ?? '',
+        text: it.html ? plainFromHtml(it.html) : it.text ?? '', // keep text in sync with html
         status: it.status ?? 'todo',
         time: it.time ?? null,
         bold: it.bold ? 1 : 0,
@@ -181,7 +210,7 @@ export function itemsWithTime() {
 // compact dump of every note (for giving the AI context to search/answer)
 export function allNotes() {
   return db
-    .prepare('SELECT id, day, title, text, status, time, folder_id FROM notes ORDER BY day, position')
+    .prepare('SELECT id, day, title, text, status, time, folder_id, html FROM notes ORDER BY day, position')
     .all()
 }
 
@@ -189,7 +218,7 @@ export function allNotes() {
 // outside date ranges so they're never included accidentally) — for getNotes
 export function getItemsRange(from, to) {
   return db
-    .prepare('SELECT id, day, title, text, status, time, folder_id FROM notes WHERE day >= ? AND day <= ? ORDER BY day, position')
+    .prepare('SELECT id, day, title, text, status, time, folder_id, html FROM notes WHERE day >= ? AND day <= ? ORDER BY day, position')
     .all(from, to)
 }
 

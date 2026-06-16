@@ -1,11 +1,20 @@
 import api from './api'
 import { newItem } from '../hooks/useDayItems'
+import { getActiveEditor, replaceSelection, appendToNote, setNoteContent } from './activeEditor'
+import { ui } from './uiBridge'
 
 // plain text from an HTML string (for the searchable/AI `text` field)
 const stripHtml = (html) => {
   const d = document.createElement('div')
   d.innerHTML = html || ''
   return (d.textContent || '').trim()
+}
+
+// plain text → safe HTML (escape, keep line breaks) so a text edit updates the view
+const escapeHtml = (text) => {
+  const d = document.createElement('div')
+  d.textContent = text || ''
+  return d.innerHTML.replace(/\n/g, '<br>')
 }
 
 // Pull a ```calendar [...] ``` action block out of the model's reply.
@@ -102,7 +111,9 @@ export async function execAction(a, onCommand, channel) {
           ...it,
           title: a.title !== undefined ? a.title : it.title,
           text: a.html !== undefined ? stripHtml(a.html) : a.text !== undefined ? a.text : it.text,
-          html: a.html !== undefined ? a.html || '' : it.html,
+          // editing text (without html) regenerates html so the view updates;
+          // a rich note edited via plain text becomes plain
+          html: a.html !== undefined ? a.html || '' : a.text !== undefined ? escapeHtml(a.text) : it.html,
           time: a.time !== undefined ? a.time : it.time,
           status: a.status !== undefined ? a.status : it.status,
           folderId: a.folder !== undefined ? a.folder || null : it.folderId,
@@ -134,6 +145,45 @@ export async function execAction(a, onCommand, channel) {
         if (!a.id) return { ok: false, error: 'deleteFolder needs id' }
         const r = await api.deleteFolder?.(a.id)
         return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'delete failed (not empty?)' }
+      }
+      case 'enterEdit': {
+        // open a note in the editor: pass its id (+date) to target it, or omit
+        // the id to edit the note that is currently fullscreen
+        const ok = ui('enterEdit', { id: a.id, day: a.date })
+        return ok ? { ok: true } : { ok: false, error: 'could not enter edit — make sure the note is on screen; pass its id and date' }
+      }
+      case 'enterFullscreen': {
+        const ok = ui('enterFullscreen', { id: a.id, day: a.date })
+        return ok ? { ok: true } : { ok: false, error: 'could not fullscreen — pass the note id (and date), and make sure it is on screen' }
+      }
+      case 'exitFullscreen':
+        ui('exitFullscreen')
+        return { ok: true }
+      case 'closeEditor':
+        ui('closeEditor')
+        return { ok: true }
+      case 'setSetting': {
+        if (!a.key) return { ok: false, error: 'setSetting needs key and value' }
+        const ok = ui('setSetting', { key: a.key, value: a.value })
+        return ok ? { ok: true } : { ok: false, error: `unknown/unsupported setting "${a.key}" or bad value` }
+      }
+      case 'openPanel':
+        ui('openPanel', { value: a.value !== false })
+        return { ok: true }
+      case 'selectFolder': {
+        const ok = ui('selectFolder', { id: a.id ?? null })
+        return ok ? { ok: true } : { ok: false, error: 'could not select folder — is the calendar view open?' }
+      }
+      case 'replaceSelection':
+      case 'appendNote':
+      case 'setNoteContent': {
+        if (!getActiveEditor()) return { ok: false, error: 'no note is open in the editor' }
+        const content = a.html || (a.text != null ? escapeHtml(a.text) : '')
+        if (!content) return { ok: false, error: 'needs html or text' }
+        if (a.action === 'replaceSelection') replaceSelection(content)
+        else if (a.action === 'appendNote') appendToNote(content)
+        else setNoteContent(content)
+        return { ok: true }
       }
       case 'setNoteFolder': {
         if (!a.date || !Array.isArray(a.ids)) return { ok: false, error: 'setNoteFolder needs date and ids' }
@@ -199,7 +249,11 @@ const MAX_ROUNDS = 5
 // model (navigation, voice/toast, reads, model switch). Everything else (note &
 // folder mutations, tasks, memory, attachments) is reported so the model knows
 // it's done/failed and can run the next step of a multi-step task.
-const NO_REPORT = new Set(['goto', 'today', 'everyday', 'general', 'expand', 'speak', 'notify', 'getNotes', 'openFile', 'setModel'])
+const NO_REPORT = new Set([
+  'goto', 'today', 'everyday', 'general', 'expand', 'speak', 'notify', 'getNotes', 'openFile', 'setModel',
+  'replaceSelection', 'appendNote', 'setNoteContent', // live edits are visible in the editor already
+  'exitFullscreen', 'closeEditor', 'openPanel' // UI control; failures are still reported (see needsFollowUp)
+])
 
 // Run the actions the model emitted, then feed the OUTCOME back so it can either
 // continue a multi-step task (e.g. it just created a folder and now needs the new

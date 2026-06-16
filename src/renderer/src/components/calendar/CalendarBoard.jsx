@@ -12,6 +12,7 @@ import { FolderFilterContext } from '../../lib/folderFilter'
 import { CustomStatusesContext } from '../../lib/statuses'
 import { EverydayProjectionContext } from '../../lib/everydayProjection'
 import { FocusNoteContext } from '../../lib/focusNote'
+import { updateUiState, registerUi } from '../../lib/uiBridge'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -33,11 +34,25 @@ const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 // left edge; only the visible columns are rendered and dates are derived on
 // the fly, so you can scroll forever in either direction.
 export default function CalendarBoard({ command }) {
-  const { t, lang } = useI18n()
+  const { t, lang, setLang } = useI18n()
   const { settings, loaded, update } = useCalendarSettings()
   const viewportRef = useRef(null)
 
-  const [today] = useState(() => startOfToday())
+  const [today, setToday] = useState(() => startOfToday())
+  // roll "today" over at midnight so the highlight/columns follow the real date
+  useEffect(() => {
+    let id
+    const schedule = () => {
+      const now = new Date()
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2)
+      id = setTimeout(() => {
+        setToday(startOfToday())
+        schedule()
+      }, nextMidnight - now)
+    }
+    schedule()
+    return () => clearTimeout(id)
+  }, [])
   const [origin, setOriginState] = useState(0)
   const [colWidth, setColWidth] = useState(settings.colWidth)
   const [containerWidth, setContainerWidth] = useState(0)
@@ -91,6 +106,51 @@ export default function CalendarBoard({ command }) {
   const { folders, add: addFolder, rename: renameFolder, move: moveFolder, remove: removeFolder } = useFolders(boardKey)
   const sel = panel.selected ?? null
   const setSel = (id) => updatePanel({ selected: id })
+
+  // publish the current tab + selected folder + the calendar settings so the AI
+  // knows where the user is and what's toggled
+  useEffect(() => {
+    updateUiState({
+      board: boardKey,
+      folder: sel,
+      language: lang,
+      settings: {
+        everydayInCal: !!settings.everydayInCal,
+        expanded: !!settings.expanded,
+        focusBlur: settings.focusBlur !== false,
+        panelOpen: !!panel.open
+      }
+    })
+  }, [boardKey, sel, lang, settings.everydayInCal, settings.expanded, settings.focusBlur, panel.open])
+
+  // let the AI drive calendar settings, language, the side panel and folder
+  // selection in real time
+  const ctrlRef = useRef({})
+  ctrlRef.current = { update, setLang, updatePanel, setSel }
+  useEffect(
+    () =>
+      registerUi((name, arg) => {
+        const { update, setLang, updatePanel, setSel } = ctrlRef.current
+        if (name === 'openPanel') return (updatePanel({ open: arg?.value !== false }), true)
+        if (name === 'selectFolder') {
+          // null = General root (everything); otherwise a folder id from FOLDERS
+          setSel(arg?.id ?? null)
+          updatePanel({ open: true })
+          return true
+        }
+        if (name !== 'setSetting') return undefined
+        const { key, value } = arg || {}
+        if (key === 'language') return value === 'uk' || value === 'en' ? (setLang(value), true) : undefined
+        if (key === 'panelOpen') return (updatePanel({ open: !!value }), true)
+        if (key === 'everydayInCal' || key === 'expanded' || key === 'focusBlur') return (update({ [key]: !!value }), true)
+        if (key === 'colWidth') {
+          const n = Number(value)
+          return Number.isFinite(n) ? (update({ colWidth: n }), true) : undefined
+        }
+        return undefined
+      }),
+    []
+  )
 
   // selected folder + all its descendants → the set of folders to show
   // (null = General root → show everything)

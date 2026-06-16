@@ -38,6 +38,7 @@ export default function ItemEditor({
   const [time, setTime] = useState(initialTime)
   const [days, setDays] = useState(initialDays) // everyday-board weekdays (null = working days)
   const [remOpen, setRemOpen] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false) // delete confirmation
   const [menu, setMenu] = useState(null) // right-click menu state
   const ref = useAutosizeTextarea(text, 1000) // grow to full content like the view (no early cap)
   const remBtnRef = useRef(null)
@@ -131,6 +132,12 @@ export default function ItemEditor({
     const tt = title.trim()
     if (!tt && !text.trim()) onDelete()
     else onSave({ title: tt, text, bold, italic, size, time, days })
+  }
+
+  // explicit delete: confirm first unless the note is empty (nothing to lose)
+  const askDelete = () => {
+    if (!title.trim() && !text.trim()) onDelete()
+    else setConfirmDel(true)
   }
 
   const onBlur = (e) => {
@@ -237,7 +244,7 @@ export default function ItemEditor({
         <button className="item-editor__btn item-editor__btn--save" onMouseDown={noBlur(commit)}>
           <CheckIcon />
         </button>
-        <button className="item-editor__btn item-editor__btn--del" onMouseDown={noBlur(onDelete)}>
+        <button className="item-editor__btn item-editor__btn--del" onMouseDown={noBlur(askDelete)}>
           <CloseIcon />
         </button>
       </div>
@@ -285,6 +292,22 @@ export default function ItemEditor({
         >
           ⛶
         </button>
+      )}
+
+      {confirmDel && (
+        <div className="item-editor__confirm" onMouseDown={(e) => e.preventDefault()}>
+          <div className="item-editor__confirm-box">
+            <span className="item-editor__confirm-text">{t('items.deleteConfirm')}</span>
+            <div className="item-editor__confirm-actions">
+              <button className="btn btn--danger" onMouseDown={noBlur(onDelete)}>
+                {t('items.yes')}
+              </button>
+              <button className="btn" onMouseDown={noBlur(() => setConfirmDel(false))}>
+                {t('items.no')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

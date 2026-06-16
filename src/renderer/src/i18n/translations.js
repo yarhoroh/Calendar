@@ -46,6 +46,9 @@ export const translations = {
       clearReminder: 'Clear reminder',
       expand: 'Fullscreen',
       close: 'Close',
+      deleteConfirm: 'Delete this note?',
+      yes: 'Yes',
+      no: 'No',
       status: { todo: 'To do', doing: 'In progress', done: 'Done', cancelled: 'Cancelled' }
     },
     chat: { clear: 'Clear context', ready: 'AI ready', starting: 'Starting AI…', offline: 'AI not found' },
@@ -150,6 +153,9 @@ export const translations = {
       clearReminder: 'Прибрати нагадування',
       expand: 'На весь екран',
       close: 'Закрити',
+      deleteConfirm: 'Видалити цю нотатку?',
+      yes: 'Так',
+      no: 'Ні',
       status: { todo: 'Не виконано', doing: 'В роботі', done: 'Виконано', cancelled: 'Скасовано' }
     },
     chat: { clear: 'Очистити контекст', ready: 'AI готовий', starting: 'Запуск AI…', offline: 'AI не знайдено' },

@@ -28,6 +28,40 @@
   color: var(--accent);
 }
 
+/* delete confirmation over the editor */
+.item-editor__confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border-radius: 8px;
+}
+
+.item-editor__confirm-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.item-editor__confirm-text {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.item-editor__confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .item-editor__title {
   border: none;
   outline: none;

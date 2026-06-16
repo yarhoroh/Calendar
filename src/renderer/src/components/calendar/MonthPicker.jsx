@@ -9,7 +9,10 @@ const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1)
 
 // Popover month grid. Click a day → onPick(date). Closes on outside click.
 export default function MonthPicker({ selected, today, onPick, onClose }) {
-  const [view, setView] = useState(() => startOfMonth(selected))
+  // guard against an invalid `selected` (e.g. origin went NaN) so the grid and
+  // month label never crash on "Invalid time value"
+  const sel = Number.isFinite(+selected) ? selected : today
+  const [view, setView] = useState(() => startOfMonth(sel))
   const ref = useRef(null)
 
   useEffect(() => {
@@ -62,7 +65,7 @@ export default function MonthPicker({ selected, today, onPick, onClose }) {
             'month-picker__day' +
             (out ? ' month-picker__day--out' : '') +
             (sameDay(d, today) ? ' month-picker__day--today' : '') +
-            (sameDay(d, selected) ? ' month-picker__day--sel' : '')
+            (sameDay(d, sel) ? ' month-picker__day--sel' : '')
           return (
             <button key={i} className={cls} onClick={() => onPick(d)}>
               {d.getDate()}

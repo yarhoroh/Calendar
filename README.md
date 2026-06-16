@@ -26,8 +26,9 @@ locally, no cloud.
 - **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses.
 - **Statuses, incl. custom** — built-in To do / In progress / Done, plus your own custom statuses (name + colour) managed in Settings and stored in the database; pick any status on notes across every board.
 - **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
-- **"Every day" board** — recurring notes shown on every day.
+- **"Every day" board** — recurring notes shown on every day. Per note you can pick **which weekdays** it fires on (weekday squares in the time popover, defaulting to your working days; the chosen days show as a tooltip on the note's time). Toggle the checkbox next to **Every day** to also project these notes onto the matching weekday columns in the calendar.
 - **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
+- **Per-day sort** — click a day's header to cycle its note order: manual → by time ↑ → by time ↓ (saved per day).
 - **Folder trees & a side panel** — a left panel (per board: Today / Every day / General) that **collapses to a single button, pins** (pushes the content) or **floats** over it (a floating panel closes when you click outside it), and **resizes** by dragging — all of it (open/pinned/width and the selected folder) is remembered per tab. Inside it you build a **folder tree**: create / rename / move (reparent) / delete folders, **drag a note onto a folder** to file it there, and **select a folder to filter** the notes (the calendar too) — it shows that folder and everything nested; the always-present **General** root shows all. A folder can't be deleted until its notes/subfolders are moved out. Each note shows its folder's name in the corner.
 - **File attachments** — attach multiple files to any note via the paperclip, or **drag-and-drop from the desktop**; click a file to open it in its default app (Word/Excel/PDF/…). Files are linked by path, so edits stay in the original.
 - **Reminders** — set a time on a note; when it's due a toast pops up in a separate window (with sound), clicking it opens that day.
@@ -57,8 +58,8 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 - **Image understanding** — send a photo (with a caption) from Telegram, or **paste / drag-and-drop / attach** an image in the in-app chat, and the assistant sees it (vision on Claude, Gemini and Codex). Pasted images show removable thumbnail previews before sending.
 - **Chat context persists** when you switch to Settings and back — cleared only when you clear it.
 
-### 🔊 Voice (TTS) — built-in, offline
-- **Piper** engine bundled into the app (no Python), voices for **🇺🇦 / 🇷🇺 / 🇬🇧**.
+### 🔊 Voice (TTS)
+- Two engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**) or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
 - The assistant **decides when to speak** (only when you ask) and in which language.
 - **Playback queue** — phrases don't interrupt each other.
 - **Audio server** on `127.0.0.1:51273` — any local process/agent can send text to be spoken:

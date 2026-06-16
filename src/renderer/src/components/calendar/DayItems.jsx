@@ -2,6 +2,8 @@ import { memo, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { useFolderFilter } from '../../lib/folderFilter'
+import { useEverydayProjection } from '../../lib/everydayProjection'
+import { parseKey } from '../../lib/dates'
 import { loadFormat } from '../../lib/itemFormat'
 import DayItem from './DayItem'
 import ItemEditor from './ItemEditor'
@@ -10,12 +12,25 @@ import './DayItems.css'
 const NOTE = 'application/x-note'
 const isDated = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k)
 
+// HH:mm of a note's time (handles old full datetimes); null = no time
+const timeOf = (it) => (it.time ? (it.time.includes('T') ? it.time.split('T')[1] : it.time) : null)
+// sort by time; untimed notes sink to the bottom in either direction
+const byTime = (mode) => (a, b) => {
+  const ta = timeOf(a)
+  const tb = timeOf(b)
+  if (ta === tb) return 0
+  if (ta == null) return 1
+  if (tb == null) return -1
+  return mode === 'desc' ? tb.localeCompare(ta) : ta.localeCompare(tb)
+}
+
 // Notes of one day. One editor slot at a time. Drag-and-drop reorders notes
 // within the day and moves them between day columns; a placeholder shows where
 // the dragged note will land.
-function DayItems({ dayKey }) {
+function DayItems({ dayKey, sort }) {
   const { items, add, update, remove, moveToIndex, insertAt } = useDayItems(dayKey)
   const { visibleIds, activeId } = useFolderFilter()
+  const proj = useEverydayProjection()
   const [editingId, setEditingId] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
   const [overAt, setOverAt] = useState(-1) // insertion index for the placeholder
@@ -89,10 +104,50 @@ function DayItems({ dayKey }) {
   // when a folder is selected, show only notes in it (or its subtree); rows keep
   // their FULL-array index so reorder/drag math stays correct
   const visible = visibleIds ? items.filter((it) => visibleIds.has(it.folderId || null)) : items
+
+  // everyday notes shown as extra notes in the day's list when the calendar
+  // "every day" toggle is on. A note's active weekdays are its own `days`, or —
+  // if it has none — the global working days from settings.
+  const everydayMatches =
+    proj.enabled && isDated(dayKey)
+      ? proj.items.filter((it) => {
+          const eff = Array.isArray(it.days) && it.days.length ? it.days : proj.workingDays
+          return eff?.includes(parseKey(dayKey).getDay())
+        })
+      : []
+
+  // own notes + projected everyday matches, sorted together by time when a sort
+  // mode is on. By-time sort is display-only; data-index still points at the
+  // stored array, and placeholders/reorder apply to own notes in manual mode only.
+  const ownEntries = visible.map((it) => ({ it, projected: false }))
+  const projEntries = everydayMatches.map((it) => ({ it, projected: true }))
+  const entries = sort
+    ? [...ownEntries, ...projEntries].sort((a, b) => byTime(sort)(a.it, b.it))
+    : [...ownEntries, ...projEntries]
   const rows = []
-  visible.forEach((it) => {
+  entries.forEach(({ it, projected }) => {
+    if (projected) {
+      rows.push(
+        <div className="day-items__row" key={'ev-' + it.id}>
+          <DayItem
+            item={it}
+            dayKey="everyday"
+            plain={false}
+            noStatus={false}
+            dragging={false}
+            projected
+            onEdit={proj.openEveryday}
+            onUpdate={proj.update}
+            onRemove={proj.remove}
+            onDragStart={() => {}}
+            onDragEnd={() => {}}
+          />
+        </div>
+      )
+      return
+    }
     const i = items.indexOf(it)
-    if (overAt === i) rows.push(ph('ph-' + i))
+    if (!sort && overAt === i) rows.push(ph('ph-' + i))
     rows.push(
       <div className="day-items__row" data-index={i} key={it.id}>
         {editingId === it.id ? (
@@ -142,7 +197,7 @@ function DayItems({ dayKey }) {
       </div>
     )
   })
-  if (overAt >= items.length && overAt !== -1) rows.push(ph('ph-end'))
+  if (!sort && overAt >= items.length && overAt !== -1) rows.push(ph('ph-end'))
 
   return (
     <div

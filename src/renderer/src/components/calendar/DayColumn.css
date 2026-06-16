@@ -11,6 +11,7 @@
 }
 
 .day-col__head {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -21,6 +22,27 @@
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
+  cursor: pointer;
+}
+
+/* sort-mode indicator; the whole header is the click target (cycles the mode) */
+.day-col__sort {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.day-col__sort--on {
+  opacity: 1;
+}
+
+.day-col__head--today .day-col__sort {
+  color: #fff;
 }
 
 .day-col__meta {

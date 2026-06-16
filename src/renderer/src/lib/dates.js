@@ -74,6 +74,9 @@ export function dateNumeric(d) {
 }
 
 export const weekday = (d) => wkShort.format(d)
+// 2-letter weekday name for a getDay() index (0=Sun .. 6=Sat). Trimmed to two
+// chars so English ("Mon") matches the Ukrainian 2-letter form ("пн").
+export const weekdayShort = (idx) => wkShort.format(new Date(2024, 0, 7 + idx)).slice(0, 2)
 export const monthShort = (d) => moShort.format(d)
 export const dayNum = (d) => d.getDate()
 export const monthLabel = (d) => moLong.format(d)

@@ -25,7 +25,8 @@ export function initDb() {
       italic INTEGER,
       size INTEGER,
       collapsed INTEGER,
-      folder_id TEXT
+      folder_id TEXT,
+      days TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(day);
     CREATE INDEX IF NOT EXISTS idx_notes_time ON notes(time);
@@ -99,6 +100,11 @@ export function initDb() {
   } catch {
     // column already exists
   }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN days TEXT')
+  } catch {
+    // column already exists
+  }
   // index needs the column to exist first (older DBs add it via the ALTER above)
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id)')
@@ -118,7 +124,8 @@ function rowToItem(r) {
     italic: !!r.italic,
     size: r.size || 1,
     collapsed: !!r.collapsed,
-    folderId: r.folder_id || null
+    folderId: r.folder_id || null,
+    days: r.days ? r.days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null
   }
 }
 
@@ -129,8 +136,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -147,7 +154,8 @@ export function saveItems(day, items) {
         italic: it.italic ? 1 : 0,
         size: it.size || 1,
         collapsed: it.collapsed ? 1 : 0,
-        folder_id: it.folderId ?? null
+        folder_id: it.folderId ?? null,
+        days: Array.isArray(it.days) && it.days.length ? it.days.join(',') : null
       })
     )
   })

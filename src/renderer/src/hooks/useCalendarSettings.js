@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import api from '../lib/api'
 
-const DEFAULTS = { colWidth: 240, expanded: false, panels: {} }
+const DEFAULTS = { colWidth: 240, expanded: false, panels: {}, everydayInCal: false, daySort: {} }
 
 // Loads persisted calendar settings (column width, expanded mode) and persists
 // every change back through the IPC bridge.

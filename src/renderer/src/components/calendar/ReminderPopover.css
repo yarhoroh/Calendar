@@ -22,6 +22,39 @@
   padding: 6px 8px;
 }
 
+.reminder-pop__days {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* both rows share a 4-column grid → every button is the same width
+   (row 1 = 3 buttons + one empty cell, row 2 = 4 buttons) */
+.reminder-pop__days-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.reminder-pop__day {
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.reminder-pop__day--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .reminder-pop__clear {
   border: none;
   background: transparent;

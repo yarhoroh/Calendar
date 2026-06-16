@@ -3,7 +3,10 @@ import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { useFolderFilter } from '../../lib/folderFilter'
 import { BUILTIN_SET, useCustomStatuses } from '../../lib/statuses'
+import { weekdayShort } from '../../lib/dates'
 import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
+
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] // Mon … Sun for display
 import StatusMenu from './StatusMenu'
 import ReminderPopover from './ReminderPopover'
 import AttachmentsPopover from './AttachmentsPopover'
@@ -18,6 +21,7 @@ export default function DayItem({
   plain,
   noStatus,
   dragging,
+  projected,
   onEdit,
   onUpdate,
   onRemove,
@@ -35,6 +39,17 @@ export default function DayItem({
   const [attachCount, setAttachCount] = useState(0)
   const [fileOver, setFileOver] = useState(false)
   const [menu, setMenu] = useState(null) // {x,y} for the right-click menu
+  const [workingDays, setWorkingDays] = useState([1, 2, 3, 4, 5])
+
+  const isEveryday = dayKey === 'everyday'
+  // which weekdays this everyday note is active on — its own `days`, else the
+  // global working days (the default shown pre-selected in the picker)
+  const effDays = item.days && item.days.length ? item.days : workingDays
+
+  useEffect(() => {
+    if (!isEveryday) return
+    Promise.resolve(api.getWorkingDays?.()).then((d) => Array.isArray(d) && setWorkingDays(d))
+  }, [isEveryday])
 
   const copyNote = () => {
     const txt = (item.title ? item.title + '\n' : '') + (item.text || '')
@@ -68,8 +83,16 @@ export default function DayItem({
       when,
       dayKey,
       title: item.title || 'Calendar',
-      body: item.text || ''
+      body: item.text || '',
+      days: isEveryday ? effDays : undefined
     })
+  }
+
+  // change which weekdays an everyday note fires on; reschedule if it has a time
+  const setDays = (next) => {
+    onUpdate(item.id, { days: next })
+    if (item.time)
+      api.setReminder?.({ id: item.id, when: item.time, dayKey, title: item.title || 'Calendar', body: item.text || '', days: next })
   }
   const clearTime = () => {
     onUpdate(item.id, { time: null })
@@ -85,7 +108,7 @@ export default function DayItem({
         (fileOver ? ' day-item--drop' : '') +
         (dragging ? ' day-item--dragging' : '')
       }
-      draggable
+      draggable={!projected}
       onDragStart={(e) => onDragStart(e, item)}
       onDragEnd={onDragEnd}
       onDragOver={(e) => {
@@ -123,7 +146,10 @@ export default function DayItem({
         {!plain && (
         <div className="day-item__ctrl day-item__ctrl--rem">
           {item.time && (
-            <span className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}>
+            <span
+              className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}
+              title={isEveryday ? WEEK_ORDER.filter((d) => effDays.includes(d)).map((d) => weekdayShort(d)).join('\n') : undefined}
+            >
               {item.time.split('T')[1] || item.time}
             </span>
           )}
@@ -143,6 +169,9 @@ export default function DayItem({
               anchorRef={remBtnRef}
               value={item.time}
               timeOnly={dayKey === 'everyday'}
+              showDays={isEveryday}
+              days={effDays}
+              onDays={setDays}
               onChange={setTime}
               onClear={clearTime}
               onClose={() => setReminderOpen(false)}

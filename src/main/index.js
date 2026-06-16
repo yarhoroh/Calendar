@@ -8,7 +8,7 @@ import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram } from './telegram'
-import { initTts, speak } from './tts'
+import { initTts, speak, setTtsEngine } from './tts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -364,8 +364,8 @@ function scheduleStoredReminders() {
 }
 
 // ---- reminders & notifications (see ./notify) --------------------------
-ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body }) => {
-  setReminder({ id, dayKey, title: title || 'Calendar', body: body || '' }, when)
+ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body, days }) => {
+  setReminder({ id, dayKey, title: title || 'Calendar', body: body || '', days }, when)
 })
 ipcMain.on('reminder:clear', (_e, id) => clearReminder(id))
 ipcMain.on('notify:resize', (_e, height) => resizeToContent(height))
@@ -595,6 +595,12 @@ ipcMain.handle('ai:clear', () => {
 
 // ---- text-to-speech ----------------------------------------------------
 ipcMain.handle('tts:speak', (_e, payload) => speak(payload))
+ipcMain.handle('settings:get-tts-engine', () => loadSettings().ttsEngine || 'piper')
+ipcMain.on('settings:set-tts-engine', (_e, engine) => {
+  const s = loadSettings()
+  s.ttsEngine = engine === 'windows' ? 'windows' : 'piper'
+  saveSettings(s)
+})
 // silent text notification (toast near the clock, no voice)
 ipcMain.on('notify:push', (_e, text) => pushMessage({ title: 'Calendar', body: String(text || '') }))
 
@@ -627,6 +633,7 @@ if (!gotLock) {
     })
     scheduleAllAiTasks()
     initTts({ getMain: () => mainWindow })
+    setTtsEngine(() => loadSettings().ttsEngine || 'piper')
     startTtsServer()
     syncTelegram()
     warmAi(loadSettings().ai || 'gemini')

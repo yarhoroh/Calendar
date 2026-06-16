@@ -1,12 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n } from '../../i18n/I18nContext'
+import { weekdayShort } from '../../lib/dates'
 import TimePicker from './TimePicker'
 import './ReminderPopover.css'
 
+const ORDER = [1, 2, 3, 4, 5, 6, 0] // Mon … Sun (0 = Sunday)
+
 // Portal popover with a custom 24h time picker. The reminder is just a time —
-// the date is the note's own day (or recurring for the "every day" board).
-export default function ReminderPopover({ anchorRef, value, onChange, onClear, onClose }) {
+// the date is the note's own day (or recurring for the "every day" board). For
+// the everyday board it also shows weekday squares (which days it fires on).
+export default function ReminderPopover({ anchorRef, value, onChange, onClear, onClose, showDays, days, onDays }) {
   const { t } = useI18n()
   const ref = useRef(null)
   const [pos, setPos] = useState(null)
@@ -36,6 +40,30 @@ export default function ReminderPopover({ anchorRef, value, onChange, onClear, o
   return createPortal(
     <div className="reminder-pop" ref={ref} style={{ top: pos.top, left: pos.left }}>
       <TimePicker value={value} onChange={onChange} />
+      {showDays && (
+        <div className="reminder-pop__days">
+          {[ORDER.slice(0, 3), ORDER.slice(3)].map((row, ri) => (
+            <div className="reminder-pop__days-row" key={ri}>
+              {row.map((idx) => (
+                <button
+                  key={idx}
+                  className={'reminder-pop__day' + ((days || []).includes(idx) ? ' reminder-pop__day--on' : '')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() =>
+                    onDays?.(
+                      (days || []).includes(idx)
+                        ? (days || []).filter((d) => d !== idx)
+                        : [...(days || []), idx].sort((a, b) => a - b)
+                    )
+                  }
+                >
+                  {weekdayShort(idx)}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
       {value && (
         <button
           className="reminder-pop__clear"

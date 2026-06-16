@@ -36,7 +36,7 @@ export const translations = {
       attachImage: 'Attach image',
       removeImage: 'Remove image'
     },
-    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General' },
+    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General', everydayInCal: 'Show weekday "every day" notes on the calendar' },
     items: {
       placeholder: 'Write a note…',
       titlePlaceholder: 'Title',
@@ -66,8 +66,10 @@ export const translations = {
       reminderSound: 'Notification sound',
       showChat: 'Show chat field',
       voice: 'Voice',
-      voiceDesc: 'Local text-to-speech (Piper). The AI and reminders can speak.',
+      voiceDesc: 'Text-to-speech engine. The AI and reminders can speak.',
       voiceTest: 'Test',
+      voice_piper: 'Built-in',
+      voice_windows: 'Windows',
       workingDays: 'Working days',
       workingDaysDesc: '"Every day" reminders fire only on these days.',
       aiConfigFile: 'AI config file',
@@ -134,7 +136,7 @@ export const translations = {
       attachImage: 'Додати зображення',
       removeImage: 'Прибрати зображення'
     },
-    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні' },
+    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні', everydayInCal: 'Показувати «щоденні» нотатки з днями тижня в календарі' },
     items: {
       placeholder: 'Напишіть нотатку…',
       titlePlaceholder: 'Заголовок',
@@ -164,8 +166,10 @@ export const translations = {
       reminderSound: 'Звук сповіщення',
       showChat: 'Показувати поле чату',
       voice: 'Голос',
-      voiceDesc: 'Локальна озвучка (Piper). AI та нагадування можуть говорити.',
+      voiceDesc: 'Рушій озвучки. AI та нагадування можуть говорити.',
       voiceTest: 'Перевірити',
+      voice_piper: 'Вбудований',
+      voice_windows: 'Windows',
       workingDays: 'Робочі дні',
       workingDaysDesc: 'Нагадування «кожен день» спрацьовують лише в ці дні.',
       aiConfigFile: 'Файл конфігу AI',

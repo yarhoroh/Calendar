@@ -80,6 +80,8 @@ const api = {
   revealAiConfig: () => ipcRenderer.invoke('aiConfig:reveal'),
   setModel: (model, reasoning) => ipcRenderer.invoke('ai:set-model', { model, reasoning }),
   ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
+  getTtsEngine: () => ipcRenderer.invoke('settings:get-tts-engine'),
+  setTtsEngine: (engine) => ipcRenderer.send('settings:set-tts-engine', engine),
   notify: (text) => ipcRenderer.send('notify:push', text),
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { spawn } from 'child_process'
 import { join } from 'path'
-import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 
 // Embedded text-to-speech: bundled standalone piper.exe (no Python) synthesizes
 // a WAV from text, which the renderer plays. The voice is chosen per language so
@@ -33,7 +33,79 @@ export function initTts(opts) {
   getMain = opts.getMain
 }
 
+// which engine to speak with: 'piper' (bundled, offline) or 'windows' (system SAPI)
+let resolveEngine = () => 'piper'
+export function setTtsEngine(fn) {
+  if (typeof fn === 'function') resolveEngine = fn
+}
+
 let seq = 0
+
+// Synthesize with the built-in Windows voices (System.Speech / SAPI) to a WAV,
+// so it plays through the same renderer path as Piper (interruption, queue).
+// preferred voice cultures per language, with fallbacks. uk has no system voice
+// on most machines → fall back to the Russian voice (Cyrillic, intelligible)
+// rather than an English one that can't read it.
+const CULTURES = { uk: ['uk-UA', 'ru-RU'], ru: ['ru-RU'], en: ['en-US', 'en-GB'] }
+function synthWindows(text, lang) {
+  return new Promise((resolve, reject) => {
+    const out = join(app.getPath('temp'), `cal-tts-${process.pid}-${seq++}.wav`)
+    const txt = join(app.getPath('temp'), `cal-tts-${process.pid}-${seq++}.txt`)
+    const cultures = CULTURES[lang] || CULTURES.uk
+    const psList = cultures.map((c) => `'${c}'`).join(',')
+    try {
+      writeFileSync(txt, text, 'utf8')
+    } catch (e) {
+      return reject(e)
+    }
+    // single-quoted PS strings are literal — raw Windows paths need no escaping.
+    // Try each preferred culture; keep the first that an installed voice matches.
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      'Add-Type -AssemblyName System.Speech',
+      '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer',
+      '$s.Rate = 2', // ~20% faster than the default speaking rate
+      `foreach ($c in @(${psList})) { try { $s.SelectVoiceByHints('NotSet','NotSet',0,(New-Object System.Globalization.CultureInfo($c))) } catch {}; if ($s.Voice.Culture.Name -eq $c) { break } }`,
+      `$s.SetOutputToWaveFile('${out}')`,
+      `$t = [System.IO.File]::ReadAllText('${txt}', [System.Text.Encoding]::UTF8)`,
+      '$s.Speak($t)',
+      '$s.Dispose()'
+    ].join('\n')
+
+    const done = (err, buf) => {
+      try {
+        unlinkSync(txt)
+      } catch {
+        // ignore
+      }
+      err ? reject(err) : resolve(buf)
+    }
+
+    let child
+    try {
+      child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+        windowsHide: true
+      })
+    } catch (e) {
+      return done(e)
+    }
+    child.stderr?.on('data', () => {})
+    child.on('error', done)
+    child.on('close', (code) => {
+      if (existsSync(out)) {
+        try {
+          const buf = readFileSync(out)
+          unlinkSync(out)
+          done(null, buf)
+        } catch (e) {
+          done(e)
+        }
+      } else {
+        done(new Error(`windows tts exit ${code}`))
+      }
+    })
+  })
+}
 
 // Synthesize `text` in `lang`, resolving to the WAV bytes.
 function synth(text, lang) {
@@ -84,7 +156,8 @@ export async function speak({ text, lang } = {}) {
   const t = (text || '').trim()
   if (!t) return { ok: false, error: 'empty text' }
   try {
-    const wav = await synth(t, lang || 'uk')
+    const engine = resolveEngine?.() || 'piper'
+    const wav = engine === 'windows' ? await synthWindows(t, lang || 'uk') : await synth(t, lang || 'uk')
     getMain()?.webContents?.send('tts:play', { id: ++seq, wav: wav.toString('base64') })
     return { ok: true }
   } catch (e) {

@@ -1,14 +1,6 @@
 import api from './api'
 import { newItem } from '../hooks/useDayItems'
 
-// Show the board/day a mutated note lives on.
-const navTo = (onCommand, date) =>
-  date === 'everyday'
-    ? onCommand?.({ kind: 'everyday' })
-    : date === 'general'
-      ? onCommand?.({ kind: 'general' })
-      : onCommand?.({ kind: 'goto', date })
-
 // Pull a ```calendar [...] ``` action block out of the model's reply.
 export function extractActions(text) {
   const m = text.match(/```calendar\s*([\s\S]*?)```/i)
@@ -80,11 +72,11 @@ export async function execAction(a, onCommand, channel) {
       case 'addReminder': {
         if (!a.date) return { ok: false, error: 'addNote needs a date' }
         const arr = (await api.getItems?.(a.date)) || []
-        const item = { ...newItem(a.text || ''), title: a.title || null, time: a.time || null, folderId: a.folder || null }
+        const days = Array.isArray(a.days) ? a.days : null // weekdays for everyday notes
+        const item = { ...newItem(a.text || ''), title: a.title || null, time: a.time || null, folderId: a.folder || null, days }
         api.saveItems?.(a.date, [...arr, item])
         if (a.time)
-          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: a.text || '' })
-        navTo(onCommand, a.date)
+          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: a.text || '', days })
         return { ok: true, result: { id: item.id } }
       }
       case 'edit':
@@ -102,16 +94,14 @@ export async function execAction(a, onCommand, channel) {
           text: a.text !== undefined ? a.text : it.text,
           time: a.time !== undefined ? a.time : it.time,
           status: a.status !== undefined ? a.status : it.status,
-          folderId: a.folder !== undefined ? a.folder || null : it.folderId
+          folderId: a.folder !== undefined ? a.folder || null : it.folderId,
+          days: a.days !== undefined ? (Array.isArray(a.days) ? a.days : null) : it.days
         }
         arr[idx] = patched
         api.saveItems?.(a.date, arr)
-        if (a.time !== undefined) {
-          if (a.time)
-            api.setReminder?.({ id: it.id, when: a.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '' })
-          else api.clearReminder?.(it.id)
-        }
-        navTo(onCommand, a.date)
+        if (patched.time)
+          api.setReminder?.({ id: it.id, when: patched.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '', days: patched.days })
+        else if (a.time !== undefined) api.clearReminder?.(it.id)
         return { ok: true }
       }
       case 'addFolder': {
@@ -142,7 +132,6 @@ export async function execAction(a, onCommand, channel) {
           a.date,
           arr.map((it) => (a.ids.includes(it.id) ? { ...it, folderId } : it))
         )
-        navTo(onCommand, a.date)
         return { ok: true }
       }
       case 'addStatus': {
@@ -167,7 +156,6 @@ export async function execAction(a, onCommand, channel) {
           a.date,
           arr.map((it) => (a.ids.includes(it.id) ? { ...it, status: a.status } : it))
         )
-        navTo(onCommand, a.date)
         return { ok: true }
       }
       case 'reorder': {
@@ -177,7 +165,6 @@ export async function execAction(a, onCommand, channel) {
         const ordered = a.ids.map((id) => byId.get(id)).filter(Boolean)
         const rest = arr.filter((it) => !a.ids.includes(it.id))
         api.saveItems?.(a.date, [...ordered, ...rest])
-        navTo(onCommand, a.date)
         return { ok: true }
       }
       case 'delete': {
@@ -186,7 +173,6 @@ export async function execAction(a, onCommand, channel) {
         const kept = arr.filter((it) => !a.ids.includes(it.id))
         a.ids.forEach((id) => api.clearReminder?.(id))
         api.saveItems?.(a.date, kept)
-        navTo(onCommand, a.date)
         return { ok: true }
       }
       default:

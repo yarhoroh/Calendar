@@ -45,6 +45,39 @@
   background: var(--active);
   color: var(--text);
 }
+
+/* toggle: project everyday-by-weekday notes onto the calendar */
+.cal-everyday-check {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 0 4px 0 -2px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cal-everyday-check:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* white checkmark drawn on the green fill */
+.cal-everyday-check:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .cal-btn--droptarget {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;

@@ -70,10 +70,11 @@ function nextDaily(hh, mm) {
 }
 
 // fires every day at hh:mm (used for the "every day" virtual day), but only on
-// the configured working days — non-working days are skipped (still rescheduled)
+// the active weekdays — the note's own `days` if set, otherwise the globally
+// configured working days. Non-active days are skipped (still rescheduled).
 function scheduleDaily(payload, hh, mm) {
   const tick = () => {
-    const wd = opts.getWorkingDays?.()
+    const wd = payload.days && payload.days.length ? payload.days : opts.getWorkingDays?.()
     if (!wd || wd.includes(new Date().getDay())) send(payload)
     timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
   }
@@ -109,7 +110,7 @@ export function scheduleAll(map) {
   for (const key of Object.keys(map)) {
     for (const it of map[key]) {
       if (it.time) {
-        setReminder({ id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text) }, it.time)
+        setReminder({ id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text), days: it.days }, it.time)
       }
     }
   }

@@ -6,8 +6,11 @@ import SidePanel from '../SidePanel'
 import FolderTree from '../FolderTree'
 import { useFolders } from '../../hooks/useFolders'
 import { useStatuses } from '../../hooks/useStatuses'
+import { useDayItems } from '../../hooks/useDayItems'
+import api from '../../lib/api'
 import { FolderFilterContext } from '../../lib/folderFilter'
 import { CustomStatusesContext } from '../../lib/statuses'
+import { EverydayProjectionContext } from '../../lib/everydayProjection'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -108,6 +111,40 @@ export default function CalendarBoard({ command }) {
   }, [sel, folders])
 
   const { statuses: customStatuses } = useStatuses()
+
+  // everyday notes, projected onto matching calendar days when the toggle is on.
+  // a note with no explicit `days` falls back to the global working days.
+  const everyday = useDayItems('everyday')
+  const [workingDays, setWorkingDays] = useState([1, 2, 3, 4, 5])
+  useEffect(() => {
+    Promise.resolve(api.getWorkingDays?.()).then((d) => Array.isArray(d) && setWorkingDays(d))
+  }, [])
+  const everydayValue = useMemo(
+    () => ({
+      enabled: !!settings.everydayInCal && !virtual,
+      items: everyday.items,
+      workingDays,
+      update: everyday.update,
+      remove: everyday.remove,
+      openEveryday: () => setBoard('everyday')
+    }),
+    [settings.everydayInCal, virtual, everyday.items, workingDays, everyday.update, everyday.remove]
+  )
+
+  // per-day note sort mode (undefined = manual order, 'asc'/'desc' = by time)
+  const daySort = settings.daySort || {}
+  const daySortRef = useRef(daySort)
+  daySortRef.current = daySort
+  const setDaySort = useCallback(
+    (key, mode) => {
+      const next = { ...daySortRef.current }
+      if (!mode || mode === 'default') delete next[key]
+      else next[key] = mode
+      update({ daySort: next })
+    },
+    [update]
+  )
+
   const folderNames = useMemo(() => Object.fromEntries(folders.map((f) => [f.id, f.name])), [folders])
   const filterValue = useMemo(
     () => ({ visibleIds, names: folderNames, activeId: sel }),
@@ -142,6 +179,7 @@ export default function CalendarBoard({ command }) {
   const effW = () => (expandedRef.current ? viewportRef.current?.clientWidth || colWidthRef.current : colWidthRef.current)
 
   const animateOrigin = (target, duration, from = originRef.current) => {
+    if (!Number.isFinite(target)) return // ignore bad dates (e.g. an unparseable goto) so origin never goes NaN
     cancelAnimationFrame(rafRef.current)
     const dist = target - from
     if (Math.abs(dist) < 0.0005) {
@@ -356,6 +394,13 @@ export default function CalendarBoard({ command }) {
         >
           {t('calendar.everyday')}
         </button>
+        <input
+          type="checkbox"
+          className="cal-everyday-check"
+          checked={!!settings.everydayInCal}
+          onChange={(e) => update({ everydayInCal: e.target.checked })}
+          title={t('calendar.everydayInCal')}
+        />
         <button
           className={
             'cal-btn' +
@@ -389,6 +434,7 @@ export default function CalendarBoard({ command }) {
 
       <FolderFilterContext.Provider value={filterValue}>
       <CustomStatusesContext.Provider value={customStatuses}>
+      <EverydayProjectionContext.Provider value={everydayValue}>
       <div className="calendar-board__body">
         <SidePanel state={panel} onChange={updatePanel}>
           <FolderTree
@@ -424,6 +470,8 @@ export default function CalendarBoard({ command }) {
                   isWeekend={isWeekend(date)}
                   isActive={activeTs === date.getTime()}
                   resizable={!expanded}
+                  sort={daySort[dateKey(date)]}
+                  onSort={setDaySort}
                   onActivate={handleActivate}
                   onToggleExpand={handleToggleExpand}
                   onResizeStart={handleResizeStart}
@@ -433,6 +481,7 @@ export default function CalendarBoard({ command }) {
           </div>
         )}
       </div>
+      </EverydayProjectionContext.Provider>
       </CustomStatusesContext.Provider>
       </FolderFilterContext.Provider>
     </div>

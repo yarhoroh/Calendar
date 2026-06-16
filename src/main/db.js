@@ -115,6 +115,14 @@ export function allNotes() {
     .all()
 }
 
+// notes for a date range (YYYY-MM-DD strings; boards like 'everyday' sort
+// outside date ranges so they're never included accidentally) — for getNotes
+export function getItemsRange(from, to) {
+  return db
+    .prepare('SELECT id, day, title, text, status, time FROM notes WHERE day >= ? AND day <= ? ORDER BY day, position')
+    .all(from, to)
+}
+
 export function isEmpty() {
   return db.prepare('SELECT COUNT(*) AS c FROM notes').get().c === 0
 }

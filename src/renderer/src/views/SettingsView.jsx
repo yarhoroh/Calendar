@@ -3,6 +3,8 @@ import { useI18n } from '../i18n/I18nContext'
 import SettingsSection from '../components/settings/SettingsSection'
 import GeminiSetting from '../components/settings/GeminiSetting'
 import ClaudeSetting from '../components/settings/ClaudeSetting'
+import CodexSetting from '../components/settings/CodexSetting'
+import AiConfigSetting from '../components/settings/AiConfigSetting'
 import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
@@ -53,6 +55,8 @@ export default function SettingsView({ showChat, onToggleChat }) {
               <AiEngineSetting />
               <GeminiSetting />
               <ClaudeSetting />
+              <CodexSetting />
+              <AiConfigSetting />
             </SettingsSection>
           </>
         ) : (

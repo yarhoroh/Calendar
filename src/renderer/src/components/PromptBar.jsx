@@ -11,9 +11,11 @@ export default function PromptBar({ onSend, busy }) {
   const { t } = useI18n()
   const [text, setText] = useState('')
   const ref = useAutosizeTextarea(text, 8)
-  const { state, cli } = useAiStatus()
+  const { state, cli, model } = useAiStatus()
   const statusLabel =
     state === 'ready' ? t('chat.ready') : state === 'offline' ? t('chat.offline') : t('chat.starting')
+  const cliLabel = { gemini: 'Gemini', claude: 'Claude', codex: 'Codex' }[cli] || 'Gemini'
+  const modelLabel = model && model !== 'default' && model !== 'auto' ? ` · ${model}` : ''
 
   const canSend = text.trim().length > 0 && !busy
 
@@ -49,7 +51,8 @@ export default function PromptBar({ onSend, busy }) {
       <div className="promptbar__status" title={statusLabel}>
         <span className={`promptbar__dot promptbar__dot--${state}`} />
         <span className="promptbar__status-text">
-          {cli === 'claude' ? 'Claude' : 'Gemini'} · {statusLabel}
+          {cliLabel}
+          {modelLabel} · {statusLabel}
         </span>
       </div>
       <div className="promptbar__box">

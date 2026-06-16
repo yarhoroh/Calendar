@@ -38,6 +38,8 @@ export const translations = {
     items: {
       placeholder: 'Write a note…',
       titlePlaceholder: 'Title',
+      copy: 'Copy',
+      paste: 'Paste',
       reminder: 'Reminder',
       clearReminder: 'Clear reminder',
       status: { todo: 'To do', doing: 'In progress', done: 'Done', cancelled: 'Cancelled' }
@@ -56,6 +58,9 @@ export const translations = {
       voiceTest: 'Test',
       workingDays: 'Working days',
       workingDaysDesc: '"Every day" reminders fire only on these days.',
+      aiConfigFile: 'AI config file',
+      open: 'Open',
+      folder: 'Folder',
       tabGeneral: 'General',
       tabAi: 'Assistant',
       memory: 'AI memory',
@@ -108,6 +113,8 @@ export const translations = {
     items: {
       placeholder: 'Напишіть нотатку…',
       titlePlaceholder: 'Заголовок',
+      copy: 'Копіювати',
+      paste: 'Вставити',
       reminder: 'Нагадування',
       clearReminder: 'Прибрати нагадування',
       status: { todo: 'Не виконано', doing: 'В роботі', done: 'Виконано', cancelled: 'Скасовано' }
@@ -126,6 +133,9 @@ export const translations = {
       voiceTest: 'Перевірити',
       workingDays: 'Робочі дні',
       workingDaysDesc: 'Нагадування «кожен день» спрацьовують лише в ці дні.',
+      aiConfigFile: 'Файл конфігу AI',
+      open: 'Відкрити',
+      folder: 'Папка',
       tabGeneral: 'Загальні',
       tabAi: 'Асистент',
       memory: 'Пам’ять AI',

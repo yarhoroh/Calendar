@@ -4,7 +4,7 @@
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const pad = (n) => String(n).padStart(2, '0')
 
-function formatNotes(rows) {
+export function formatNotes(rows) {
   if (!rows || !rows.length) return '(no notes yet)'
   const byDay = {}
   for (const r of rows) (byDay[r.day] = byDay[r.day] || []).push(r)
@@ -42,7 +42,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"} ]'
+  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -66,12 +66,13 @@ function nowLine(now) {
 // the action protocol. `ctx` = { notes, memory, tasks }. Used for the one-shot
 // path and the first ACP turn.
 export function buildSystem(ctx = {}) {
-  const { notes, memory, tasks } = ctx
+  const { memory, tasks, configPath } = ctx
   const now = new Date()
   return [
     'You are the built-in assistant of a desktop calendar + notes app. Your job is to help the user manage their schedule, notes and reminders.',
     "Treat every message as being about the user's calendar, notes or day unless they clearly change the subject. Stay in this role across the whole conversation.",
-    "Do NOT run shell commands, read or write files, or use any external tools or agents — you only chat and, when an action is needed, emit the calendar action block described below. Everything you know about the user's data is in the sections below; do not look elsewhere.",
+    'Do NOT run shell commands, read or write files, or use any external tools — you only chat and emit the calendar action block described below.',
+    "You are NOT given the user's notes up front. When you need to read notes (to answer a question, find or sort something), request them with the getNotes action and you'll receive them, then answer.",
     'Always reply in the same language the user writes in.',
     nowLine(now),
     'Resolve every relative date against this table (do not compute weekdays yourself):',
@@ -86,19 +87,17 @@ export function buildSystem(ctx = {}) {
     '--- AI TASKS ---',
     formatAiTasks(tasks),
     '--- END AI TASKS ---',
-    "Below are the user's existing notes; use them to answer questions (e.g. what's on this week, find a meeting). Each group is keyed by day: 'YYYY-MM-DD' for dated notes, 'everyday' = recurring daily notes, 'general' = a plain notes board for storing info (no schedule, no status). @HH:mm marks a reminder time.",
-    '--- NOTES ---',
-    formatNotes(notes),
-    '--- END NOTES ---',
-    'You can also act on the calendar and control the UI. When (and only when) an action is needed, append to the very end of your reply a fenced block:',
+    'To act or read notes, append to the very end of your reply a fenced block:',
     '```calendar',
     ACTION_BLOCK,
     '```',
+    'getNotes = read notes for a date or range when you need them: {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"} (single day: just "from"; the recurring/info boards: {"action":"getNotes","board":"everyday"} or "general"). When you need notes, reply with ONLY this block and no other text — you will receive the notes back, then give your real answer. Request the smallest range that answers the question.',
     "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; general = open the general (plain info) notes board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring; date \"general\" = plain info note, no time/status). Each note above shows its (id:...). reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids).",
     "speak = say text out loud through the built-in voice. Use it ONLY when the user explicitly asks to hear something (\"read me today's tasks\", \"tell me…\", \"say it out loud\") OR when one of your scheduled tasks fires and asks you to speak; NEVER speak unprompted. Set \"lang\" to the language of the spoken text (uk / ru / en).",
     'remember = store a lasting fact/preference (use the user\'s own wording). forget = delete a memory by its id (shown in MEMORY).',
     'addAiTask = schedule a task for yourself at a local datetime "YYYY-MM-DDTHH:mm"; when it fires you will be asked to do its text (e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"speak the morning agenda in Russian"}). deleteAiTask = remove a scheduled task by its id (shown in AI TASKS).',
     'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',
+    `setModel = change the model of the CURRENT engine (the one you are) and restart it with that model, e.g. {"action":"setModel","model":"gpt-5.5","reasoning":"medium"} (reasoning is codex-only). Models are stored in the editable text config file ${configPath || 'ai-config.json'} (keys: geminiModel, claudeModel, codexModel, codexReasoning — empty = that CLI's default); the user can also edit that file by hand and the change applies on the next start.`,
     'Rules: every date in an action is YYYY-MM-DD taken from the DATES table above. Keep the spoken reply short. If the request is ambiguous, ask a clarifying question and emit NO calendar block.'
   ].join('\n')
 }
@@ -107,7 +106,7 @@ export function buildSystem(ctx = {}) {
 // and protocol, so we only refresh the volatile data (time, dates, notes) plus
 // a short reminder of the action-block format.
 export function buildRefresh(ctx = {}) {
-  const { notes, memory, tasks } = ctx
+  const { memory, tasks } = ctx
   const now = new Date()
   return [
     `[context update] ${nowLine(now)}`,
@@ -122,21 +121,9 @@ export function buildRefresh(ctx = {}) {
     '--- AI TASKS ---',
     formatAiTasks(tasks),
     '--- END AI TASKS ---',
-    'Latest notes:',
-    '--- NOTES ---',
-    formatNotes(notes),
-    '--- END NOTES ---',
-    'When an action is needed, still end your reply with the ```calendar block:',
+    'Need notes? Use getNotes (reply with only that block). When an action is needed, end your reply with the ```calendar block:',
     ACTION_BLOCK
   ].join('\n')
-}
-
-// One-shot prompt: full system preamble + the entire replayed conversation.
-export function buildFullPrompt(messages, ctx) {
-  const convo = messages
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    .join('\n\n')
-  return `${buildSystem(ctx)}\n\n${convo}\n\nAssistant:`
 }
 
 export function lastUserMessage(messages) {

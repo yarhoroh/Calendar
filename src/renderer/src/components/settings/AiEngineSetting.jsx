@@ -5,7 +5,8 @@ import SettingRow from './SettingRow'
 
 const OPTIONS = [
   { v: 'gemini', label: 'Gemini' },
-  { v: 'claude', label: 'Claude' }
+  { v: 'claude', label: 'Claude' },
+  { v: 'codex', label: 'Codex' }
 ]
 
 export default function AiEngineSetting() {

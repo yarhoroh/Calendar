@@ -37,6 +37,9 @@ export async function execAction(a, onCommand) {
   if (a.action === 'forget' && a.id) return api.deleteMemory?.(a.id)
   if (a.action === 'addAiTask' && a.at && a.text) return api.addAiTask?.({ at: a.at, text: a.text })
   if (a.action === 'deleteAiTask' && a.id) return api.deleteAiTask?.(a.id)
+  if (a.action === 'setModel' && a.model) {
+    return api.setModel?.(a.model, a.reasoning) // applies to the current engine + restarts it
+  }
   if (a.action === 'openFile' && a.id) return api.openAttachment?.(a.id)
   if (a.action === 'attachFile' && a.noteId && a.path) return api.addAttachmentPath?.(a.noteId, a.path)
 

@@ -37,10 +37,17 @@ const api = {
 
   // AI chat
   detectClaude: () => ipcRenderer.invoke('ai:detect-claude'),
+  detectCodex: () => ipcRenderer.invoke('ai:detect-codex'),
   getAi: () => ipcRenderer.invoke('settings:get-ai'),
   setAi: (v) => ipcRenderer.send('settings:set-ai', v),
   aiSend: (payload) => ipcRenderer.invoke('ai:send', payload),
   aiClear: () => ipcRenderer.invoke('ai:clear'),
+  getAiConfig: () => ipcRenderer.invoke('aiConfig:get'),
+  setAiConfig: (patch) => ipcRenderer.invoke('aiConfig:set', patch),
+  getAiConfigPath: () => ipcRenderer.invoke('aiConfig:path'),
+  openAiConfig: () => ipcRenderer.invoke('aiConfig:open'),
+  revealAiConfig: () => ipcRenderer.invoke('aiConfig:reveal'),
+  setModel: (model, reasoning) => ipcRenderer.invoke('ai:set-model', { model, reasoning }),
   ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)

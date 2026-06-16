@@ -4,6 +4,7 @@ import { useAutosizeTextarea } from '../../hooks/useAutosizeTextarea'
 import { saveFormat } from '../../lib/itemFormat'
 import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
 import ReminderPopover from './ReminderPopover'
+import ContextMenu from '../ContextMenu'
 import './ItemEditor.css'
 
 const SIZES = [1, 2, 3]
@@ -32,8 +33,70 @@ export default function ItemEditor({
   const [size, setSize] = useState(initialSize)
   const [time, setTime] = useState(initialTime)
   const [remOpen, setRemOpen] = useState(false)
+  const [menu, setMenu] = useState(null) // right-click menu state
   const ref = useAutosizeTextarea(text, 10)
   const remBtnRef = useRef(null)
+  const titleRef = useRef(null)
+  // custom undo history — controlled inputs break the browser's native Ctrl+Z
+  const histRef = useRef([])
+  const lastSnap = useRef(0)
+  const snapshot = (force) => {
+    const now = Date.now()
+    if (force || now - lastSnap.current > 400) {
+      histRef.current.push({ title, text })
+      if (histRef.current.length > 100) histRef.current.shift()
+      lastSnap.current = now
+    }
+  }
+  const undo = () => {
+    const snap = histRef.current.pop()
+    if (snap) {
+      setTitle(snap.title)
+      setText(snap.text)
+    }
+  }
+
+  const openMenu = (e, field) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // capture selection/caret now — robust to the field losing focus when the
+    // menu opens
+    const el = e.currentTarget
+    const sel = el.value.substring(el.selectionStart, el.selectionEnd)
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      field,
+      start: el.selectionStart,
+      end: el.selectionEnd,
+      value: el.value,
+      copyText: sel || el.value // selection if any, else the whole field
+    })
+  }
+  const copyField = () => {
+    if (menu?.copyText != null) navigator.clipboard?.writeText(menu.copyText)
+  }
+  const pasteField = async () => {
+    if (!menu) return
+    let clip = ''
+    try {
+      clip = (await navigator.clipboard?.readText()) || ''
+    } catch {
+      return
+    }
+    snapshot(true)
+    const next = menu.value.slice(0, menu.start) + clip + menu.value.slice(menu.end)
+    if (menu.field === 'title') setTitle(next)
+    else setText(next)
+    const el = menu.field === 'title' ? titleRef.current : ref.current
+    const caret = menu.start + clip.length
+    requestAnimationFrame(() => {
+      if (el) {
+        el.focus()
+        el.setSelectionRange(caret, caret)
+      }
+    })
+  }
 
   useEffect(() => {
     const el = ref.current
@@ -75,12 +138,26 @@ export default function ItemEditor({
   }
 
   return (
-    <div className={`item-editor item-editor--s${size}`} onBlur={onBlur}>
+    <div
+      className={`item-editor item-editor--s${size}`}
+      onBlur={onBlur}
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+          e.preventDefault()
+          undo()
+        }
+      }}
+    >
       <input
+        ref={titleRef}
         className="item-editor__title"
         placeholder={t('items.titlePlaceholder')}
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => {
+          snapshot()
+          setTitle(e.target.value)
+        }}
+        onContextMenu={(e) => openMenu(e, 'title')}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && e.ctrlKey) {
             e.preventDefault()
@@ -164,7 +241,11 @@ export default function ItemEditor({
         style={{ fontWeight: bold ? 700 : 400, fontStyle: italic ? 'italic' : 'normal' }}
         placeholder={t('items.placeholder')}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          snapshot()
+          setText(e.target.value)
+        }}
+        onContextMenu={(e) => openMenu(e, 'text')}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && e.ctrlKey) {
             e.preventDefault()
@@ -175,6 +256,18 @@ export default function ItemEditor({
           }
         }}
       />
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={[
+            { label: t('items.copy'), onClick: copyField },
+            { label: t('items.paste'), onClick: pasteField }
+          ]}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }

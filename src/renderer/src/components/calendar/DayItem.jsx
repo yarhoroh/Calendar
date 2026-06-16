@@ -5,6 +5,7 @@ import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
 import StatusMenu from './StatusMenu'
 import ReminderPopover from './ReminderPopover'
 import AttachmentsPopover from './AttachmentsPopover'
+import ContextMenu from '../ContextMenu'
 import './DayItem.css'
 
 // A saved note (view only). Double-click to edit, drag to reorder. Reminder +
@@ -27,6 +28,12 @@ export default function DayItem({
   const [attachOpen, setAttachOpen] = useState(false)
   const [attachCount, setAttachCount] = useState(0)
   const [fileOver, setFileOver] = useState(false)
+  const [menu, setMenu] = useState(null) // {x,y} for the right-click menu
+
+  const copyNote = () => {
+    const txt = (item.title ? item.title + '\n' : '') + (item.text || '')
+    navigator.clipboard?.writeText(txt)
+  }
   const remBtnRef = useRef(null)
   const clipBtnRef = useRef(null)
 
@@ -94,6 +101,11 @@ export default function DayItem({
           const p = api.pathForFile?.(f)
           if (p) await api.addAttachmentPath?.(item.id, p)
         }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMenu({ x: e.clientX, y: e.clientY })
       }}
       onDoubleClick={(e) => {
         e.stopPropagation()
@@ -204,6 +216,15 @@ export default function DayItem({
         </div>
         )}
       </div>
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={[{ label: t('items.copy'), onClick: copyNote }]}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }

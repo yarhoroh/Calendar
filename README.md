@@ -32,17 +32,18 @@ locally, no cloud.
 - **Working days** — choose which weekdays count as working; "every day" reminders fire only on those days.
 - **Navigation** — arrow buttons or **Ctrl + ← / →** move the calendar day-by-day; **Ctrl + drag** pans freely; horizontal wheel scrolls.
 - **Expand a day** — double-click a day's header to blow that day up to the full window width; double-click again to collapse back to the strip.
+- **Copy / paste / undo** — right-click a note to copy its title + text (newlines preserved); in the editor right-click to copy (selection or whole field) or paste at the cursor, and **Ctrl + Z** undoes recent edits.
 - **SQLite storage** — fast and reliable, only the requested day is read.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 
 ### 🤖 AI assistant (local CLI)
-Chat with a local AI (**Gemini CLI** or **Claude CLI**) — your data is not sent to a third-party cloud:
-- **Keeps conversation context** (Gemini via a persistent ACP session for fast replies).
+Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
+- **Persistent & fast** — Gemini (ACP) and Claude (streaming JSON) run as live sessions; Codex resumes its session. Context is kept, replies are quick.
+- **Pick the model** per engine in an editable config file (`ai-config.json`), or just ask the assistant to switch model — it rewrites the config and restarts itself. (A bad model self-heals back to the default.)
+- **Reads notes on demand** — the assistant requests only the date/range it needs (`getNotes`), so it scales to any number of notes instead of stuffing them all into every prompt.
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
 - **Creates notes & reminders by voice/text:** "meeting the day after tomorrow at 9am".
-- **Searches across all notes:** "what meetings do I have this week?".
-- **Sorts and deletes** notes by criteria.
-- **Works with files:** attach a file to a note, or open an attached file on request ("open the file from my report note").
+- **Sorts and deletes** notes by criteria; **works with files** (attach / open).
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.
 
 ### 🔊 Voice (TTS) — built-in, offline
@@ -69,7 +70,7 @@ Chat with a local AI (**Gemini CLI** or **Claude CLI**) — your data is not sen
 | Shell | Electron 33 + electron-vite 5 + Vite 7 |
 | UI | React 19 (plain JavaScript, **no TypeScript**) |
 | Storage | better-sqlite3 |
-| AI | local Gemini CLI (ACP) / Claude CLI |
+| AI | local Gemini (ACP) / Claude (stream-json) / Codex CLI |
 | Voice | Piper (standalone, bundled in `resources/tts`) |
 | Packaging | electron-builder (Windows NSIS) |
 
@@ -88,9 +89,10 @@ npm run dist         # build the .exe installer (Windows, into release/)
 ```
 
 ### Requirements for the AI chat
-The chat works if one of these CLIs is installed and logged in:
+The chat works if one of these CLIs is installed and logged in (pick the engine in Settings):
 - **Gemini CLI** — `npm i -g @google/gemini-cli`, then sign in with Google (`gemini`).
 - **Claude CLI** — install and log in.
+- **Codex CLI** — install and log in.
 
 If no CLI is found / signed in, the calendar and notes still work — the chat just shows a "not found" status.
 

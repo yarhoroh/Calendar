@@ -2,8 +2,11 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, s
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { detectGemini, installGemini } from './tools/gemini'
-import { detectClaude, runAgent, warmUp } from './ai'
+import { detectClaude, detectCodex, warmUp } from './ai'
 import { warmAcp, stopAcp, askAcp, clearAcp } from './acp'
+import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
+import { askCodex, resetCodex } from './codex'
+import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { initTts, speak } from './tts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
@@ -357,6 +360,7 @@ ipcMain.on('settings:set-reminder-duration', (_e, v) => {
 ipcMain.handle('gemini:detect', () => detectGemini())
 ipcMain.handle('gemini:install', () => installGemini())
 ipcMain.handle('ai:detect-claude', () => detectClaude())
+ipcMain.handle('ai:detect-codex', () => detectCodex())
 ipcMain.handle('settings:get-ai', () => loadSettings().ai || 'gemini')
 ipcMain.on('settings:set-ai', (_e, v) => {
   const s = loadSettings()
@@ -368,34 +372,84 @@ ipcMain.on('settings:set-ai', (_e, v) => {
 // Warm the chosen CLI and tell the renderer its state, so the chat can show a
 // "starting / ready / not found" indicator instead of leaving the user guessing.
 let aiState = 'warming' // 'warming' | 'ready' | 'offline'
+function activeModel(cli) {
+  const cfg = loadAiConfig()
+  if (cli === 'gemini') return cfg.geminiModel || 'auto'
+  if (cli === 'claude') return cfg.claudeModel || 'default'
+  return cfg.codexModel || 'default'
+}
 function broadcastAiStatus() {
   const cli = loadSettings().ai || 'gemini'
-  mainWindow?.webContents?.send('ai:status', { state: aiState, cli })
+  mainWindow?.webContents?.send('ai:status', { state: aiState, cli, model: activeModel(cli) })
 }
 function warmAi(cli) {
   aiState = 'warming'
   broadcastAiStatus()
-  // gemini runs as a persistent ACP session; claude is one-shot, so just warm
-  // the binary (and shut the ACP process down to free it).
-  const warming = cli === 'gemini' ? warmAcp() : (stopAcp(), warmUp('claude'))
+  // unload whatever persistent process isn't the chosen engine, then start the
+  // chosen one — same as a fresh start. gemini = ACP session, claude = streaming
+  // process, codex = resumable one-shot (just warm the binary + reset session).
+  if (cli !== 'gemini') stopAcp()
+  if (cli !== 'claude') stopClaude()
+  resetCodex()
+  const cfg = loadAiConfig()
+  // if a configured model turns out to be unavailable, the engine falls back to
+  // the CLI default and calls back so we persist the fix (so it never re-breaks)
+  let warming
+  if (cli === 'gemini') {
+    warming = warmAcp(cfg.geminiModel, (m) => {
+      saveAiConfig({ geminiModel: m })
+      broadcastAiStatus()
+    })
+  } else if (cli === 'claude') {
+    warming = warmClaude(cfg.claudeModel, (m) => {
+      saveAiConfig({ claudeModel: m })
+      broadcastAiStatus()
+    })
+  } else {
+    warming = warmUp('codex')
+  }
   Promise.resolve(warming).then((ok) => {
     aiState = ok ? 'ready' : 'offline'
     broadcastAiStatus()
   })
 }
-ipcMain.handle('ai:status', () => ({ state: aiState, cli: loadSettings().ai || 'gemini' }))
+ipcMain.handle('ai:status', () => {
+  const cli = loadSettings().ai || 'gemini'
+  return { state: aiState, cli, model: activeModel(cli) }
+})
 function aiContext() {
-  const notes = allNotes()
-  const byNote = {}
-  for (const a of allAttachments()) (byNote[a.note_id] = byNote[a.note_id] || []).push({ id: a.id, name: a.name })
-  for (const n of notes) n.files = byNote[n.id] || []
-  // include done tasks too (marked [done]) so the AI can see and delete them
-  return { notes, memory: allMemory(), tasks: allAiTasks() }
+  // notes are fetched on demand via the getNotes tool — only the small,
+  // always-relevant data lives in the prompt. done tasks included (marked
+  // [done]) so the AI can see and delete them.
+  return { memory: allMemory(), tasks: allAiTasks(), configPath: aiConfigPath() }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'gemini'
   const ctx = aiContext()
-  return cli === 'gemini' ? askAcp({ messages, ctx }) : runAgent({ cli, messages, ctx })
+  if (cli === 'claude') return askClaude({ messages, ctx })
+  if (cli === 'codex') {
+    const cfg = loadAiConfig()
+    return askCodex({ messages, ctx, model: cfg.codexModel, reasoning: cfg.codexReasoning })
+  }
+  return askAcp({ messages, ctx })
+})
+ipcMain.handle('aiConfig:get', () => loadAiConfig())
+ipcMain.handle('aiConfig:set', (_e, patch) => saveAiConfig(patch))
+ipcMain.handle('aiConfig:path', () => aiConfigPath())
+ipcMain.handle('aiConfig:open', () => shell.openPath(aiConfigPath()))
+ipcMain.handle('aiConfig:reveal', () => {
+  shell.showItemInFolder(aiConfigPath())
+  return true
+})
+// change the CURRENT engine's model, then restart it so the change takes effect
+ipcMain.handle('ai:set-model', (_e, { model, reasoning } = {}) => {
+  const cli = loadSettings().ai || 'gemini'
+  const key = { gemini: 'geminiModel', claude: 'claudeModel', codex: 'codexModel' }[cli] || 'codexModel'
+  const patch = { [key]: model || '' }
+  if (cli === 'codex' && reasoning) patch.codexReasoning = reasoning
+  saveAiConfig(patch)
+  warmAi(cli)
+  return loadAiConfig()
 })
 
 // ---- AI memory + self-tasks (viewable/editable in Settings) -------------
@@ -459,7 +513,9 @@ ipcMain.handle('attach:open', (_e, id) => {
 ipcMain.handle('ai:clear', () => {
   const cli = loadSettings().ai || 'gemini'
   if (cli === 'gemini') return clearAcp()
-  return true // claude has no server-side context to wipe
+  if (cli === 'claude') return clearClaude()
+  resetCodex() // codex: next turn starts a fresh session
+  return true
 })
 
 // ---- text-to-speech ----------------------------------------------------
@@ -477,6 +533,7 @@ if (!gotLock) {
     createWindow()
     createTray()
     initDb()
+    ensureAiConfig()
     migrateNotesJson()
     initNotify({
       preload: join(__dirname, '../preload/index.js'),
@@ -505,6 +562,7 @@ if (!gotLock) {
 
   app.on('will-quit', () => {
     stopAcp()
+    stopClaude()
     stopTtsServer()
   })
 }

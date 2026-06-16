@@ -53,6 +53,7 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 
 ### 💬 Telegram & images
 - **Telegram bridge** — connect a bot token in Settings and chat with the assistant from Telegram (long-polling, works behind NAT, no public webhook). Replies — and reminders it scheduled from Telegram — go back to that chat; a **Disconnect** button clears the token.
+  - *Creating the bot:* open Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, pick a name and a username — it replies with a token like `12345:ABC…`. Paste that token into Settings → *Bots & messengers* → Telegram, then message your new bot. (Keep the token private; if it leaks, use `/revoke` in @BotFather and paste the new one.)
 - **Image understanding** — send a photo (with a caption) from Telegram, or **paste / drag-and-drop / attach** an image in the in-app chat, and the assistant sees it (vision on Claude, Gemini and Codex). Pasted images show removable thumbnail previews before sending.
 - **Chat context persists** when you switch to Settings and back — cleared only when you clear it.
 

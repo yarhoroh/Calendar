@@ -173,6 +173,11 @@ export async function execAction(a, onCommand, channel) {
 }
 
 const MAX_ROUNDS = 5
+// actions that don't change data — no need to report their success back to the
+// model (navigation, voice/toast, reads, model switch). Everything else (note &
+// folder mutations, tasks, memory, attachments) is reported so the model knows
+// it's done/failed and can run the next step of a multi-step task.
+const NO_REPORT = new Set(['goto', 'today', 'everyday', 'general', 'expand', 'speak', 'notify', 'getNotes', 'openFile', 'setModel'])
 
 // Run the actions the model emitted, then feed the OUTCOME back so it can either
 // continue a multi-step task (e.g. it just created a folder and now needs the new
@@ -198,9 +203,10 @@ export async function runActions(actions, onCommand, channel) {
       return id ? `${a.action}: ok (new id: ${id}${label})` : `${a.action}: ok`
     })
 
-    // bother the model again only when it likely needs to react: a new id to
-    // chain on, or a failure to handle. Plain successes need no extra round.
-    const needsFollowUp = results.some(({ r }) => (r && r.ok === false) || (r && r.result && r.result.id))
+    // report back whenever a data-changing action ran (so the model knows it's
+    // done and can do the next step) or anything failed — but not for pure
+    // navigation / voice / reads.
+    const needsFollowUp = results.some(({ a, r }) => (r && r.ok === false) || !NO_REPORT.has(a.action))
     if (!needsFollowUp) break
 
     const fb = await api.aiSend?.({

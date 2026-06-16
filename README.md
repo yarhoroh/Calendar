@@ -31,6 +31,7 @@ locally, no cloud.
 - **Reminders** — set a time on a note; when it's due a toast pops up in a separate window (with sound), clicking it opens that day.
 - **Working days** — choose which weekdays count as working; "every day" reminders fire only on those days.
 - **Navigation** — arrow buttons or **Ctrl + ← / →** move the calendar day-by-day; **Ctrl + drag** pans freely; horizontal wheel scrolls.
+- **Expand a day** — double-click a day's header to blow that day up to the full window width; double-click again to collapse back to the strip.
 - **SQLite storage** — fast and reliable, only the requested day is read.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 

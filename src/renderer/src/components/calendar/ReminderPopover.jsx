@@ -31,8 +31,13 @@ export default function ReminderPopover({ anchorRef, value, onChange, onClear, o
     const onDown = (e) => {
       if (ref.current && !ref.current.contains(e.target)) onClose()
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    // attach on the next tick so the mousedown that OPENED the popover doesn't
+    // immediately get caught and close it again
+    const id = setTimeout(() => document.addEventListener('mousedown', onDown), 0)
+    return () => {
+      clearTimeout(id)
+      document.removeEventListener('mousedown', onDown)
+    }
   }, [onClose])
 
   if (!pos) return null

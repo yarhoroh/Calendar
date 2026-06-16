@@ -74,6 +74,38 @@
   background: rgba(16, 185, 129, 0.14);
 }
 
+/* hover tooltip listing the everyday note's weekdays — matches the time chip */
+.day-item__time-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.day-item__days-tip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 3px;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  color: var(--st-done);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.day-item__time-wrap:hover .day-item__days-tip {
+  display: flex;
+}
+
 .day-item__time--fired {
   color: #f59e0b;
   background: rgba(245, 158, 11, 0.14);
@@ -109,7 +141,7 @@
 .day-item__close {
   position: fixed;
   right: 14px;
-  top: 10px;
+  top: calc(var(--titlebar-h) + 6px);
   width: 30px;
   height: 30px;
   padding: 0;

@@ -1,4 +1,5 @@
 import { memo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
@@ -130,7 +131,7 @@ function DayItems({ dayKey, sort }) {
   const rows = []
   entries.forEach(({ it, projected }) => {
     if (projected) {
-      rows.push(
+      const projRow = (
         <div className={'day-items__row' + (expandedId === it.id ? ' day-items__row--fs' : '')} key={'ev-' + it.id}>
           {expandedId === it.id && (
             <button className="day-item__close" title={t('items.close')} onClick={() => setExpandedId(null)}>
@@ -154,11 +155,12 @@ function DayItems({ dayKey, sort }) {
           />
         </div>
       )
+      rows.push(expandedId === it.id ? createPortal(projRow, document.body, 'fs-ev-' + it.id) : projRow)
       return
     }
     const i = items.indexOf(it)
     if (!sort && overAt === i) rows.push(ph('ph-' + i))
-    rows.push(
+    const ownRow = (
       <div
         className={'day-items__row' + (expandedId === it.id ? ' day-items__row--fs' : '')}
         data-index={i}
@@ -184,8 +186,12 @@ function DayItems({ dayKey, sort }) {
             initialItalic={!!it.italic}
             initialSize={it.size || 1}
             initialTime={it.time || null}
+            initialDays={it.days}
+            defaultDays={proj.workingDays}
             timeOnly={dayKey === 'everyday'}
             plain={plain}
+            expanded={expandedId === it.id}
+            onExpand={() => setExpandedId(it.id)}
             onSave={(f) => {
               update(it.id, {
                 title: f.title || null,
@@ -193,10 +199,11 @@ function DayItems({ dayKey, sort }) {
                 bold: f.bold,
                 italic: f.italic,
                 size: f.size,
-                time: f.time || null
+                time: f.time || null,
+                days: f.days
               })
               if (f.time)
-                api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text })
+                api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text, days: f.days })
               else api.clearReminder?.(it.id)
               stop()
             }}
@@ -224,6 +231,9 @@ function DayItems({ dayKey, sort }) {
         )}
       </div>
     )
+    // a fullscreen note is portalled to <body> so it escapes the column's paint
+    // containment and covers the whole window (below the titlebar)
+    rows.push(expandedId === it.id ? createPortal(ownRow, document.body, 'fs-' + it.id) : ownRow)
   })
   if (!sort && overAt >= items.length && overAt !== -1) rows.push(ph('ph-end'))
 
@@ -255,6 +265,7 @@ function DayItems({ dayKey, sort }) {
               initialBold={fmt.bold}
               initialItalic={fmt.italic}
               initialSize={fmt.size}
+              defaultDays={proj.workingDays}
               timeOnly={dayKey === 'everyday'}
               plain={plain}
               onSave={(f) => {
@@ -265,6 +276,7 @@ function DayItems({ dayKey, sort }) {
                   italic: f.italic,
                   size: f.size,
                   time: f.time || null,
+                  days: f.days,
                   folderId: activeId || null // file new notes into the active folder
                 }
                 add(item)
@@ -274,7 +286,8 @@ function DayItems({ dayKey, sort }) {
                     when: item.time,
                     dayKey,
                     title: item.title || 'Calendar',
-                    body: item.text
+                    body: item.text,
+                    days: item.days
                   })
                 stop()
               }}

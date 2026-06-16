@@ -26,7 +26,10 @@
 /* a note expanded to fullscreen (the same row, promoted to position: fixed) */
 .day-items__row--fs {
   position: fixed;
-  inset: 0;
+  top: var(--titlebar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 60;
   background: var(--panel);
   overflow: auto;

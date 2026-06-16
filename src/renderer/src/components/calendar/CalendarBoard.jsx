@@ -173,6 +173,7 @@ export default function CalendarBoard({ command }) {
   expandedRef.current = expanded
   const rafRef = useRef(0)
   const wheelSnapRef = useRef(0)
+  const dragPanRef = useRef(false) // a header drag panned → don't treat the click as a sort toggle
 
   const setOrigin = (v) => setOriginState(v)
 
@@ -290,20 +291,26 @@ export default function CalendarBoard({ command }) {
     wheelSnapRef.current = setTimeout(() => animateOrigin(Math.round(originRef.current), 150), 130)
   }
 
-  // Ctrl + drag pans, with inertia + snap on release
+  // Ctrl + drag pans — and so does dragging the day headers (the dates row),
+  // with inertia + snap on release
   const onMouseDown = (e) => {
-    if (!e.ctrlKey) return
+    const onHeader = e.target.closest?.('.day-col__head')
+    if (!e.ctrlKey && !onHeader) return
     e.preventDefault()
     cancelAnimationFrame(rafRef.current)
     const width = effW()
     setGrabbing(true)
+    dragPanRef.current = false // becomes true once it actually moves (suppresses the header's sort click)
     let lastX = e.clientX
     let lastT = performance.now()
+    let moved = 0
     let vel = 0
     const onMove = (ev) => {
       const now = performance.now()
       const dx = ev.clientX - lastX
       const dt = now - lastT || 16
+      moved += Math.abs(dx)
+      if (moved > 4) dragPanRef.current = true
       setOriginState((o) => o - dx / width)
       vel = dx / dt
       lastX = ev.clientX
@@ -486,6 +493,7 @@ export default function CalendarBoard({ command }) {
                   resizable={!expanded}
                   sort={daySort[dateKey(date)]}
                   onSort={setDaySort}
+                  dragPanRef={dragPanRef}
                   onActivate={handleActivate}
                   onToggleExpand={handleToggleExpand}
                   onResizeStart={handleResizeStart}

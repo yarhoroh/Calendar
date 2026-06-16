@@ -18,6 +18,7 @@ function DayColumn({
   resizable,
   sort,
   onSort,
+  dragPanRef,
   onActivate,
   onToggleExpand,
   onResizeStart
@@ -28,12 +29,17 @@ function DayColumn({
 
   // disambiguate single (cycle sort) from double (expand) click on the header
   const clickTimer = useRef(0)
-  const onHeadClick = () => {
-    clearTimeout(clickTimer.current)
+  const onHeadClick = (e) => {
+    if (dragPanRef?.current) {
+      dragPanRef.current = false // this "click" was the end of a pan drag — not a sort toggle
+      return
+    }
+    clearTimeout(clickTimer.current) // a 2nd click cancels the 1st's pending sort
+    if (e.detail > 1) return // part of a double-click → expand handles it, never sort
     clickTimer.current = setTimeout(() => {
       const next = SORT_CYCLE[(SORT_CYCLE.indexOf(sort) + 1) % SORT_CYCLE.length]
       onSort(dateKey(date), next || 'default')
-    }, 220)
+    }, 300)
   }
   const onHeadDouble = () => {
     clearTimeout(clickTimer.current)

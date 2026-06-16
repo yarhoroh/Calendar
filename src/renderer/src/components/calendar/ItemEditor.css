@@ -1,8 +1,31 @@
 .item-editor {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding: 5px 6px 6px 8px;
+}
+
+/* enter fullscreen from edit mode */
+.item-editor__expand {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.item-editor__expand:hover {
+  color: var(--accent);
 }
 
 .item-editor__title {

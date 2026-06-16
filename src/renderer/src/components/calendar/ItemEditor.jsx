@@ -19,8 +19,12 @@ export default function ItemEditor({
   initialItalic = false,
   initialSize = 1,
   initialTime = null,
+  initialDays = null,
+  defaultDays = [],
   timeOnly = false,
   plain = false,
+  expanded = false,
+  onExpand,
   onSave,
   onCancel,
   onDelete
@@ -32,6 +36,7 @@ export default function ItemEditor({
   const [italic, setItalic] = useState(initialItalic)
   const [size, setSize] = useState(initialSize)
   const [time, setTime] = useState(initialTime)
+  const [days, setDays] = useState(initialDays) // everyday-board weekdays (null = working days)
   const [remOpen, setRemOpen] = useState(false)
   const [menu, setMenu] = useState(null) // right-click menu state
   const ref = useAutosizeTextarea(text, 1000) // grow to full content like the view (no early cap)
@@ -125,7 +130,7 @@ export default function ItemEditor({
   const commit = () => {
     const tt = title.trim()
     if (!tt && !text.trim()) onDelete()
-    else onSave({ title: tt, text, bold, italic, size, time })
+    else onSave({ title: tt, text, bold, italic, size, time, days })
   }
 
   const onBlur = (e) => {
@@ -215,6 +220,9 @@ export default function ItemEditor({
                 anchorRef={remBtnRef}
                 value={time}
                 timeOnly={timeOnly}
+                showDays={timeOnly}
+                days={days && days.length ? days : defaultDays}
+                onDays={setDays}
                 onChange={setTime}
                 onClear={() => {
                   setTime(null)
@@ -267,6 +275,16 @@ export default function ItemEditor({
           ]}
           onClose={() => setMenu(null)}
         />
+      )}
+
+      {onExpand && !expanded && (
+        <button
+          className="item-editor__expand"
+          title={t('items.expand')}
+          onMouseDown={noBlur(onExpand)}
+        >
+          ⛶
+        </button>
       )}
     </div>
   )

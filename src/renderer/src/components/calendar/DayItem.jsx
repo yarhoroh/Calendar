@@ -177,11 +177,17 @@ export default function DayItem({
         {!plain && (
         <div className="day-item__ctrl day-item__ctrl--rem">
           {item.time && (
-            <span
-              className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}
-              title={isEveryday ? WEEK_ORDER.filter((d) => effDays.includes(d)).map((d) => weekdayShort(d)).join('\n') : undefined}
-            >
-              {item.time.split('T')[1] || item.time}
+            <span className="day-item__time-wrap">
+              <span className={'day-item__time' + (fired ? ' day-item__time--fired' : ' day-item__time--on')}>
+                {item.time.split('T')[1] || item.time}
+              </span>
+              {isEveryday && (
+                <span className="day-item__days-tip">
+                  {WEEK_ORDER.filter((d) => effDays.includes(d)).map((d) => (
+                    <span key={d}>{weekdayShort(d)}</span>
+                  ))}
+                </span>
+              )}
             </span>
           )}
           <button

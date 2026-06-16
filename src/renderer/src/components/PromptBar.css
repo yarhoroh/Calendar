@@ -125,6 +125,12 @@
   border-color: var(--accent);
 }
 
+.promptbar__box--drag {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: var(--hover);
+}
+
 .promptbar__input {
   flex: 1;
   min-width: 0;

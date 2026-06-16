@@ -22,6 +22,7 @@ export default function PromptBar({ onSend, busy }) {
   const { t } = useI18n()
   const [text, setText] = useState('')
   const [images, setImages] = useState([])
+  const [dragging, setDragging] = useState(false)
   const fileRef = useRef(null)
   const ref = useAutosizeTextarea(text, 8)
   const { state, cli, model } = useAiStatus()
@@ -47,6 +48,19 @@ export default function PromptBar({ onSend, busy }) {
     if (files.length) {
       e.preventDefault()
       addFiles(files)
+    }
+  }
+
+  const onDrop = (e) => {
+    e.preventDefault()
+    setDragging(false)
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
+  }
+
+  const onDragOver = (e) => {
+    if ([...(e.dataTransfer?.items || [])].some((it) => it.kind === 'file')) {
+      e.preventDefault()
+      setDragging(true)
     }
   }
 
@@ -103,7 +117,12 @@ export default function PromptBar({ onSend, busy }) {
           ))}
         </div>
       )}
-      <div className="promptbar__box">
+      <div
+        className={`promptbar__box${dragging ? ' promptbar__box--drag' : ''}`}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={() => setDragging(false)}
+      >
         <button
           className="promptbar__attach"
           title={t('prompt.attachImage')}

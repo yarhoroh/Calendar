@@ -24,6 +24,10 @@ import {
   renameFolder,
   moveFolder,
   deleteFolder,
+  listStatuses,
+  addStatus,
+  updateStatus,
+  deleteStatus,
   allMemory,
   addMemory,
   deleteMemory,
@@ -322,6 +326,25 @@ ipcMain.handle('folders:delete', (_e, id) => {
   return r
 })
 
+// ---- custom statuses ----------------------------------------------------
+const statusesChanged = () => mainWindow?.webContents.send('statuses:changed')
+ipcMain.handle('statuses:list', () => listStatuses())
+ipcMain.handle('statuses:add', (_e, p) => {
+  const r = addStatus(p || {})
+  if (r) statusesChanged()
+  return r
+})
+ipcMain.handle('statuses:update', (_e, { id, patch }) => {
+  const r = updateStatus(id, patch)
+  if (r.ok) statusesChanged()
+  return r
+})
+ipcMain.handle('statuses:delete', (_e, id) => {
+  const r = deleteStatus(id)
+  if (r.ok) statusesChanged()
+  return r
+})
+
 // one-time import of the old notes.json into the database
 function migrateNotesJson() {
   const file = join(app.getPath('userData'), 'notes.json')
@@ -453,7 +476,7 @@ function aiContext() {
   // notes are fetched on demand via the getNotes tool — only the small,
   // always-relevant data lives in the prompt. done tasks included (marked
   // [done]) so the AI can see and delete them.
-  return { memory: allMemory(), tasks: allAiTasks(), folders: allFolders(), configPath: aiConfigPath() }
+  return { memory: allMemory(), tasks: allAiTasks(), folders: allFolders(), statuses: listStatuses(), configPath: aiConfigPath() }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'gemini'

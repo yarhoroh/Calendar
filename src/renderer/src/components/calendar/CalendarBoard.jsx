@@ -5,7 +5,9 @@ import MonthPicker from './MonthPicker'
 import SidePanel from '../SidePanel'
 import FolderTree from '../FolderTree'
 import { useFolders } from '../../hooks/useFolders'
+import { useStatuses } from '../../hooks/useStatuses'
 import { FolderFilterContext } from '../../lib/folderFilter'
+import { CustomStatusesContext } from '../../lib/statuses'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -105,6 +107,7 @@ export default function CalendarBoard({ command }) {
     return set
   }, [sel, folders])
 
+  const { statuses: customStatuses } = useStatuses()
   const folderNames = useMemo(() => Object.fromEntries(folders.map((f) => [f.id, f.name])), [folders])
   const filterValue = useMemo(
     () => ({ visibleIds, names: folderNames, activeId: sel }),
@@ -385,6 +388,7 @@ export default function CalendarBoard({ command }) {
       </div>
 
       <FolderFilterContext.Provider value={filterValue}>
+      <CustomStatusesContext.Provider value={customStatuses}>
       <div className="calendar-board__body">
         <SidePanel state={panel} onChange={updatePanel}>
           <FolderTree
@@ -429,6 +433,7 @@ export default function CalendarBoard({ command }) {
           </div>
         )}
       </div>
+      </CustomStatusesContext.Provider>
       </FolderFilterContext.Provider>
     </div>
   )

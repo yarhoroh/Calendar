@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { useFolderFilter } from '../../lib/folderFilter'
+import { BUILTIN_SET, useCustomStatuses } from '../../lib/statuses'
 import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
 import StatusMenu from './StatusMenu'
 import ReminderPopover from './ReminderPopover'
@@ -25,7 +26,9 @@ export default function DayItem({
 }) {
   const { t } = useI18n()
   const { names } = useFolderFilter()
+  const customStatuses = useCustomStatuses()
   const folderName = item.folderId ? names[item.folderId] : null
+  const customStatus = !BUILTIN_SET.has(item.status) ? customStatuses.find((c) => c.id === item.status) : null
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [attachOpen, setAttachOpen] = useState(false)
@@ -179,10 +182,16 @@ export default function DayItem({
               setStatusMenu((v) => !v)
             }}
           >
-            <span className={`status-ring status-ring--${item.status}`}>
-              {item.status === 'done' && <CheckIcon />}
-              {item.status === 'cancelled' && <CloseIcon />}
-            </span>
+            {BUILTIN_SET.has(item.status) ? (
+              <span className={`status-ring status-ring--${item.status}`}>
+                {item.status === 'done' && <CheckIcon />}
+                {item.status === 'cancelled' && <CloseIcon />}
+              </span>
+            ) : customStatus ? (
+              <span className="status-ring" style={{ borderColor: customStatus.color, background: customStatus.color }} />
+            ) : (
+              <span className="status-ring status-ring--todo" />
+            )}
           </button>
           {statusMenu && (
             <StatusMenu

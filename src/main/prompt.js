@@ -44,7 +44,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"} ]'
+  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional","status":"todo|doing|done|customId optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"}, {"action":"addStatus","name":"...","color":"#hex optional"}, {"action":"renameStatus","id":"statusId","name":"...","color":"#hex optional"}, {"action":"deleteStatus","id":"statusId"}, {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"todo|doing|done|customId"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -80,6 +80,14 @@ function formatFolders(rows) {
   return out.length ? out.join('\n') : '(no folders yet)'
 }
 
+// Custom statuses (built-ins are fixed in code). Shows id + colour so the model
+// can apply a status to notes or recolor/rename it.
+function formatStatuses(rows) {
+  const head = '  built-in (use these literal keys): todo, doing, done'
+  if (!rows || !rows.length) return `${head}\n  (no custom statuses yet — you can create some with addStatus)`
+  return `${head}\n${rows.map((r) => `  - (id:${r.id}) ${r.name} [${r.color}]`).join('\n')}`
+}
+
 function nowLine(now) {
   const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`
   const todayLocal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
@@ -90,7 +98,7 @@ function nowLine(now) {
 // the action protocol. `ctx` = { notes, memory, tasks }. Used for the one-shot
 // path and the first ACP turn.
 export function buildSystem(ctx = {}) {
-  const { memory, tasks, folders, configPath } = ctx
+  const { memory, tasks, folders, statuses, configPath } = ctx
   const now = new Date()
   return [
     'You are the built-in assistant of a desktop calendar + notes app. Your job is to help the user manage their schedule, notes and reminders.',
@@ -116,6 +124,10 @@ export function buildSystem(ctx = {}) {
     '--- FOLDERS ---',
     formatFolders(folders),
     '--- END FOLDERS ---',
+    "STATUSES — a note's status is either a built-in key (todo / doing / done) or a custom status id. You can CREATE your own statuses (name + colour) and then apply them to any notes on any board.",
+    '--- STATUSES ---',
+    formatStatuses(statuses),
+    '--- END STATUSES ---',
     'To act or read notes, append to the very end of your reply a fenced block:',
     '```calendar',
     ACTION_BLOCK,
@@ -130,6 +142,7 @@ export function buildSystem(ctx = {}) {
     'addAiTask = schedule a task for YOURSELF; when it fires you are asked to do its text and you notify/tell the user (reply or notify on the channel the request came from). One-time: give "at" (local "YYYY-MM-DDTHH:mm"), e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"tell the user the morning agenda"}. Periodic: give "every" in minutes, e.g. {"action":"addAiTask","every":30,"text":"remind the user to drink water"}. A periodic task can be limited to a daily window with "from"/"to" (HH:mm) — e.g. "remind me to do push-ups every hour from 9am to 6pm" → {"action":"addAiTask","every":60,"from":"09:00","to":"18:00","text":"remind the user to do push-ups"} (fires hourly only between 09:00 and 18:00). deleteAiTask = remove a task by its id (shown in AI TASKS).',
     'Reminders — choose the tool: when the user asks YOU to remind/nudge THEM to do something ("напомни мне …", "remind me to …", "ping me to …"), use addAiTask (you will deliver the reminder). Use addNote ONLY for real calendar entries/appointments tied to a day ("meeting Friday 3pm"). If a reminder has no time, ask when (or use "in a minute"/the time they implied).',
     'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',
+    'Statuses: addStatus = create a custom status {"action":"addStatus","name":"Waiting","color":"#f59e0b"} (color optional hex). renameStatus {id, name and/or color}. deleteStatus {id} (notes using a deleted status fall back to To do). Apply a status to one or more notes with setNoteStatus {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"<built-in key or custom id>"}, or set "status" on addNote / editNote. After addStatus you get the new id back to use. Statuses work on every board.',
     'Folders: addFolder = make a new folder on a board ("parent" = an existing folder id to nest it, omit for top level). renameFolder = rename by id. moveFolder = reparent ("parent": another folder id, or null for top level). deleteFolder = delete by id (only if it has no subfolders and no notes). setNoteFolder = file one or more notes into a folder: {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1","id2"],"folder":"folderId"} (folder:null moves them back to General; date is the notes\' day, or "everyday"/"general"). Folder ids are in FOLDERS above; note ids + their current folder come from getNotes. You may reorganise a board\'s whole tree and re-file notes freely.',
     `setModel = change the model of the CURRENT engine (the one you are) and restart it with that model, e.g. {"action":"setModel","model":"gpt-5.5","reasoning":"medium"} (reasoning is codex-only). Models are stored in the editable text config file ${configPath || 'ai-config.json'} (keys: geminiModel, claudeModel, codexModel, codexReasoning — empty = that CLI's default); the user can also edit that file by hand and the change applies on the next start.`,
     'Examples — always emit the block when you act (copy the pattern):',
@@ -146,7 +159,7 @@ export function buildSystem(ctx = {}) {
 // and protocol, so we only refresh the volatile data (time, dates, notes) plus
 // a short reminder of the action-block format.
 export function buildRefresh(ctx = {}) {
-  const { memory, tasks, folders } = ctx
+  const { memory, tasks, folders, statuses } = ctx
   const now = new Date()
   return [
     `[context update] ${nowLine(now)}`,
@@ -165,6 +178,10 @@ export function buildRefresh(ctx = {}) {
     '--- FOLDERS ---',
     formatFolders(folders),
     '--- END FOLDERS ---',
+    'Statuses (built-in keys + your custom ones; apply via setNoteStatus or the status field):',
+    '--- STATUSES ---',
+    formatStatuses(statuses),
+    '--- END STATUSES ---',
     'Need notes? Use getNotes (reply with only that block). To remind/add/schedule/delete/change ANYTHING you MUST emit the matching action — words alone do nothing. End your reply with the ```calendar block:',
     ACTION_BLOCK
   ].join('\n')

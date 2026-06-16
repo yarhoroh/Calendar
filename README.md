@@ -23,7 +23,8 @@ locally, no cloud.
 
 ### Calendar & notes
 - **Infinite day strip** — scroll left/right forever, smooth inertia and snap-to-day.
-- **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses (todo / in progress / done / cancelled).
+- **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses.
+- **Statuses, incl. custom** — built-in To do / In progress / Done, plus your own custom statuses (name + colour) managed in Settings and stored in the database; pick any status on notes across every board.
 - **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
 - **"Every day" board** — recurring notes shown on every day.
 - **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
@@ -45,6 +46,7 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
 - **Creates, edits, sorts and deletes** notes & reminders by voice/text: "meeting the day after tomorrow at 9am", "rename this note", "mark it done", "put it in the Work folder".
 - **Manages the folder trees** — it can create, rename, move (reparent) and delete folders on any board, and file one or many notes into them. It sees each board's tree (with ids) and every note's current folder.
+- **Manages statuses** — it can create custom statuses (name + colour) and apply built-in or custom statuses to one or many notes.
 - **Multi-step actions with feedback** — after it acts, the app sends the result back (the new id of anything created, or a failure reason), so it can chain dependent steps (e.g. *create a folder → file a note into it*) and report honestly instead of claiming success when something failed.
 - **Four ways to respond** — a normal text reply, **speak** out loud, a **silent toast** near the clock, or a reply back to the **messenger** it was contacted from.
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.

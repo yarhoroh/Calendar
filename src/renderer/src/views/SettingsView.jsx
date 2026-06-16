@@ -16,6 +16,7 @@ import VoiceSetting from '../components/settings/VoiceSetting'
 import WorkingDaysSetting from '../components/settings/WorkingDaysSetting'
 import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
+import StatusesPanel from '../components/settings/StatusesPanel'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
@@ -61,6 +62,9 @@ export default function SettingsView({ showChat, onToggleChat }) {
             </SettingsSection>
             <SettingsSection title={t('settings.bots')}>
               <TelegramSetting />
+            </SettingsSection>
+            <SettingsSection title={t('settings.statuses')}>
+              <StatusesPanel />
             </SettingsSection>
           </>
         ) : (

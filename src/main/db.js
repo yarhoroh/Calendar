@@ -40,6 +40,14 @@ export function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_folders_board ON folders(board);
 
+    CREATE TABLE IF NOT EXISTS statuses (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT,
+      position INTEGER,
+      created TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS ai_memory (
       id TEXT PRIMARY KEY,
       text TEXT NOT NULL,
@@ -289,6 +297,41 @@ export function deleteFolder(id) {
   const notes = db.prepare('SELECT COUNT(*) AS c FROM notes WHERE folder_id = ?').get(id).c
   if (notes > 0) return { ok: false, error: 'has-notes' }
   db.prepare('DELETE FROM folders WHERE id = ?').run(id)
+  return { ok: true }
+}
+
+// ---- statuses: user-defined custom note statuses (built-ins live in code) --
+function rowToStatus(r) {
+  return { id: r.id, name: r.name, color: r.color || '#888', position: r.position || 0 }
+}
+export function listStatuses() {
+  return db.prepare('SELECT id, name, color, position FROM statuses ORDER BY position, name').all().map(rowToStatus)
+}
+export function addStatus({ name, color }) {
+  const nm = String(name || '').trim()
+  if (!nm) return null
+  const max = db.prepare('SELECT MAX(position) AS m FROM statuses').get()?.m
+  const row = {
+    id: randomUUID(),
+    name: nm,
+    color: String(color || '#888').trim() || '#888',
+    position: (Number(max) || 0) + 1,
+    created: new Date().toISOString()
+  }
+  db.prepare('INSERT INTO statuses (id, name, color, position, created) VALUES (@id, @name, @color, @position, @created)').run(row)
+  return rowToStatus(row)
+}
+export function updateStatus(id, patch = {}) {
+  const cur = id && db.prepare('SELECT id, name, color FROM statuses WHERE id = ?').get(id)
+  if (!cur) return { ok: false, error: 'not-found' }
+  const name = patch.name !== undefined ? String(patch.name || '').trim() || cur.name : cur.name
+  const color = patch.color !== undefined ? String(patch.color || '').trim() || cur.color : cur.color
+  db.prepare('UPDATE statuses SET name = ?, color = ? WHERE id = ?').run(name, color, id)
+  return { ok: true }
+}
+export function deleteStatus(id) {
+  if (!id) return { ok: false }
+  db.prepare('DELETE FROM statuses WHERE id = ?').run(id)
   return { ok: true }
 }
 

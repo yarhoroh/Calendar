@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useI18n } from '../../i18n/I18nContext'
-import { STATUSES } from '../../hooks/useDayItems'
+import { BUILTIN_STATUSES, useCustomStatuses } from '../../lib/statuses'
 import './StatusMenu.css'
 
-// Small dropdown to choose an item status. Closes on outside click.
+// Small dropdown to choose an item status — built-in ones plus any custom
+// statuses the user defined in Settings. Closes on outside click.
 export default function StatusMenu({ current, onPick, onClose }) {
   const { t } = useI18n()
+  const custom = useCustomStatuses()
   const ref = useRef(null)
 
   useEffect(() => {
@@ -18,7 +20,7 @@ export default function StatusMenu({ current, onPick, onClose }) {
 
   return (
     <div className="status-menu" ref={ref}>
-      {STATUSES.map((s) => (
+      {BUILTIN_STATUSES.map((s) => (
         <button
           key={s}
           className={'status-menu__item' + (s === current ? ' status-menu__item--active' : '')}
@@ -26,6 +28,16 @@ export default function StatusMenu({ current, onPick, onClose }) {
         >
           <span className={`status-mini status-mini--${s}`} />
           {t(`items.status.${s}`)}
+        </button>
+      ))}
+      {custom.map((c) => (
+        <button
+          key={c.id}
+          className={'status-menu__item' + (c.id === current ? ' status-menu__item--active' : '')}
+          onClick={() => onPick(c.id)}
+        >
+          <span className="status-mini" style={{ background: c.color, borderColor: c.color }} />
+          {c.name}
         </button>
       ))}
     </div>

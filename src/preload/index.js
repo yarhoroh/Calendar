@@ -47,6 +47,17 @@ const api = {
     return () => ipcRenderer.removeListener('folders:changed', h)
   },
 
+  // custom note statuses
+  listStatuses: () => ipcRenderer.invoke('statuses:list'),
+  addStatus: (payload) => ipcRenderer.invoke('statuses:add', payload),
+  updateStatus: (id, patch) => ipcRenderer.invoke('statuses:update', { id, patch }),
+  deleteStatus: (id) => ipcRenderer.invoke('statuses:delete', id),
+  onStatusesChanged: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('statuses:changed', h)
+    return () => ipcRenderer.removeListener('statuses:changed', h)
+  },
+
   // AI chat
   detectClaude: () => ipcRenderer.invoke('ai:detect-claude'),
   detectCodex: () => ipcRenderer.invoke('ai:detect-codex'),

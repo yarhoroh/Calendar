@@ -145,6 +145,31 @@ export async function execAction(a, onCommand, channel) {
         navTo(onCommand, a.date)
         return { ok: true }
       }
+      case 'addStatus': {
+        if (!a.name) return { ok: false, error: 'addStatus needs a name' }
+        const r = await api.addStatus?.({ name: a.name, color: a.color })
+        return r ? { ok: true, result: { id: r.id } } : { ok: false, error: 'status was not created' }
+      }
+      case 'renameStatus': {
+        if (!a.id || (!a.name && !a.color)) return { ok: false, error: 'renameStatus needs id and name and/or color' }
+        const r = await api.updateStatus?.(a.id, { name: a.name, color: a.color })
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'rename failed' }
+      }
+      case 'deleteStatus': {
+        if (!a.id) return { ok: false, error: 'deleteStatus needs id' }
+        const r = await api.deleteStatus?.(a.id)
+        return r?.ok ? { ok: true } : { ok: false, error: 'delete failed' }
+      }
+      case 'setNoteStatus': {
+        if (!a.date || !Array.isArray(a.ids) || !a.status) return { ok: false, error: 'setNoteStatus needs date, ids and status' }
+        const arr = (await api.getItems?.(a.date)) || []
+        api.saveItems?.(
+          a.date,
+          arr.map((it) => (a.ids.includes(it.id) ? { ...it, status: a.status } : it))
+        )
+        navTo(onCommand, a.date)
+        return { ok: true }
+      }
       case 'reorder': {
         if (!a.date || !Array.isArray(a.ids)) return { ok: false, error: 'reorder needs date and ids' }
         const arr = (await api.getItems?.(a.date)) || []

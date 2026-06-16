@@ -35,7 +35,7 @@ function DayItems({ dayKey }) {
   }
 
   const plain = dayKey === 'general' // general board: no reminder
-  const noStatus = plain || dayKey === 'everyday' // everyday & general: no status
+  const noStatus = false // status is available on every board (incl. everyday & general)
 
   const stop = () => setEditingId(null)
   const clearDrag = () => {

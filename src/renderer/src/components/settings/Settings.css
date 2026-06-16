@@ -116,6 +116,7 @@
 
 .ai-add {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid var(--border);
@@ -136,6 +137,34 @@
 
 .ai-add__input:focus {
   border-color: var(--accent);
+}
+
+/* status rows: swatch + name input + delete all centred on one line */
+.status-row {
+  align-items: center;
+}
+
+/* round colour swatch (the native square chrome is hidden) */
+.status-color {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.status-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.status-color::-webkit-color-swatch {
+  border: 1px solid var(--border);
+  border-radius: 50%;
 }
 
 .settings-section__title {

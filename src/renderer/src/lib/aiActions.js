@@ -1,6 +1,13 @@
 import api from './api'
 import { newItem } from '../hooks/useDayItems'
 
+// plain text from an HTML string (for the searchable/AI `text` field)
+const stripHtml = (html) => {
+  const d = document.createElement('div')
+  d.innerHTML = html || ''
+  return (d.textContent || '').trim()
+}
+
 // Pull a ```calendar [...] ``` action block out of the model's reply.
 export function extractActions(text) {
   const m = text.match(/```calendar\s*([\s\S]*?)```/i)
@@ -73,10 +80,12 @@ export async function execAction(a, onCommand, channel) {
         if (!a.date) return { ok: false, error: 'addNote needs a date' }
         const arr = (await api.getItems?.(a.date)) || []
         const days = Array.isArray(a.days) ? a.days : null // weekdays for everyday notes
-        const item = { ...newItem(a.text || ''), title: a.title || null, time: a.time || null, folderId: a.folder || null, days }
+        const html = a.html || '' // optional rich (formatted) content
+        const text = html ? stripHtml(html) : a.text || ''
+        const item = { ...newItem(text), title: a.title || null, time: a.time || null, folderId: a.folder || null, days, html }
         api.saveItems?.(a.date, [...arr, item])
         if (a.time)
-          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: a.text || '', days })
+          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: text, days })
         return { ok: true, result: { id: item.id } }
       }
       case 'edit':
@@ -87,11 +96,13 @@ export async function execAction(a, onCommand, channel) {
         const idx = arr.findIndex((it) => it.id === a.id)
         if (idx < 0) return { ok: false, error: 'note not found on that date' }
         const it = arr[idx]
-        // patch only the fields the model actually sent; keep the rest
+        // patch only the fields the model actually sent; keep the rest. If it
+        // sends html, that's the new rich content (text becomes its plain form).
         const patched = {
           ...it,
           title: a.title !== undefined ? a.title : it.title,
-          text: a.text !== undefined ? a.text : it.text,
+          text: a.html !== undefined ? stripHtml(a.html) : a.text !== undefined ? a.text : it.text,
+          html: a.html !== undefined ? a.html || '' : it.html,
           time: a.time !== undefined ? a.time : it.time,
           status: a.status !== undefined ? a.status : it.status,
           folderId: a.folder !== undefined ? a.folder || null : it.folderId,

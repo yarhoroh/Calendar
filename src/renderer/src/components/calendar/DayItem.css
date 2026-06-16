@@ -118,8 +118,8 @@
 /* fullscreen expand (bottom-right) + close (top-right) — plain borderless icons */
 .day-item__expand {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  right: 8px;
+  bottom: 8px;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -187,6 +187,31 @@
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* rendered rich (HTML) note content (Tiptap output: p / h1 / h2 / lists / img) */
+.day-item__rich img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.day-item__rich p {
+  margin: 0 0 4px;
+}
+.day-item__rich h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.day-item__rich h2 {
+  font-size: 1.25em;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.day-item__rich ul,
+.day-item__rich ol {
+  margin: 0;
+  padding-left: 20px;
 }
 
 .day-item__text--collapsed {

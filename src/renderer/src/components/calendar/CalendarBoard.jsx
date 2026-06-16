@@ -150,6 +150,17 @@ export default function CalendarBoard({ command }) {
   // (on by default) — when off, focusing is a no-op so nothing ever blurs.
   const [focusedId, setFocusedId] = useState(null)
   const focusEnabled = settings.focusBlur !== false
+  // the hover-blur must never get stuck: any click or window-blur clears it
+  // (it re-arms on the next still hover)
+  useEffect(() => {
+    const clear = () => setFocusedId(null)
+    document.addEventListener('mousedown', clear)
+    window.addEventListener('blur', clear)
+    return () => {
+      document.removeEventListener('mousedown', clear)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
   const focusValue = useMemo(
     () =>
       focusEnabled

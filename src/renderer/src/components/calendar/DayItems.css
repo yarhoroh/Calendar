@@ -54,7 +54,16 @@
   flex-direction: column;
 }
 
-.day-items__row--fs .item-editor__input {
+/* the rich editor fills the height in fullscreen */
+.day-items__row--fs .rich-editor {
   flex: 1;
-  height: auto !important;
+  min-height: 0;
+}
+.day-items__row--fs .rich-editor__content {
+  flex: 1;
+  min-height: 0;
+}
+.day-items__row--fs .ProseMirror {
+  flex: 1;
+  max-height: none;
 }

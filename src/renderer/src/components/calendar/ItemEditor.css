@@ -9,8 +9,8 @@
 /* enter fullscreen from edit mode */
 .item-editor__expand {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  right: 8px;
+  bottom: 8px;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -60,6 +60,17 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.item-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.item-editor__head .item-editor__title {
+  flex: 1;
+  min-width: 0;
 }
 
 .item-editor__title {

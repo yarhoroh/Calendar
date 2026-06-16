@@ -26,7 +26,8 @@ export function initDb() {
       size INTEGER,
       collapsed INTEGER,
       folder_id TEXT,
-      days TEXT
+      days TEXT,
+      html TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(day);
     CREATE INDEX IF NOT EXISTS idx_notes_time ON notes(time);
@@ -105,6 +106,11 @@ export function initDb() {
   } catch {
     // column already exists
   }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN html TEXT')
+  } catch {
+    // column already exists
+  }
   // index needs the column to exist first (older DBs add it via the ALTER above)
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id)')
@@ -125,7 +131,8 @@ function rowToItem(r) {
     size: r.size || 1,
     collapsed: !!r.collapsed,
     folderId: r.folder_id || null,
-    days: r.days ? r.days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null
+    days: r.days ? r.days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null,
+    html: r.html || ''
   }
 }
 
@@ -136,8 +143,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -155,7 +162,8 @@ export function saveItems(day, items) {
         size: it.size || 1,
         collapsed: it.collapsed ? 1 : 0,
         folder_id: it.folderId ?? null,
-        days: Array.isArray(it.days) && it.days.length ? it.days.join(',') : null
+        days: Array.isArray(it.days) && it.days.length ? it.days.join(',') : null,
+        html: it.html ?? null
       })
     )
   })

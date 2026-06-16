@@ -23,7 +23,9 @@ locally, no cloud.
 
 ### Calendar & notes
 - **Infinite day strip** — scroll left/right forever, smooth inertia and snap-to-day.
-- **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses.
+- **Per-day notes** — a title plus a **rich-text body** (Tiptap): bold / italic / underline by selection, headings/sizes, bullet & numbered lists. Notes are stored as HTML; the view renders the same.
+- **Inline images** — paste (Ctrl+V), drag-and-drop or attach images straight into a note; they're embedded as **base64** at the cursor, can be **resized** by dragging their handles and moved within the note.
+- **Safe delete** — removing a note asks for confirmation first.
 - **Statuses, incl. custom** — built-in To do / In progress / Done, plus your own custom statuses (name + colour) managed in Settings and stored in the database; pick any status on notes across every board.
 - **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
 - **"Every day" board** — recurring notes shown on every day. Per note you can pick **which weekdays** it fires on (weekday squares in the time popover, defaulting to your working days; the chosen days show as a tooltip on the note's time). Toggle the checkbox next to **Every day** to also project these notes onto the matching weekday columns in the calendar.
@@ -82,6 +84,7 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 |-------|------|
 | Shell | Electron 33 + electron-vite 5 + Vite 7 |
 | UI | React 19 (plain JavaScript, **no TypeScript**) |
+| Note editor | Tiptap (rich text → HTML, inline base64 images) |
 | Storage | better-sqlite3 |
 | AI | local Gemini (ACP) / Claude (stream-json) / Codex CLI |
 | Voice | Piper (standalone, bundled in `resources/tts`) |

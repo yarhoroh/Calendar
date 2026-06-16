@@ -65,7 +65,18 @@ export default function DayItem({
     if (focusedId === item.id) setFocusedId(null)
     setTall(false)
   }
-  useEffect(() => () => clearTimeout(focusTimer.current), [])
+  // clear the blur if THIS (focused) note unmounts — going into edit mode or
+  // scrolling away — since then no mouseleave fires to turn it off
+  const focusedRef = useRef(false)
+  focusedRef.current = focusedId === item.id
+  useEffect(
+    () => () => {
+      clearTimeout(focusTimer.current)
+      if (focusedRef.current) setFocusedId(null)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
 
   const isEveryday = dayKey === 'everyday'
   // which weekdays this everyday note is active on — its own `days`, else the
@@ -286,15 +297,22 @@ export default function DayItem({
             {item.title}
           </div>
         )}
-        <div
-          className={'day-item__text' + (item.collapsed ? ' day-item__text--collapsed' : '')}
-          style={{
-            fontWeight: item.bold ? 700 : undefined,
-            fontStyle: item.italic ? 'italic' : undefined
-          }}
-        >
-          {item.text}
-        </div>
+        {item.html ? (
+          <div
+            className={'day-item__text day-item__rich' + (item.collapsed ? ' day-item__text--collapsed' : '')}
+            dangerouslySetInnerHTML={{ __html: item.html }}
+          />
+        ) : (
+          <div
+            className={'day-item__text' + (item.collapsed ? ' day-item__text--collapsed' : '')}
+            style={{
+              fontWeight: item.bold ? 700 : undefined,
+              fontStyle: item.italic ? 'italic' : undefined
+            }}
+          >
+            {item.text}
+          </div>
+        )}
       </div>
 
       {folderName && <span className="day-item__folder">{folderName}</span>}

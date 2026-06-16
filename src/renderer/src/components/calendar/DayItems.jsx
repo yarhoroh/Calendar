@@ -6,7 +6,6 @@ import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { useFolderFilter } from '../../lib/folderFilter'
 import { useEverydayProjection } from '../../lib/everydayProjection'
 import { parseKey } from '../../lib/dates'
-import { loadFormat } from '../../lib/itemFormat'
 import DayItem from './DayItem'
 import ItemEditor from './ItemEditor'
 import './DayItems.css'
@@ -182,9 +181,7 @@ function DayItems({ dayKey, sort }) {
           <ItemEditor
             initialTitle={it.title || ''}
             initialText={it.text || ''}
-            initialBold={!!it.bold}
-            initialItalic={!!it.italic}
-            initialSize={it.size || 1}
+            initialHtml={it.html || ''}
             initialTime={it.time || null}
             initialDays={it.days}
             defaultDays={proj.workingDays}
@@ -196,9 +193,7 @@ function DayItems({ dayKey, sort }) {
               update(it.id, {
                 title: f.title || null,
                 text: f.text,
-                bold: f.bold,
-                italic: f.italic,
-                size: f.size,
+                html: f.html,
                 time: f.time || null,
                 days: f.days
               })
@@ -259,12 +254,8 @@ function DayItems({ dayKey, sort }) {
 
       {editingId === 'new' &&
         (() => {
-          const fmt = loadFormat()
           return (
             <ItemEditor
-              initialBold={fmt.bold}
-              initialItalic={fmt.italic}
-              initialSize={fmt.size}
               defaultDays={proj.workingDays}
               timeOnly={dayKey === 'everyday'}
               plain={plain}
@@ -272,9 +263,7 @@ function DayItems({ dayKey, sort }) {
                 const item = {
                   ...newItem(f.text),
                   title: f.title || null,
-                  bold: f.bold,
-                  italic: f.italic,
-                  size: f.size,
+                  html: f.html,
                   time: f.time || null,
                   days: f.days,
                   folderId: activeId || null // file new notes into the active folder

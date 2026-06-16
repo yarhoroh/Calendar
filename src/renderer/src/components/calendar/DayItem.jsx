@@ -23,6 +23,8 @@ export default function DayItem({
   noStatus,
   dragging,
   projected,
+  expanded,
+  onExpand,
   onEdit,
   onUpdate,
   onRemove,
@@ -46,13 +48,22 @@ export default function DayItem({
   // blur; the focus holds until the cursor leaves this note
   const { focusedId, setFocusedId } = useFocusNote()
   const focusTimer = useRef(0)
+  const rootRef = useRef(null)
+  const [tall, setTall] = useState(false)
   const armFocus = () => {
     clearTimeout(focusTimer.current)
     focusTimer.current = setTimeout(() => setFocusedId(item.id), 2000)
   }
+  // on hover: start the blur-focus timer and check if the note is tall enough
+  // (>100px) to offer the fullscreen button
+  const onEnter = () => {
+    armFocus()
+    if (!expanded) setTall((rootRef.current?.offsetHeight || 0) > 100)
+  }
   const leaveFocus = () => {
     clearTimeout(focusTimer.current)
     if (focusedId === item.id) setFocusedId(null)
+    setTall(false)
   }
   useEffect(() => () => clearTimeout(focusTimer.current), [])
 
@@ -117,15 +128,16 @@ export default function DayItem({
 
   return (
     <div
+      ref={rootRef}
       className={
         'day-item' +
         (struck ? ' day-item--struck' : '') +
         (fileOver ? ' day-item--drop' : '') +
         (dragging ? ' day-item--dragging' : '') +
-        (focusedId === item.id ? ' day-item--focused' : focusedId ? ' day-item--blurred' : '')
+        (expanded ? '' : focusedId === item.id ? ' day-item--focused' : focusedId ? ' day-item--blurred' : '')
       }
-      draggable={!projected}
-      onMouseEnter={armFocus}
+      draggable={!projected && !expanded}
+      onMouseEnter={onEnter}
       onMouseLeave={leaveFocus}
       onDragStart={(e) => onDragStart(e, item)}
       onDragEnd={onDragEnd}
@@ -279,6 +291,19 @@ export default function DayItem({
       </div>
 
       {folderName && <span className="day-item__folder">{folderName}</span>}
+
+      {tall && !expanded && (
+        <button
+          className="day-item__expand"
+          title={t('items.expand')}
+          onClick={(e) => {
+            e.stopPropagation()
+            onExpand?.()
+          }}
+        >
+          ⛶
+        </button>
+      )}
 
       {menu && (
         <ContextMenu

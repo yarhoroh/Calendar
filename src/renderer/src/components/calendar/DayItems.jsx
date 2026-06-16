@@ -1,5 +1,6 @@
 import { memo, useRef, useState } from 'react'
 import api from '../../lib/api'
+import { useI18n } from '../../i18n/I18nContext'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { useFolderFilter } from '../../lib/folderFilter'
 import { useEverydayProjection } from '../../lib/everydayProjection'
@@ -28,10 +29,12 @@ const byTime = (mode) => (a, b) => {
 // within the day and moves them between day columns; a placeholder shows where
 // the dragged note will land.
 function DayItems({ dayKey, sort }) {
+  const { t } = useI18n()
   const { items, add, update, remove, moveToIndex, insertAt } = useDayItems(dayKey)
   const { visibleIds, activeId } = useFolderFilter()
   const proj = useEverydayProjection()
   const [editingId, setEditingId] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
   const [overAt, setOverAt] = useState(-1) // insertion index for the placeholder
   const downEditing = useRef(null)
@@ -128,7 +131,12 @@ function DayItems({ dayKey, sort }) {
   entries.forEach(({ it, projected }) => {
     if (projected) {
       rows.push(
-        <div className="day-items__row" key={'ev-' + it.id}>
+        <div className={'day-items__row' + (expandedId === it.id ? ' day-items__row--fs' : '')} key={'ev-' + it.id}>
+          {expandedId === it.id && (
+            <button className="day-item__close" title={t('items.close')} onClick={() => setExpandedId(null)}>
+              ✕
+            </button>
+          )}
           <DayItem
             item={it}
             dayKey="everyday"
@@ -136,6 +144,8 @@ function DayItems({ dayKey, sort }) {
             noStatus={false}
             dragging={false}
             projected
+            expanded={expandedId === it.id}
+            onExpand={() => setExpandedId(it.id)}
             onEdit={proj.openEveryday}
             onUpdate={proj.update}
             onRemove={proj.remove}
@@ -149,7 +159,23 @@ function DayItems({ dayKey, sort }) {
     const i = items.indexOf(it)
     if (!sort && overAt === i) rows.push(ph('ph-' + i))
     rows.push(
-      <div className="day-items__row" data-index={i} key={it.id}>
+      <div
+        className={'day-items__row' + (expandedId === it.id ? ' day-items__row--fs' : '')}
+        data-index={i}
+        key={it.id}
+      >
+        {expandedId === it.id && (
+          <button
+            className="day-item__close"
+            title={t('items.close')}
+            onClick={() => {
+              setExpandedId(null)
+              setEditingId(null)
+            }}
+          >
+            ✕
+          </button>
+        )}
         {editingId === it.id ? (
           <ItemEditor
             initialTitle={it.title || ''}
@@ -187,6 +213,8 @@ function DayItems({ dayKey, sort }) {
             plain={plain}
             noStatus={noStatus}
             dragging={draggingId === it.id}
+            expanded={expandedId === it.id}
+            onExpand={() => setExpandedId(it.id)}
             onEdit={() => setEditingId(it.id)}
             onUpdate={update}
             onRemove={remove}

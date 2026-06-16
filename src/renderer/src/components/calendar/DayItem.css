@@ -76,6 +76,51 @@
   min-width: 0;
 }
 
+/* fullscreen expand (bottom-right) + close (top-right) — plain borderless icons */
+.day-item__expand {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 4;
+}
+
+.day-item__expand:hover {
+  color: var(--accent);
+}
+
+.day-item__close {
+  position: fixed;
+  right: 14px;
+  top: 10px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 70;
+}
+
+.day-item__close:hover {
+  color: var(--accent);
+}
+
 .day-item__folder {
   position: absolute;
   right: 3px;

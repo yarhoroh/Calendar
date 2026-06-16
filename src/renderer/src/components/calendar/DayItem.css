@@ -18,6 +18,10 @@
   background: var(--active);
 }
 
+.day-item--dragging {
+  opacity: 0.3;
+}
+
 .day-item__ctrl--rem {
   display: flex;
   align-items: center;

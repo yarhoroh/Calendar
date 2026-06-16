@@ -3,10 +3,13 @@ import DayColumn from './DayColumn'
 import DayItems from './DayItems'
 import MonthPicker from './MonthPicker'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
-import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey } from '../../lib/dates'
+import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
 import { useI18n } from '../../i18n/I18nContext'
+import { moveNote } from '../../lib/moveNote'
 import './CalendarBoard.css'
+
+const NOTE = 'application/x-note'
 
 const MIN_W = 120
 const MAX_W = 900
@@ -32,6 +35,37 @@ export default function CalendarBoard({ command }) {
   const [grabbing, setGrabbing] = useState(false)
   const [board, setBoard] = useState('') // '' | 'everyday' | 'general'
   const virtual = board !== ''
+  const [draggingNote, setDraggingNote] = useState(false)
+
+  // know when a note is being dragged so the board buttons can light up as drop targets
+  useEffect(() => {
+    const on = () => setDraggingNote(true)
+    const off = () => setDraggingNote(false)
+    document.addEventListener('dragstart', on)
+    document.addEventListener('dragend', off)
+    return () => {
+      document.removeEventListener('dragstart', on)
+      document.removeEventListener('dragend', off)
+    }
+  }, [])
+
+  const dropOnBoard = (e, target) => {
+    if (!e.dataTransfer.types?.includes(NOTE)) return
+    e.preventDefault()
+    setDraggingNote(false)
+    let data
+    try {
+      data = JSON.parse(e.dataTransfer.getData(NOTE))
+    } catch {
+      return
+    }
+    moveNote(data, target)
+    // dropping onto "Today" returns the note to a real date — show the calendar
+    if (target !== 'everyday' && target !== 'general') {
+      setBoard('')
+      animateOrigin(0, 280)
+    }
+  }
 
   const expanded = settings.expanded
   const colW = expanded ? containerWidth || colWidth : colWidth
@@ -130,6 +164,25 @@ export default function CalendarBoard({ command }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command])
+
+  // Ctrl + ← / → moves the calendar one day (same as the arrow buttons)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.ctrlKey || virtual) return
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        nav(-1)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        nav(1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtual])
 
   const onWheel = (e) => {
     // vertical wheel scrolls the column under the cursor; only horizontal
@@ -239,18 +292,35 @@ export default function CalendarBoard({ command }) {
         >
           <ChevronRightIcon />
         </button>
-        <button className="cal-btn" onClick={goToday}>
+        <button
+          className={'cal-btn' + (draggingNote ? ' cal-btn--droptarget' : '')}
+          onClick={goToday}
+          onDragOver={(e) => e.dataTransfer.types?.includes(NOTE) && e.preventDefault()}
+          onDrop={(e) => dropOnBoard(e, dateKey(today))}
+        >
           {t('calendar.today')}
         </button>
         <button
-          className={'cal-btn' + (board === 'everyday' ? ' cal-btn--active' : '')}
+          className={
+            'cal-btn' +
+            (board === 'everyday' ? ' cal-btn--active' : '') +
+            (draggingNote ? ' cal-btn--droptarget' : '')
+          }
           onClick={() => setBoard((b) => (b === 'everyday' ? '' : 'everyday'))}
+          onDragOver={(e) => e.dataTransfer.types?.includes(NOTE) && e.preventDefault()}
+          onDrop={(e) => dropOnBoard(e, 'everyday')}
         >
           {t('calendar.everyday')}
         </button>
         <button
-          className={'cal-btn' + (board === 'general' ? ' cal-btn--active' : '')}
+          className={
+            'cal-btn' +
+            (board === 'general' ? ' cal-btn--active' : '') +
+            (draggingNote ? ' cal-btn--droptarget' : '')
+          }
           onClick={() => setBoard((b) => (b === 'general' ? '' : 'general'))}
+          onDragOver={(e) => e.dataTransfer.types?.includes(NOTE) && e.preventDefault()}
+          onDrop={(e) => dropOnBoard(e, 'general')}
         >
           {t('calendar.general')}
         </button>

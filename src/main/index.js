@@ -278,8 +278,13 @@ ipcMain.on('settings:set-language', (_e, lang) => {
 // ---- notes store (local SQLite, see ./db) ------------------------------
 ipcMain.handle('items:get', (_e, key) => getItems(key))
 ipcMain.on('items:save', (_e, key, items) => {
-  saveItems(key, items)
-  mainWindow?.webContents.send('items:changed', key)
+  try {
+    saveItems(key, items)
+    mainWindow?.webContents.send('items:changed', key)
+  } catch (e) {
+    // never let a DB hiccup crash the whole app
+    console.error('items:save failed', key, e.message)
+  }
 })
 
 // one-time import of the old notes.json into the database

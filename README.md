@@ -23,12 +23,14 @@ locally, no cloud.
 
 ### Calendar & notes
 - **Infinite day strip** — scroll left/right forever, smooth inertia and snap-to-day.
-- **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses (todo / in progress / done / cancelled), drag to reorder.
+- **Per-day notes** — title, multi-line text, bold/italic, sizes, statuses (todo / in progress / done / cancelled).
+- **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
 - **"Every day" board** — recurring notes shown on every day.
 - **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
 - **File attachments** — attach multiple files to any note via the paperclip, or **drag-and-drop from the desktop**; click a file to open it in its default app (Word/Excel/PDF/…). Files are linked by path, so edits stay in the original.
 - **Reminders** — set a time on a note; when it's due a toast pops up in a separate window (with sound), clicking it opens that day.
 - **Working days** — choose which weekdays count as working; "every day" reminders fire only on those days.
+- **Navigation** — arrow buttons or **Ctrl + ← / →** move the calendar day-by-day; **Ctrl + drag** pans freely; horizontal wheel scrolls.
 - **SQLite storage** — fast and reliable, only the requested day is read.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 

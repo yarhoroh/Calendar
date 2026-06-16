@@ -9,7 +9,18 @@ import './DayItem.css'
 
 // A saved note (view only). Double-click to edit, drag to reorder. Reminder +
 // status controls sit in the top-right.
-export default function DayItem({ item, dayKey, plain, noStatus, onEdit, onUpdate, onRemove, onDragStart, onDrop }) {
+export default function DayItem({
+  item,
+  dayKey,
+  plain,
+  noStatus,
+  dragging,
+  onEdit,
+  onUpdate,
+  onRemove,
+  onDragStart,
+  onDragEnd
+}) {
   const { t } = useI18n()
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
@@ -55,30 +66,34 @@ export default function DayItem({ item, dayKey, plain, noStatus, onEdit, onUpdat
 
   return (
     <div
-      className={'day-item' + (struck ? ' day-item--struck' : '') + (fileOver ? ' day-item--drop' : '')}
+      className={
+        'day-item' +
+        (struck ? ' day-item--struck' : '') +
+        (fileOver ? ' day-item--drop' : '') +
+        (dragging ? ' day-item--dragging' : '')
+      }
       draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move'
-        onDragStart(item.id)
-      }}
+      onDragStart={(e) => onDragStart(e, item)}
+      onDragEnd={onDragEnd}
       onDragOver={(e) => {
-        e.preventDefault()
-        if (e.dataTransfer.types?.includes('Files')) setFileOver(true)
+        // only handle OS files here; note-reorder index is computed by the
+        // container (single source of truth → no flicker)
+        if (e.dataTransfer.types?.includes('Files')) {
+          e.preventDefault()
+          setFileOver(true)
+        }
       }}
       onDragLeave={() => setFileOver(false)}
       onDrop={async (e) => {
-        e.preventDefault()
-        setFileOver(false)
         const dropped = Array.from(e.dataTransfer.files || [])
-        if (dropped.length) {
-          // files dragged from the OS → attach each by its real path
-          for (const f of dropped) {
-            const p = api.pathForFile?.(f)
-            if (p) await api.addAttachmentPath?.(item.id, p)
-          }
-          return
+        if (!dropped.length) return // note moves are handled by the container
+        e.preventDefault()
+        e.stopPropagation()
+        setFileOver(false)
+        for (const f of dropped) {
+          const p = api.pathForFile?.(f)
+          if (p) await api.addAttachmentPath?.(item.id, p)
         }
-        onDrop(item.id) // internal note reorder
       }}
       onDoubleClick={(e) => {
         e.stopPropagation()

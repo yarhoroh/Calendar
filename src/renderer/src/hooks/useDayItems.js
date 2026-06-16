@@ -74,15 +74,26 @@ export function useDayItems(key) {
     add: (item) => mutate((prev) => [...prev, item]),
     update: (id, patch) => mutate((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
     remove: (id) => mutate((prev) => prev.filter((i) => i.id !== id)),
-    reorder: (fromId, toId) =>
+    // move an item to a specific insertion index (index is in the original array)
+    moveToIndex: (fromId, index) =>
       mutate((prev) => {
         const from = prev.findIndex((i) => i.id === fromId)
-        const to = prev.findIndex((i) => i.id === toId)
-        if (from < 0 || to < 0 || from === to) return prev
-        const next = prev.slice()
-        const [moved] = next.splice(from, 1)
-        next.splice(to, 0, moved)
-        return next
+        if (from < 0) return prev
+        const arr = prev.slice()
+        const [moved] = arr.splice(from, 1)
+        let idx = from < index ? index - 1 : index
+        idx = Math.max(0, Math.min(idx, arr.length))
+        arr.splice(idx, 0, moved)
+        return arr
+      }),
+    // insert an item (e.g. dragged in from another day) at an index
+    insertAt: (item, index) =>
+      mutate((prev) => {
+        if (prev.some((i) => i.id === item.id)) return prev
+        const arr = prev.slice()
+        const idx = Math.max(0, Math.min(index, arr.length))
+        arr.splice(idx, 0, item)
+        return arr
       })
   }
 }

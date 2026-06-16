@@ -45,6 +45,15 @@
   background: var(--active);
   color: var(--text);
 }
+.cal-btn--droptarget {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  color: var(--text);
+}
+.cal-btn--droptarget:hover {
+  background: var(--accent);
+  color: #fff;
+}
 
 .calendar-board__everyday {
   flex: 1;

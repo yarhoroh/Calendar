@@ -6,25 +6,91 @@ import DayItem from './DayItem'
 import ItemEditor from './ItemEditor'
 import './DayItems.css'
 
-// Notes of one day. One editor slot at a time (editingId = item id | 'new' |
-// null). Clicking the empty area starts a new note only when nothing is being
-// edited; otherwise the open editor just commits (no stray draft).
+const NOTE = 'application/x-note'
+const isDated = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k)
+
+// Notes of one day. One editor slot at a time. Drag-and-drop reorders notes
+// within the day and moves them between day columns; a placeholder shows where
+// the dragged note will land.
 function DayItems({ dayKey }) {
-  const { items, add, update, remove, reorder } = useDayItems(dayKey)
+  const { items, add, update, remove, moveToIndex, insertAt } = useDayItems(dayKey)
   const [editingId, setEditingId] = useState(null)
-  const dragId = useRef(null)
+  const [draggingId, setDraggingId] = useState(null)
+  const [overAt, setOverAt] = useState(-1) // insertion index for the placeholder
   const downEditing = useRef(null)
+  const listRef = useRef(null)
+
+  // insertion index from the cursor Y — computed in one place to avoid flicker
+  const computeIndex = (clientY) => {
+    const el = listRef.current
+    if (!el) return items.length
+    const rows = el.querySelectorAll('[data-index]')
+    for (const row of rows) {
+      const r = row.getBoundingClientRect()
+      if (clientY < r.top + r.height / 2) return Number(row.dataset.index)
+    }
+    return items.length
+  }
+
   const plain = dayKey === 'general' // general board: no reminder
   const noStatus = plain || dayKey === 'everyday' // everyday & general: no status
 
   const stop = () => setEditingId(null)
+  const clearDrag = () => {
+    setDraggingId(null)
+    setOverAt(-1)
+  }
 
-  return (
-    <div className="day-items">
-      {items.map((it) =>
-        editingId === it.id ? (
+  const onStart = (e, item) => {
+    e.dataTransfer.effectAllowed = 'move'
+    try {
+      e.dataTransfer.setData(NOTE, JSON.stringify({ id: item.id, fromDay: dayKey, item }))
+    } catch {
+      // ignore
+    }
+    setDraggingId(item.id)
+  }
+
+  const doDrop = async (e) => {
+    const raw = e.dataTransfer.getData(NOTE)
+    const at = overAt < 0 ? items.length : overAt
+    clearDrag()
+    if (!raw) return
+    let data
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      return
+    }
+    if (data.fromDay === dayKey) {
+      moveToIndex(data.id, at)
+    } else if (isDated(dayKey) && isDated(data.fromDay)) {
+      // move a note to another day column. Remove from the source FIRST — the
+      // note id is a global primary key, so it must not exist in two days at
+      // once (main processes these saves in order).
+      const src = (await api.getItems?.(data.fromDay)) || []
+      api.saveItems?.(data.fromDay, src.filter((i) => i.id !== data.id))
+      insertAt({ ...data.item }, at)
+      if (data.item.time)
+        api.setReminder?.({
+          id: data.item.id,
+          when: data.item.time,
+          dayKey,
+          title: data.item.title || 'Calendar',
+          body: data.item.text || ''
+        })
+    }
+  }
+
+  const ph = (key) => <div className="day-items__placeholder" key={key} />
+
+  const rows = []
+  items.forEach((it, i) => {
+    if (overAt === i) rows.push(ph('ph-' + i))
+    rows.push(
+      <div className="day-items__row" data-index={i} key={it.id}>
+        {editingId === it.id ? (
           <ItemEditor
-            key={it.id}
             initialTitle={it.title || ''}
             initialText={it.text || ''}
             initialBold={!!it.bold}
@@ -55,24 +121,42 @@ function DayItems({ dayKey }) {
           />
         ) : (
           <DayItem
-            key={it.id}
             item={it}
             dayKey={dayKey}
             plain={plain}
             noStatus={noStatus}
+            dragging={draggingId === it.id}
             onEdit={() => setEditingId(it.id)}
             onUpdate={update}
             onRemove={remove}
-            onDragStart={(id) => {
-              dragId.current = id
-            }}
-            onDrop={(targetId) => {
-              if (dragId.current) reorder(dragId.current, targetId)
-              dragId.current = null
-            }}
+            onDragStart={onStart}
+            onDragEnd={clearDrag}
           />
-        )
-      )}
+        )}
+      </div>
+    )
+  })
+  if (overAt >= items.length && overAt !== -1) rows.push(ph('ph-end'))
+
+  return (
+    <div
+      className="day-items"
+      ref={listRef}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types?.includes(NOTE)) return
+        e.preventDefault()
+        setOverAt(computeIndex(e.clientY))
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOverAt(-1)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types?.includes(NOTE)) return
+        e.preventDefault()
+        doDrop(e)
+      }}
+    >
+      {rows}
 
       {editingId === 'new' &&
         (() => {

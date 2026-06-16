@@ -1,0 +1,121 @@
+.side-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+/* docked: takes layout space and pushes the content */
+.side-panel--pinned {
+  flex: 0 0 auto;
+}
+
+/* floating: overlays the content (parent is position: relative) */
+.side-panel--float {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 6;
+  border-radius: 0 10px 10px 0;
+  box-shadow: 2px 0 14px rgba(0, 0, 0, 0.18);
+}
+
+.side-panel__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.side-panel__btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.side-panel__btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.side-panel__btn--on {
+  color: var(--accent);
+}
+
+.side-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* grab strip on the right edge */
+.side-panel__resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.side-panel__resize:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* collapsed: only a button remains */
+.side-panel__open {
+  display: grid;
+  place-items: center;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  background: var(--panel);
+  transition: background 0.12s, color 0.12s;
+}
+
+.side-panel__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* docked rail: thin strip on the left */
+.side-panel__open--rail {
+  flex: 0 0 auto;
+  width: 30px;
+  border-right: 1px solid var(--border);
+}
+
+/* floating button: hovers over the content */
+.side-panel__open--float {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* solid green on hover so it stays visible over text underneath */
+.side-panel__open--float:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

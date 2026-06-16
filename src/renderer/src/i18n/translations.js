@@ -47,6 +47,7 @@ export const translations = {
       status: { todo: 'To do', doing: 'In progress', done: 'Done', cancelled: 'Cancelled' }
     },
     chat: { clear: 'Clear context', ready: 'AI ready', starting: 'Starting AI…', offline: 'AI not found' },
+    panel: { open: 'Open panel', collapse: 'Collapse', pin: 'Pin / unpin', resize: 'Drag to resize' },
     attach: { title: 'Attachments', add: 'add files', remove: 'Remove', empty: 'No files attached.' },
     settings: {
       tools: 'Local AI tools',
@@ -133,6 +134,7 @@ export const translations = {
       status: { todo: 'Не виконано', doing: 'В роботі', done: 'Виконано', cancelled: 'Скасовано' }
     },
     chat: { clear: 'Очистити контекст', ready: 'AI готовий', starting: 'Запуск AI…', offline: 'AI не знайдено' },
+    panel: { open: 'Відкрити панель', collapse: 'Згорнути', pin: 'Закріпити / відкріпити', resize: 'Потягни, щоб змінити розмір' },
     attach: { title: 'Вкладення', add: 'додати файли', remove: 'Прибрати', empty: 'Файлів немає.' },
     settings: {
       tools: 'Локальні AI-інструменти',

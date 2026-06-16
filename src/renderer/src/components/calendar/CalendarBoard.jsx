@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import DayColumn from './DayColumn'
 import DayItems from './DayItems'
 import MonthPicker from './MonthPicker'
+import SidePanel from '../SidePanel'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -14,6 +15,7 @@ const NOTE = 'application/x-note'
 const MIN_W = 120
 const MAX_W = 900
 const BUFFER = 2
+const PANEL_DEFAULT = { open: false, pinned: true, width: 240 }
 
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 
@@ -69,6 +71,12 @@ export default function CalendarBoard({ command }) {
 
   const expanded = settings.expanded
   const colW = expanded ? containerWidth || colWidth : colWidth
+
+  // left panel state is kept per tab (today / everyday / general)
+  const boardKey = board || 'today'
+  const panel = { ...PANEL_DEFAULT, ...(settings.panels?.[boardKey] || {}) }
+  const updatePanel = (patch) =>
+    update({ panels: { ...(settings.panels || {}), [boardKey]: { ...panel, ...patch } } })
 
   // refs mirror state for the stable callbacks / animation loops
   const originRef = useRef(0)
@@ -343,37 +351,40 @@ export default function CalendarBoard({ command }) {
         </div>
       </div>
 
-      {virtual ? (
-        <div className="calendar-board__everyday">
-          <DayItems dayKey={board} />
-        </div>
-      ) : (
-        <div
-          ref={viewportRef}
-          className={'calendar-board__viewport' + (grabbing ? ' calendar-board__viewport--grabbing' : '')}
-          onWheel={onWheel}
-          onMouseDown={onMouseDown}
-        >
-          {columns.map((k) => {
-            const date = addDays(today, k)
-            return (
-              <DayColumn
-                key={k}
-                date={date}
-                lang={lang}
-                style={{ left: `${(k - origin) * colW}px`, width: `${colW}px` }}
-                isToday={sameDay(date, today)}
-                isWeekend={isWeekend(date)}
-                isActive={activeTs === date.getTime()}
-                resizable={!expanded}
-                onActivate={handleActivate}
-                onToggleExpand={handleToggleExpand}
-                onResizeStart={handleResizeStart}
-              />
-            )
-          })}
-        </div>
-      )}
+      <div className="calendar-board__body">
+        <SidePanel state={panel} onChange={updatePanel} />
+        {virtual ? (
+          <div className="calendar-board__everyday">
+            <DayItems dayKey={board} />
+          </div>
+        ) : (
+          <div
+            ref={viewportRef}
+            className={'calendar-board__viewport' + (grabbing ? ' calendar-board__viewport--grabbing' : '')}
+            onWheel={onWheel}
+            onMouseDown={onMouseDown}
+          >
+            {columns.map((k) => {
+              const date = addDays(today, k)
+              return (
+                <DayColumn
+                  key={k}
+                  date={date}
+                  lang={lang}
+                  style={{ left: `${(k - origin) * colW}px`, width: `${colW}px` }}
+                  isToday={sameDay(date, today)}
+                  isWeekend={isWeekend(date)}
+                  isActive={activeTs === date.getTime()}
+                  resizable={!expanded}
+                  onActivate={handleActivate}
+                  onToggleExpand={handleToggleExpand}
+                  onResizeStart={handleResizeStart}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

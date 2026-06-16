@@ -55,6 +55,13 @@
   color: #fff;
 }
 
+.calendar-board__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .calendar-board__everyday {
   flex: 1;
   min-height: 0;

@@ -37,6 +37,13 @@
   color: var(--accent);
 }
 
+/* when the focus-blur is enabled, hovering must not tint the text green —
+   the blur does the highlighting instead (0,4,0 beats the hover rule) */
+.day-item.day-item--blurmode:hover .day-item__title,
+.day-item.day-item--blurmode:hover .day-item__text {
+  color: var(--text);
+}
+
 .day-item--drop {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;

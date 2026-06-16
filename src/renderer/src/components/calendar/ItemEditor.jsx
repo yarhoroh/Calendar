@@ -34,7 +34,7 @@ export default function ItemEditor({
   const [time, setTime] = useState(initialTime)
   const [remOpen, setRemOpen] = useState(false)
   const [menu, setMenu] = useState(null) // right-click menu state
-  const ref = useAutosizeTextarea(text, 10)
+  const ref = useAutosizeTextarea(text, 1000) // grow to full content like the view (no early cap)
   const remBtnRef = useRef(null)
   const titleRef = useRef(null)
   // custom undo history — controlled inputs break the browser's native Ctrl+Z

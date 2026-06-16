@@ -46,7 +46,7 @@ export default function DayItem({
 
   // hover-focus: keep the cursor on a note ~2s → it stays sharp while the others
   // blur; the focus holds until the cursor leaves this note
-  const { focusedId, setFocusedId } = useFocusNote()
+  const { focusedId, setFocusedId, enabled: focusEnabled } = useFocusNote()
   const focusTimer = useRef(0)
   const rootRef = useRef(null)
   const [tall, setTall] = useState(false)
@@ -134,6 +134,7 @@ export default function DayItem({
         (struck ? ' day-item--struck' : '') +
         (fileOver ? ' day-item--drop' : '') +
         (dragging ? ' day-item--dragging' : '') +
+        (focusEnabled && !expanded ? ' day-item--blurmode' : '') +
         (expanded ? '' : focusedId === item.id ? ' day-item--focused' : focusedId ? ' day-item--blurred' : '')
       }
       draggable={!projected && !expanded}

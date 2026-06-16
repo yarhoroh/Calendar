@@ -30,7 +30,7 @@
   z-index: 60;
   background: var(--panel);
   overflow: auto;
-  padding: 44px 14px 40px;
+  padding: 44px 14px 40px 4px;
 }
 
 .day-items__row--fs .day-item {

@@ -151,7 +151,10 @@ export default function CalendarBoard({ command }) {
   const [focusedId, setFocusedId] = useState(null)
   const focusEnabled = settings.focusBlur !== false
   const focusValue = useMemo(
-    () => (focusEnabled ? { focusedId, setFocusedId } : { focusedId: null, setFocusedId: () => {} }),
+    () =>
+      focusEnabled
+        ? { enabled: true, focusedId, setFocusedId }
+        : { enabled: false, focusedId: null, setFocusedId: () => {} },
     [focusEnabled, focusedId]
   )
 

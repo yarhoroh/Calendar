@@ -32,7 +32,9 @@ export const translations = {
     prompt: {
       placeholder: 'Task for the calendar…   Enter — send, Ctrl+Enter — new line',
       send: 'Send',
-      stop: 'Stop'
+      stop: 'Stop',
+      attachImage: 'Attach image',
+      removeImage: 'Remove image'
     },
     calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General' },
     items: {
@@ -48,6 +50,7 @@ export const translations = {
     attach: { title: 'Attachments', add: 'add files', remove: 'Remove', empty: 'No files attached.' },
     settings: {
       tools: 'Local AI tools',
+      bots: 'Bots & messengers',
       aiEngine: 'AI engine',
       language: 'Language',
       autostart: 'Launch on startup',
@@ -61,6 +64,14 @@ export const translations = {
       aiConfigFile: 'AI config file',
       open: 'Open',
       folder: 'Folder',
+      tg: {
+        desc: 'Chat with the assistant from Telegram. Paste your bot token (@BotFather).',
+        token: 'Bot token',
+        on: 'Connected',
+        off: 'Off',
+        bad: 'Bad token',
+        disconnect: 'Disconnect'
+      },
       tabGeneral: 'General',
       tabAi: 'Assistant',
       memory: 'AI memory',
@@ -107,7 +118,9 @@ export const translations = {
     prompt: {
       placeholder: 'Завдання календарю…   Enter — надіслати, Ctrl+Enter — новий рядок',
       send: 'Надіслати',
-      stop: 'Зупинити'
+      stop: 'Зупинити',
+      attachImage: 'Додати зображення',
+      removeImage: 'Прибрати зображення'
     },
     calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні' },
     items: {
@@ -123,6 +136,7 @@ export const translations = {
     attach: { title: 'Вкладення', add: 'додати файли', remove: 'Прибрати', empty: 'Файлів немає.' },
     settings: {
       tools: 'Локальні AI-інструменти',
+      bots: 'Боти та месенджери',
       aiEngine: 'AI-рушій',
       language: 'Мова',
       autostart: 'Запускати під час старту системи',
@@ -136,6 +150,14 @@ export const translations = {
       aiConfigFile: 'Файл конфігу AI',
       open: 'Відкрити',
       folder: 'Папка',
+      tg: {
+        desc: 'Спілкуйтесь з асистентом у Telegram. Встав токен бота (@BotFather).',
+        token: 'Токен бота',
+        on: 'Підключено',
+        off: 'Вимкнено',
+        bad: 'Невірний токен',
+        disconnect: 'Відключити'
+      },
       tabGeneral: 'Загальні',
       tabAi: 'Асистент',
       memory: 'Пам’ять AI',

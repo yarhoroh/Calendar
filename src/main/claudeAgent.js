@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { lastUserMessage } from './prompt'
+import { lastUserMessage, lastUserImages } from './prompt'
 import { chatLoop } from './chatLoop'
 
 // Persistent Claude agent over Claude Code's streaming JSON protocol
@@ -116,9 +116,10 @@ export function clearClaude() {
 
 export function askClaude({ messages, ctx }) {
   const userMsg = lastUserMessage(messages)
+  const images = lastUserImages(messages)
   const run = queue.then(async () => {
     const isFresh = turns === 0
-    const res = await chatLoop({ sendOne: claudeSendOne, isFresh, ctx, userMsg })
+    const res = await chatLoop({ sendOne: claudeSendOne, isFresh, ctx, userMsg, images })
     if (res?.ok) {
       turns++ // count this user turn (whole loop = one turn)
     } else if (model && isModelError(res?.error)) {
@@ -137,7 +138,7 @@ export function askClaude({ messages, ctx }) {
   return run
 }
 
-function claudeSendOne(text) {
+function claudeSendOne(text, images) {
   if (!proc) spawnProc()
   return new Promise((resolve) => {
     let done = false
@@ -153,8 +154,11 @@ function claudeSendOne(text) {
       settle({ ok: false, text: '', error: 'claude timed out' })
     }, TIMEOUT)
     current = { settle }
+    const content = [{ type: 'text', text }]
+    for (const im of images || [])
+      content.push({ type: 'image', source: { type: 'base64', media_type: im.media_type, data: im.data } })
     try {
-      proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n')
+      proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n')
     } catch (e) {
       current = null
       settle({ ok: false, text: '', error: e.message })

@@ -7,6 +7,7 @@ import { warmAcp, stopAcp, askAcp, clearAcp } from './acp'
 import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
+import { startTelegram, stopTelegram, sendTelegram } from './telegram'
 import { initTts, speak } from './tts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
@@ -35,6 +36,7 @@ import {
   setReminder,
   clearReminder,
   scheduleAll,
+  pushMessage,
   resizeToContent,
   openInMain,
   sendTheme
@@ -435,6 +437,26 @@ ipcMain.handle('ai:send', (_e, { messages }) => {
 })
 ipcMain.handle('aiConfig:get', () => loadAiConfig())
 ipcMain.handle('aiConfig:set', (_e, patch) => saveAiConfig(patch))
+// ---- Telegram bridge ----------------------------------------------------
+let telegramOk = false
+function syncTelegram() {
+  const tok = loadAiConfig().telegramToken
+  return startTelegram(tok, (msg) => {
+    console.log(`[telegram] in from ${msg.from || msg.chatId}: ${msg.text}`)
+    mainWindow?.webContents?.send('telegram:message', msg)
+  }).then((ok) => {
+    telegramOk = ok
+    console.log(`[telegram] bridge ${ok ? 'connected' : 'off'}`)
+    return ok
+  })
+}
+ipcMain.handle('telegram:set-token', (_e, tok) => {
+  saveAiConfig({ telegramToken: (tok || '').trim() })
+  return syncTelegram() // true if the token is valid
+})
+ipcMain.handle('telegram:status', () => ({ on: telegramOk, hasToken: !!loadAiConfig().telegramToken }))
+ipcMain.on('telegram:reply', (_e, { chatId, text }) => sendTelegram(chatId, text))
+
 ipcMain.handle('aiConfig:path', () => aiConfigPath())
 ipcMain.handle('aiConfig:open', () => shell.openPath(aiConfigPath()))
 ipcMain.handle('aiConfig:reveal', () => {
@@ -520,6 +542,8 @@ ipcMain.handle('ai:clear', () => {
 
 // ---- text-to-speech ----------------------------------------------------
 ipcMain.handle('tts:speak', (_e, payload) => speak(payload))
+// silent text notification (toast near the clock, no voice)
+ipcMain.on('notify:push', (_e, text) => pushMessage({ title: 'Calendar', body: String(text || '') }))
 
 // ---- single instance + lifecycle ---------------------------------------
 const gotLock = app.requestSingleInstanceLock()
@@ -545,11 +569,13 @@ if (!gotLock) {
     })
     scheduleStoredReminders()
     initAiTasks({
-      onFire: (task) => mainWindow?.webContents?.send('aiTask:fire', { text: task.text })
+      onFire: (task) =>
+        mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel })
     })
     scheduleAllAiTasks()
     initTts({ getMain: () => mainWindow })
     startTtsServer()
+    syncTelegram()
     warmAi(loadSettings().ai || 'gemini')
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -564,5 +590,6 @@ if (!gotLock) {
     stopAcp()
     stopClaude()
     stopTtsServer()
+    stopTelegram()
   })
 }

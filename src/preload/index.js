@@ -44,11 +44,20 @@ const api = {
   aiClear: () => ipcRenderer.invoke('ai:clear'),
   getAiConfig: () => ipcRenderer.invoke('aiConfig:get'),
   setAiConfig: (patch) => ipcRenderer.invoke('aiConfig:set', patch),
+  setTelegramToken: (tok) => ipcRenderer.invoke('telegram:set-token', tok),
+  getTelegramStatus: () => ipcRenderer.invoke('telegram:status'),
+  telegramReply: (chatId, text) => ipcRenderer.send('telegram:reply', { chatId, text }),
+  onTelegramMessage: (cb) => {
+    const h = (_e, m) => cb(m)
+    ipcRenderer.on('telegram:message', h)
+    return () => ipcRenderer.removeListener('telegram:message', h)
+  },
   getAiConfigPath: () => ipcRenderer.invoke('aiConfig:path'),
   openAiConfig: () => ipcRenderer.invoke('aiConfig:open'),
   revealAiConfig: () => ipcRenderer.invoke('aiConfig:reveal'),
   setModel: (model, reasoning) => ipcRenderer.invoke('ai:set-model', { model, reasoning }),
   ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
+  notify: (text) => ipcRenderer.send('notify:push', text),
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)
     ipcRenderer.on('tts:play', h)

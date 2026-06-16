@@ -9,6 +9,8 @@ import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
 import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
+import { useTelegramBridge } from './hooks/useTelegramBridge'
+import { useChat } from './hooks/useChat'
 
 // Composition root: holds the active view and wires the titlebar, the current
 // view and the close dialog. Reminder toasts live in a separate window; here we
@@ -27,7 +29,12 @@ export default function App() {
     setCommand({ ...cmd, n: Date.now() })
   }
 
+  // chat lives here (not in CalendarView) so its history survives switching to
+  // Settings and back — it only clears when the user clears it
+  const chat = useChat({ onCommand: runCommand })
+
   useAiTaskRunner({ onCommand: runCommand })
+  useTelegramBridge({ onCommand: runCommand })
 
   useEffect(() => {
     api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
@@ -74,7 +81,7 @@ export default function App() {
       <main className="content">
         <ErrorBoundary>
           {view === 'calendar' ? (
-          <CalendarView command={command} showChat={showChat} onCommand={runCommand} />
+          <CalendarView command={command} showChat={showChat} chat={chat} />
         ) : (
           <SettingsView showChat={showChat} onToggleChat={toggleChat} />
         )}

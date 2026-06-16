@@ -1,8 +1,8 @@
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { readFileSync, unlinkSync } from 'fs'
-import { lastUserMessage } from './prompt'
+import { readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { lastUserMessage, lastUserImages } from './prompt'
 import { chatLoop } from './chatLoop'
 
 // Codex has no live-process chat protocol, but `codex exec resume --last`
@@ -21,25 +21,34 @@ export function resetCodex() {
 
 export function askCodex({ messages, ctx, model, reasoning }) {
   const userMsg = lastUserMessage(messages)
+  const images = lastUserImages(messages)
   const run = queue.then(() => {
     const isFresh = !started
-    const sendOne = (text) => codexSendOne(text, model, reasoning)
-    return chatLoop({ sendOne, isFresh, ctx, userMsg })
+    const sendOne = (text, imgs) => codexSendOne(text, imgs, model, reasoning)
+    return chatLoop({ sendOne, isFresh, ctx, userMsg, images })
   })
   queue = run.catch(() => {})
   return run
 }
 
-function codexSendOne(prompt, model, reasoning) {
+function codexSendOne(prompt, images, model, reasoning) {
   const outFile = join(tmpdir(), `cal-codex-${process.pid}-${seq++}.txt`)
+  // codex takes images as files (-i <file>); dump each base64 to a temp file
+  const imgFiles = (images || []).map((im) => {
+    const ext = (im.media_type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')
+    const f = join(tmpdir(), `cal-codex-img-${process.pid}-${seq++}.${ext}`)
+    writeFileSync(f, Buffer.from(im.data, 'base64'))
+    return f
+  })
+  const imgArgs = imgFiles.flatMap((f) => ['-i', f])
   // model + reasoning come from the user-editable ai-config.json (per-call, so
   // the user's global codex config is untouched).
   const fast = ['-m', model || 'gpt-5.4-mini', '-c', `model_reasoning_effort="${reasoning || 'low'}"`]
   // resume accepts -o / --skip-git-repo-check but NOT --sandbox/--color (those
   // are only on the initial exec; the resumed session keeps its read-only mode)
   const args = started
-    ? ['exec', ...fast, 'resume', '--last', '--skip-git-repo-check', '-o', outFile, '-']
-    : ['exec', ...fast, '--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '-o', outFile, '-']
+    ? ['exec', ...fast, ...imgArgs, 'resume', '--last', '--skip-git-repo-check', '-o', outFile, '-']
+    : ['exec', ...fast, ...imgArgs, '--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never', '-o', outFile, '-']
   const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').trim()
 
   return new Promise((resolve) => {
@@ -65,6 +74,12 @@ function codexSendOne(prompt, model, reasoning) {
     })
     child.on('close', (code) => {
       clearTimeout(timer)
+      for (const f of imgFiles)
+        try {
+          unlinkSync(f)
+        } catch {
+          // already gone
+        }
       let text = ''
       try {
         text = readFileSync(outFile, 'utf8')

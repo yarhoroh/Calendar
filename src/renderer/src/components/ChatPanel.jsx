@@ -26,6 +26,13 @@ export default function ChatPanel({ messages, busy, onClear }) {
       <div className="chat__list" ref={listRef}>
         {messages.map((m, i) => (
           <div key={i} className={`chat__msg chat__msg--${m.role}`}>
+            {m.images?.length > 0 && (
+              <div className="chat__imgs">
+                {m.images.map((im, j) => (
+                  <img key={j} className="chat__img" src={`data:${im.media_type};base64,${im.data}`} alt="" />
+                ))}
+              </div>
+            )}
             {m.content}
           </div>
         ))}

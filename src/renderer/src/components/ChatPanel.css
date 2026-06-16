@@ -79,3 +79,17 @@
 .chat__typing {
   color: var(--muted);
 }
+
+.chat__imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.chat__img {
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 8px;
+  display: block;
+}

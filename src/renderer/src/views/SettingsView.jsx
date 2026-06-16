@@ -5,6 +5,7 @@ import GeminiSetting from '../components/settings/GeminiSetting'
 import ClaudeSetting from '../components/settings/ClaudeSetting'
 import CodexSetting from '../components/settings/CodexSetting'
 import AiConfigSetting from '../components/settings/AiConfigSetting'
+import TelegramSetting from '../components/settings/TelegramSetting'
 import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
@@ -57,6 +58,9 @@ export default function SettingsView({ showChat, onToggleChat }) {
               <ClaudeSetting />
               <CodexSetting />
               <AiConfigSetting />
+            </SettingsSection>
+            <SettingsSection title={t('settings.bots')}>
+              <TelegramSetting />
             </SettingsSection>
           </>
         ) : (

@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { lastUserMessage } from './prompt'
+import { lastUserMessage, lastUserImages } from './prompt'
 import { chatLoop } from './chatLoop'
 
 // Persistent Gemini agent over the Agent Client Protocol (ACP): one long-lived
@@ -186,9 +186,10 @@ export function restartAcp() {
 // chatLoop; acpSendOne just delivers one message to the live session.
 export function askAcp({ messages, ctx }) {
   const userMsg = lastUserMessage(messages)
+  const images = lastUserImages(messages)
   const run = queue.then(async () => {
     const isFresh = turns === 0
-    const res = await chatLoop({ sendOne: acpSendOne, isFresh, ctx, userMsg })
+    const res = await chatLoop({ sendOne: acpSendOne, isFresh, ctx, userMsg, images })
     if (res?.ok) turns++ // count this user turn (whole loop = one turn)
     return res
   })
@@ -196,7 +197,7 @@ export function askAcp({ messages, ctx }) {
   return run
 }
 
-async function acpSendOne(text) {
+async function acpSendOne(text, images) {
   if (!proc) spawnProc()
   const ok = await ready
   if (!ok || !sessionId) {
@@ -204,10 +205,12 @@ async function acpSendOne(text) {
     return { ok: false, text: '', error: 'gemini ACP session unavailable' }
   }
   chunks = []
+  const prompt = [{ type: 'text', text }]
+  for (const im of images || []) prompt.push({ type: 'image', mimeType: im.media_type, data: im.data })
   let res
   try {
     res = await Promise.race([
-      request('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }),
+      request('session/prompt', { sessionId, prompt }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), PROMPT_TIMEOUT))
     ])
   } catch {

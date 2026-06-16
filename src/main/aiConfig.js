@@ -9,7 +9,8 @@ const DEFAULTS = {
   geminiModel: 'gemini-2.5-flash',
   claudeModel: '',
   codexModel: 'gpt-5.4-mini',
-  codexReasoning: 'low'
+  codexReasoning: 'low',
+  telegramToken: '' // bot token for the Telegram bridge ('' = off)
 }
 
 function file() {

@@ -4,7 +4,11 @@ import { useI18n } from '../../i18n/I18nContext'
 
 // Tasks the AI scheduled for itself (or the user assigned). Read-only list with
 // delete — the AI creates them via the "addAiTask" action.
-const fmt = (at) => (at || '').replace('T', '  ')
+const fmt = (r) => {
+  if (!r.every) return (r.at || '').replace('T', '  ')
+  const win = r.winfrom && r.winto ? ` (${r.winfrom}–${r.winto})` : ''
+  return `↻ every ${r.every} min${win}`
+}
 
 export default function AiTasksPanel() {
   const { t } = useI18n()
@@ -32,7 +36,7 @@ export default function AiTasksPanel() {
         <div className={'ai-list__row' + (r.done ? ' ai-list__row--done' : '')} key={r.id}>
           <div className="ai-list__body">
             <div className="ai-list__time">
-              {fmt(r.at)}
+              {fmt(r)}
               {r.done ? ' ✓' : ''}
             </div>
             <div className="ai-list__text">{r.text}</div>

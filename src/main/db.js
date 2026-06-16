@@ -37,9 +37,13 @@ export function initDb() {
 
     CREATE TABLE IF NOT EXISTS ai_tasks (
       id TEXT PRIMARY KEY,
-      at TEXT NOT NULL,
+      at TEXT,
       text TEXT NOT NULL,
       done INTEGER DEFAULT 0,
+      every INTEGER,
+      channel TEXT,
+      winfrom TEXT,
+      winto TEXT,
       created TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_ai_tasks_at ON ai_tasks(at);
@@ -53,6 +57,24 @@ export function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
   `)
+  // migrate older DBs: add columns added after first release
+  try {
+    db.exec('ALTER TABLE ai_tasks ADD COLUMN every INTEGER')
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE ai_tasks ADD COLUMN channel TEXT')
+  } catch {
+    // column already exists
+  }
+  for (const col of ['winfrom', 'winto']) {
+    try {
+      db.exec(`ALTER TABLE ai_tasks ADD COLUMN ${col} TEXT`)
+    } catch {
+      // column already exists
+    }
+  }
 }
 
 function rowToItem(r) {
@@ -146,23 +168,32 @@ export function deleteMemory(id) {
   db.prepare('DELETE FROM ai_memory WHERE id = ?').run(id)
 }
 
-// ---- AI tasks: scheduled jobs that trigger the AI at a time ---------------
+// ---- AI tasks: scheduled jobs that trigger the AI (one-time or periodic) ---
+const TASK_COLS = 'id, at, text, done, every, channel, winfrom, winto, created'
 export function allAiTasks() {
-  return db.prepare('SELECT id, at, text, done, created FROM ai_tasks ORDER BY at').all()
+  return db.prepare(`SELECT ${TASK_COLS} FROM ai_tasks ORDER BY at`).all()
 }
 export function pendingAiTasks() {
-  return db.prepare('SELECT id, at, text, done, created FROM ai_tasks WHERE done = 0 ORDER BY at').all()
+  return db.prepare(`SELECT ${TASK_COLS} FROM ai_tasks WHERE done = 0 ORDER BY at`).all()
 }
-export function addAiTask({ at, text }) {
+export function addAiTask({ at, text, every, channel, from, to }) {
+  const mins = Number(every) > 0 ? Math.round(Number(every)) : null
   const row = {
     id: randomUUID(),
-    at: String(at || '').trim(),
+    at: String(at || '').trim(), // '' (not null) for periodic — old DBs have at NOT NULL
     text: String(text || '').trim(),
     done: 0,
+    every: mins,
+    channel: String(channel || '').trim() || null, // e.g. 'telegram:<chatId>'; null = in-app
+    winfrom: String(from || '').trim() || null, // daily active window for periodic tasks (HH:mm)
+    winto: String(to || '').trim() || null,
     created: new Date().toISOString()
   }
-  if (!row.at || !row.text) return null
-  db.prepare('INSERT INTO ai_tasks (id, at, text, done, created) VALUES (@id, @at, @text, @done, @created)').run(row)
+  // need text, and either a time or a repeat interval
+  if (!row.text || (!row.at && !row.every)) return null
+  db.prepare(
+    'INSERT INTO ai_tasks (id, at, text, done, every, channel, winfrom, winto, created) VALUES (@id, @at, @text, @done, @every, @channel, @winfrom, @winto, @created)'
+  ).run(row)
   return row
 }
 export function deleteAiTask(id) {

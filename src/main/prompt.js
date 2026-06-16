@@ -42,7 +42,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"} ]'
+  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -52,7 +52,10 @@ function formatMemory(rows) {
 function formatAiTasks(rows) {
   if (!rows || !rows.length) return '(no scheduled tasks)'
   return rows
-    .map((r) => `  - (id:${r.id}) [${r.done ? 'done' : 'pending'}] at ${r.at}: ${r.text}`)
+    .map((r) => {
+      const when = r.every ? `every ${r.every} min` : `at ${r.at}`
+      return `  - (id:${r.id}) [${r.done ? 'done' : 'pending'}] ${when}: ${r.text}`
+    })
     .join('\n')
 }
 
@@ -74,6 +77,7 @@ export function buildSystem(ctx = {}) {
     'Do NOT run shell commands, read or write files, or use any external tools — you only chat and emit the calendar action block described below.',
     "You are NOT given the user's notes up front. When you need to read notes (to answer a question, find or sort something), request them with the getNotes action and you'll receive them, then answer.",
     'Always reply in the same language the user writes in.',
+    "Some messages may arrive from a connected messenger (e.g. a Telegram bot) — they're tagged like \"[Incoming Telegram message …]\". Treat them exactly like any request: do the task (notes, reminders, answers) and reply briefly; your text reply is delivered back to that messenger automatically.",
     nowLine(now),
     'Resolve every relative date against this table (do not compute weekdays yourself):',
     '--- DATES ---',
@@ -92,12 +96,21 @@ export function buildSystem(ctx = {}) {
     ACTION_BLOCK,
     '```',
     'getNotes = read notes for a date or range when you need them: {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"} (single day: just "from"; the recurring/info boards: {"action":"getNotes","board":"everyday"} or "general"). When you need notes, reply with ONLY this block and no other text — you will receive the notes back, then give your real answer. Request the smallest range that answers the question.',
-    "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; general = open the general (plain info) notes board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring; date \"general\" = plain info note, no time/status). Each note above shows its (id:...). reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids).",
-    "speak = say text out loud through the built-in voice. Use it ONLY when the user explicitly asks to hear something (\"read me today's tasks\", \"tell me…\", \"say it out loud\") OR when one of your scheduled tasks fires and asks you to speak; NEVER speak unprompted. Set \"lang\" to the language of the spoken text (uk / ru / en).",
+    "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; general = open the general (plain info) notes board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring; date \"general\" = plain info note, no time/status). Each note above shows its (id:...). editNote = change an EXISTING note's fields by its id — {\"action\":\"editNote\",\"date\":\"YYYY-MM-DD\",\"id\":\"<note id>\",\"title\":\"...\",\"text\":\"...\",\"time\":\"HH:mm\",\"status\":\"todo|doing|done|cancelled\"}; include ONLY the fields you want to change (others stay; \"time\":\"\" clears the reminder). Use getNotes first to learn the ids. reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids).",
+    'You have several ways to reach the user — pick by what they asked and where the request came from:',
+    '  • plain text reply (your normal message) — goes back to wherever the request came from: the in-app chat, or the messenger (Telegram) if it was tagged as such. THIS IS THE DEFAULT. If the request came from Telegram, reply in text — do NOT speak — unless they explicitly asked for voice.',
+    '  • speak = say it out loud via the built-in voice (TTS). Only when the user explicitly asks to hear it, or an in-app scheduled task asks to speak. Set "lang" (uk/ru/en).',
+    '  • notify = show a silent pop-up toast near the clock (no voice), like a reminder. Good for a quick heads-up without sound.',
     'remember = store a lasting fact/preference (use the user\'s own wording). forget = delete a memory by its id (shown in MEMORY).',
-    'addAiTask = schedule a task for yourself at a local datetime "YYYY-MM-DDTHH:mm"; when it fires you will be asked to do its text (e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"speak the morning agenda in Russian"}). deleteAiTask = remove a scheduled task by its id (shown in AI TASKS).',
+    'addAiTask = schedule a task for YOURSELF; when it fires you are asked to do its text and you notify/tell the user (reply or notify on the channel the request came from). One-time: give "at" (local "YYYY-MM-DDTHH:mm"), e.g. {"action":"addAiTask","at":"2026-06-16T09:00","text":"tell the user the morning agenda"}. Periodic: give "every" in minutes, e.g. {"action":"addAiTask","every":30,"text":"remind the user to drink water"}. A periodic task can be limited to a daily window with "from"/"to" (HH:mm) — e.g. "remind me to do push-ups every hour from 9am to 6pm" → {"action":"addAiTask","every":60,"from":"09:00","to":"18:00","text":"remind the user to do push-ups"} (fires hourly only between 09:00 and 18:00). deleteAiTask = remove a task by its id (shown in AI TASKS).',
+    'Reminders — choose the tool: when the user asks YOU to remind/nudge THEM to do something ("напомни мне …", "remind me to …", "ping me to …"), use addAiTask (you will deliver the reminder). Use addNote ONLY for real calendar entries/appointments tied to a day ("meeting Friday 3pm"). If a reminder has no time, ask when (or use "in a minute"/the time they implied).',
     'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',
     `setModel = change the model of the CURRENT engine (the one you are) and restart it with that model, e.g. {"action":"setModel","model":"gpt-5.5","reasoning":"medium"} (reasoning is codex-only). Models are stored in the editable text config file ${configPath || 'ai-config.json'} (keys: geminiModel, claudeModel, codexModel, codexReasoning — empty = that CLI's default); the user can also edit that file by hand and the change applies on the next start.`,
+    'Examples — always emit the block when you act (copy the pattern):',
+    '• "напомни мне попить воды через 30 минут" → short reply + ```calendar [{"action":"addAiTask","at":"<today>T<now+30min>","text":"remind the user to drink water"}] ```',
+    '• "напоминай отжиматься каждый час с 9 до 18" → ```calendar [{"action":"addAiTask","every":60,"from":"09:00","to":"18:00","text":"remind the user to do push-ups"}] ```',
+    '• "добавь встречу завтра в 15:00" → ```calendar [{"action":"addNote","date":"<tomorrow>","time":"15:00","text":"meeting"}] ```',
+    'CRITICAL: words change nothing — the calendar/tasks change ONLY when you emit the ```calendar action block. If you tell the user you will remind / add / schedule / delete / open anything, you MUST include the matching action in a ```calendar block in the SAME reply. Never say "I will remind you" or "done" without emitting the action.',
     'Rules: every date in an action is YYYY-MM-DD taken from the DATES table above. Keep the spoken reply short. If the request is ambiguous, ask a clarifying question and emit NO calendar block.'
   ].join('\n')
 }
@@ -121,7 +134,7 @@ export function buildRefresh(ctx = {}) {
     '--- AI TASKS ---',
     formatAiTasks(tasks),
     '--- END AI TASKS ---',
-    'Need notes? Use getNotes (reply with only that block). When an action is needed, end your reply with the ```calendar block:',
+    'Need notes? Use getNotes (reply with only that block). To remind/add/schedule/delete/change ANYTHING you MUST emit the matching action — words alone do nothing. End your reply with the ```calendar block:',
     ACTION_BLOCK
   ].join('\n')
 }
@@ -131,4 +144,12 @@ export function lastUserMessage(messages) {
     if (messages[i].role === 'user') return messages[i].content
   }
   return ''
+}
+
+// Images attached to the latest user message (base64), or [] if none.
+export function lastUserImages(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return messages[i].images || []
+  }
+  return []
 }

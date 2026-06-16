@@ -11,6 +11,7 @@ import api from '../../lib/api'
 import { FolderFilterContext } from '../../lib/folderFilter'
 import { CustomStatusesContext } from '../../lib/statuses'
 import { EverydayProjectionContext } from '../../lib/everydayProjection'
+import { FocusNoteContext } from '../../lib/focusNote'
 import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import { sameDay, startOfToday, addDays, isWeekend, dateNumeric, daysDiff, parseKey, dateKey } from '../../lib/dates'
 import { useCalendarSettings } from '../../hooks/useCalendarSettings'
@@ -143,6 +144,15 @@ export default function CalendarBoard({ command }) {
       update({ daySort: next })
     },
     [update]
+  )
+
+  // hover-focus: the note held under the cursor (others blur). Gated by a setting
+  // (on by default) — when off, focusing is a no-op so nothing ever blurs.
+  const [focusedId, setFocusedId] = useState(null)
+  const focusEnabled = settings.focusBlur !== false
+  const focusValue = useMemo(
+    () => (focusEnabled ? { focusedId, setFocusedId } : { focusedId: null, setFocusedId: () => {} }),
+    [focusEnabled, focusedId]
   )
 
   const folderNames = useMemo(() => Object.fromEntries(folders.map((f) => [f.id, f.name])), [folders])
@@ -435,6 +445,7 @@ export default function CalendarBoard({ command }) {
       <FolderFilterContext.Provider value={filterValue}>
       <CustomStatusesContext.Provider value={customStatuses}>
       <EverydayProjectionContext.Provider value={everydayValue}>
+      <FocusNoteContext.Provider value={focusValue}>
       <div className="calendar-board__body">
         <SidePanel state={panel} onChange={updatePanel}>
           <FolderTree
@@ -481,6 +492,7 @@ export default function CalendarBoard({ command }) {
           </div>
         )}
       </div>
+      </FocusNoteContext.Provider>
       </EverydayProjectionContext.Provider>
       </CustomStatusesContext.Provider>
       </FolderFilterContext.Provider>

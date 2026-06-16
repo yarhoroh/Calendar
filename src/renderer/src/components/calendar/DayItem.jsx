@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { useFolderFilter } from '../../lib/folderFilter'
+import { useFocusNote } from '../../lib/focusNote'
 import { BUILTIN_SET, useCustomStatuses } from '../../lib/statuses'
 import { weekdayShort } from '../../lib/dates'
 import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
@@ -40,6 +41,20 @@ export default function DayItem({
   const [fileOver, setFileOver] = useState(false)
   const [menu, setMenu] = useState(null) // {x,y} for the right-click menu
   const [workingDays, setWorkingDays] = useState([1, 2, 3, 4, 5])
+
+  // hover-focus: keep the cursor on a note ~2s → it stays sharp while the others
+  // blur; the focus holds until the cursor leaves this note
+  const { focusedId, setFocusedId } = useFocusNote()
+  const focusTimer = useRef(0)
+  const armFocus = () => {
+    clearTimeout(focusTimer.current)
+    focusTimer.current = setTimeout(() => setFocusedId(item.id), 2000)
+  }
+  const leaveFocus = () => {
+    clearTimeout(focusTimer.current)
+    if (focusedId === item.id) setFocusedId(null)
+  }
+  useEffect(() => () => clearTimeout(focusTimer.current), [])
 
   const isEveryday = dayKey === 'everyday'
   // which weekdays this everyday note is active on — its own `days`, else the
@@ -106,9 +121,12 @@ export default function DayItem({
         'day-item' +
         (struck ? ' day-item--struck' : '') +
         (fileOver ? ' day-item--drop' : '') +
-        (dragging ? ' day-item--dragging' : '')
+        (dragging ? ' day-item--dragging' : '') +
+        (focusedId === item.id ? ' day-item--focused' : focusedId ? ' day-item--blurred' : '')
       }
       draggable={!projected}
+      onMouseEnter={armFocus}
+      onMouseLeave={leaveFocus}
       onDragStart={(e) => onDragStart(e, item)}
       onDragEnd={onDragEnd}
       onDragOver={(e) => {

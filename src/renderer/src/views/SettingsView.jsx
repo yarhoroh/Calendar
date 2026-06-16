@@ -17,6 +17,7 @@ import WorkingDaysSetting from '../components/settings/WorkingDaysSetting'
 import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
 import StatusesPanel from '../components/settings/StatusesPanel'
+import FocusBlurSetting from '../components/settings/FocusBlurSetting'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
@@ -50,6 +51,7 @@ export default function SettingsView({ showChat, onToggleChat }) {
               <ReminderSoundSetting />
               <WorkingDaysSetting />
               <ShowChatSetting checked={showChat} onChange={onToggleChat} />
+              <FocusBlurSetting />
               <VoiceSetting />
               <AutostartSetting />
             </SettingsSection>

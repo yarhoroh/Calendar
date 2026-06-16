@@ -3,6 +3,26 @@
   min-height: 42px;
   padding: 5px 6px 7px 8px;
   border-bottom: 1px solid var(--divider);
+  transition: filter 0.35s ease, opacity 0.35s ease;
+}
+
+/* hover-focus: the held note stays sharp, the rest blur out (eased in) */
+.day-item--blurred {
+  filter: blur(2.5px);
+  opacity: 0.5;
+}
+
+.day-item--focused {
+  z-index: 3;
+}
+
+/* in focus mode the held note reads in the normal theme colour, not the green
+   hover tint. Extra .day-item class bumps specificity above the :hover rule. */
+.day-item.day-item--focused .day-item__title,
+.day-item.day-item--focused .day-item__text,
+.day-item.day-item--focused:hover .day-item__title,
+.day-item.day-item--focused:hover .day-item__text {
+  color: var(--text);
 }
 
 /* contain the floated controls so the border sits below everything */

@@ -30,7 +30,7 @@ export const translations = {
       tray: 'Minimize to tray'
     },
     prompt: {
-      placeholder: 'Task for the calendar…   Enter — send, Ctrl+Enter — new line',
+      placeholder: 'Task for the calendar…',
       send: 'Send',
       stop: 'Stop',
       attachImage: 'Attach image',
@@ -71,6 +71,12 @@ export const translations = {
       reminderSound: 'Notification sound',
       focusBlur: 'Focus a note on hover',
       focusBlurDesc: 'Hold the cursor on a note (~2s) to blur the others so it reads clearly.',
+      interface: 'Interface',
+      compactMode: 'Compact',
+      compactTopbar: 'Top bar',
+      compactMenu: 'Menu',
+      compactCalendar: 'Calendar',
+      compactChat: 'Chat',
       showChat: 'Show chat field',
       voice: 'Voice',
       voiceDesc: 'Text-to-speech engine. The AI and reminders can speak.',
@@ -138,7 +144,7 @@ export const translations = {
       tray: 'Згорнути в трей'
     },
     prompt: {
-      placeholder: 'Завдання календарю…   Enter — надіслати, Ctrl+Enter — новий рядок',
+      placeholder: 'Завдання календарю…',
       send: 'Надіслати',
       stop: 'Зупинити',
       attachImage: 'Додати зображення',
@@ -179,6 +185,12 @@ export const translations = {
       reminderSound: 'Звук сповіщення',
       focusBlur: 'Фокус на нотатці при наведенні',
       focusBlurDesc: 'Затримай курсор на нотатці (~2с), щоб розмити інші — так її легше читати.',
+      interface: 'Інтерфейс',
+      compactMode: 'Компактно',
+      compactTopbar: 'Верхня панель',
+      compactMenu: 'Меню',
+      compactCalendar: 'Календар',
+      compactChat: 'Чат',
       showChat: 'Показувати поле чату',
       voice: 'Голос',
       voiceDesc: 'Рушій озвучки. AI та нагадування можуть говорити.',

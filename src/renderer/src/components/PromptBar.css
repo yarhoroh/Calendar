@@ -4,14 +4,24 @@
   border-top: 1px solid var(--border);
 }
 
-.promptbar__status {
-  display: flex;
+/* engine + model indicator — overlaid inside the input box (top-right, left of
+   the send button) so it doesn't shrink the textarea */
+.promptbar__engine {
+  position: absolute;
+  top: 4px;
+  right: 46px;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 2px 5px;
-  font-size: 11px;
+  gap: 5px;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1;
   color: var(--muted);
+  opacity: 0.7;
   user-select: none;
+  pointer-events: none;
 }
 
 .promptbar__dot {
@@ -90,6 +100,7 @@
 }
 
 .promptbar__box {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 8px;

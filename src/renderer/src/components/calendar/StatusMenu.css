@@ -58,18 +58,9 @@
   background: var(--st-cancelled);
 }
 
-/* custom statuses: colored ring, transparent centre, inner dot of the colour */
+/* custom statuses: colored ring, transparent centre, inner dot of the colour.
+   The dot is a centred radial-gradient (no sub-pixel offset like a sized child) */
 .status-mini--custom {
   border-color: var(--sc);
-  background: transparent;
-  display: grid;
-  place-items: center;
-}
-
-.status-mini--custom::after {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--sc);
+  background: radial-gradient(circle at center, var(--sc) 0 2.5px, transparent 2.6px);
 }

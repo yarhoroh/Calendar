@@ -186,6 +186,63 @@
   margin-bottom: 12px;
 }
 
+/* per-area compact toggles, laid out in one compact row — aligned with the
+   setting rows above (same 18px left/right padding + divider) */
+.compact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.compact-row__label {
+  font-size: 14px;
+  color: var(--text);
+  margin-right: 2px;
+}
+
+.compact-row__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.compact-row__item input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  display: inline-grid;
+  place-content: center;
+}
+
+.compact-row__item input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* white checkmark on the green fill */
+.compact-row__item input:checked::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-top: -1px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
 .settings-section__body {
   background: var(--panel);
   border: 1px solid var(--border);

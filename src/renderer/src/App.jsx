@@ -12,6 +12,7 @@ import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
 import { registerUi, updateUiState } from './lib/uiBridge'
+import './styles/compact.css'
 
 // Composition root: holds the active view and wires the titlebar, the current
 // view and the close dialog. Reminder toasts live in a separate window; here we
@@ -20,6 +21,7 @@ export default function App() {
   const [view, setView] = useState('calendar')
   const [command, setCommand] = useState(null)
   const [showChat, setShowChat] = useState(false)
+  const [compact, setCompact] = useState({})
   const { theme, toggleTheme, applyTheme } = useTheme()
   const win = useWindowControls()
   useTtsPlayer()
@@ -64,8 +66,31 @@ export default function App() {
   useEffect(() => {
     api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
     Promise.resolve(api.getShowChat?.()).then((v) => setShowChat(!!v))
+    Promise.resolve(api.getCalendar?.()).then((c) => {
+      const cm = c?.compact
+      // object = per-area flags; legacy boolean = all areas on
+      if (cm && typeof cm === 'object') setCompact(cm)
+      else if (cm) setCompact({ topbar: true, menu: true, calendar: true, chat: true })
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // compact / mini mode: per-area density for small monitors. Each area gets its
+  // own root class so it covers the whole app and survives view switches; stored
+  // as an object with the calendar settings.
+  useEffect(() => {
+    const r = document.documentElement
+    r.classList.toggle('cmp-topbar', !!compact.topbar)
+    r.classList.toggle('cmp-menu', !!compact.menu)
+    r.classList.toggle('cmp-calendar', !!compact.calendar)
+    r.classList.toggle('cmp-chat', !!compact.chat)
+  }, [compact])
+  const toggleCompact = (key) =>
+    setCompact((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      api.setCalendar?.({ compact: next })
+      return next
+    })
 
   // Block the browser's default file-drop (which would navigate the window to
   // the file). Notes handle their own drop to attach; everywhere else is a no-op.
@@ -108,7 +133,12 @@ export default function App() {
           {view === 'calendar' ? (
           <CalendarView command={command} showChat={showChat} chat={chat} />
         ) : (
-          <SettingsView showChat={showChat} onToggleChat={toggleChat} />
+          <SettingsView
+            showChat={showChat}
+            onToggleChat={toggleChat}
+            compact={compact}
+            onToggleCompact={toggleCompact}
+          />
         )}
         </ErrorBoundary>
       </main>

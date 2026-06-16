@@ -1,0 +1,73 @@
+/* Compact / mini mode — denser layout for small monitors, split per area so each
+   can be toggled on its own (see App + Settings). Root classes on <html>:
+   cmp-topbar, cmp-menu, cmp-calendar, cmp-chat. Tune values as we go. */
+
+/* ── Top bar: window controls (titlebar) + the toolbar (arrows / Today / Every
+   day). Titlebar height is driven by --titlebar-h so dependent offsets follow. */
+html.cmp-topbar {
+  --titlebar-h: 32px;
+}
+.cmp-topbar .titlebar__logo {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+}
+.cmp-topbar .calendar-board__toolbar {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+/* ── Side menu: the folder/group tree panel */
+.cmp-menu .side-panel__head {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.cmp-menu .folder-tree {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.cmp-menu .folder-tree__row {
+  height: 22px;
+}
+
+/* ── Calendar: day headers (the row that pans left/right) + the note rows */
+.cmp-calendar .day-col__num {
+  font-size: 16px;
+}
+.cmp-calendar .day-col__wd,
+.cmp-calendar .day-col__mo {
+  font-size: 8px;
+  letter-spacing: 0.2px;
+}
+.cmp-calendar .day-col__head {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  gap: 4px;
+}
+.cmp-calendar .day-items {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.cmp-calendar .day-item {
+  min-height: 0;
+  padding-top: 2px;
+  padding-bottom: 3px;
+}
+
+/* ── Chat: the conversation log + the prompt bar */
+.cmp-chat .chat__head {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.cmp-chat .chat__list {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.cmp-chat .chat__msg {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.cmp-chat .promptbar {
+  padding-top: 3px;
+  padding-bottom: 4px;
+}

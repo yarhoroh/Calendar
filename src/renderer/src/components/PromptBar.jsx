@@ -94,13 +94,6 @@ export default function PromptBar({ onSend, busy }) {
 
   return (
     <div className="promptbar">
-      <div className="promptbar__status" title={statusLabel}>
-        <span className={`promptbar__dot promptbar__dot--${state}`} />
-        <span className="promptbar__status-text">
-          {cliLabel}
-          {modelLabel} · {statusLabel}
-        </span>
-      </div>
       {images.length > 0 && (
         <div className="promptbar__thumbs">
           {images.map((im, i) => (
@@ -141,6 +134,11 @@ export default function PromptBar({ onSend, busy }) {
             e.target.value = ''
           }}
         />
+        <span className="promptbar__engine" title={statusLabel}>
+          <span className={`promptbar__dot promptbar__dot--${state}`} />
+          {cliLabel}
+          {modelLabel}
+        </span>
         <textarea
           ref={ref}
           className="promptbar__input"

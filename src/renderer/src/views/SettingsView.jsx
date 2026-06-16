@@ -18,10 +18,11 @@ import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
 import StatusesPanel from '../components/settings/StatusesPanel'
 import FocusBlurSetting from '../components/settings/FocusBlurSetting'
+import CompactSetting from '../components/settings/CompactSetting'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
-export default function SettingsView({ showChat, onToggleChat }) {
+export default function SettingsView({ showChat, onToggleChat, compact, onToggleCompact }) {
   const { t } = useI18n()
   const [tab, setTab] = useState('general')
 
@@ -50,10 +51,13 @@ export default function SettingsView({ showChat, onToggleChat }) {
               <ReminderDurationSetting />
               <ReminderSoundSetting />
               <WorkingDaysSetting />
-              <ShowChatSetting checked={showChat} onChange={onToggleChat} />
-              <FocusBlurSetting />
               <VoiceSetting />
               <AutostartSetting />
+            </SettingsSection>
+            <SettingsSection title={t('settings.interface')}>
+              <ShowChatSetting checked={showChat} onChange={onToggleChat} />
+              <FocusBlurSetting />
+              <CompactSetting compact={compact} onToggle={onToggleCompact} />
             </SettingsSection>
             <SettingsSection title={t('settings.tools')}>
               <AiEngineSetting />

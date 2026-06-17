@@ -1,5 +1,5 @@
 import { buildSystem, buildRefresh } from './prompt'
-import { extractGetNotes, fetchNotesText } from './notesTool'
+import { extractGetNotes, fetchNotes } from './notesTool'
 
 const MAX_STEPS = 4
 // the reply "promised" to do something (so it should have emitted an action)
@@ -12,9 +12,10 @@ const hasBlock = (t) => /```calendar/i.test(t || '')
 // { ok, text }. `isFresh` = first turn of the session (full preamble vs refresh).
 export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
   let text = `${isFresh ? buildSystem(ctx) : buildRefresh(ctx)}\n\n${userMsg}`
+  let pendingImages = images // images for the next sendOne (user's first, then note images)
   for (let i = 0; i < MAX_STEPS; i++) {
-    // images ride along only with the first turn (the one carrying the user msg)
-    const reply = await sendOne(text, i === 0 ? images : null)
+    const reply = await sendOne(text, pendingImages)
+    pendingImages = null
     if (!reply?.ok) return reply
     const req = extractGetNotes(reply.text)
     if (!req) {
@@ -29,7 +30,11 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       }
       return reply
     }
-    text = `Notes for ${req.label}:\n${fetchNotesText(req)}\n\nNow answer the user's request using these notes. Do not call getNotes again for the same range.`
+    // feed the notes back — including any inline images, so the model can SEE
+    // pictures inside notes, not just their text
+    const { text: notesText, images: notesImages } = fetchNotes(req)
+    text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.`
+    pendingImages = notesImages.length ? notesImages : null
   }
   return sendOne('Answer the user now without requesting more notes.')
 }

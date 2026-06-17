@@ -12,6 +12,8 @@ import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
 import { registerUi, updateUiState } from './lib/uiBridge'
+import { setAnswerHandler, subscribeAsk } from './lib/askBridge'
+import AskPopup from './components/AskPopup'
 import './styles/compact.css'
 
 // Composition root: holds the active view and wires the titlebar, the current
@@ -62,6 +64,15 @@ export default function App() {
 
   useAiTaskRunner({ onCommand: runCommand })
   useTelegramBridge({ onCommand: runCommand })
+
+  // assistant "ask the user" popups: route the answer back to the AI together
+  // with its own question, and publish whether a question is pending
+  const chatRef = useRef(chat)
+  chatRef.current = chat
+  useEffect(() => {
+    setAnswerHandler((q, a) => chatRef.current.send(`[Это мой ответ на твой вопрос «${q}»] ${a}`))
+    return subscribeAsk((p) => updateUiState({ ask: p ? { open: true, question: p.question } : { open: false } }))
+  }, [])
 
   useEffect(() => {
     api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
@@ -146,6 +157,8 @@ export default function App() {
       {win.confirmClose && (
         <CloseDialog onTray={win.hideToTray} onQuit={win.quit} onCancel={win.cancelClose} />
       )}
+
+      <AskPopup />
     </div>
   )
 }

@@ -101,6 +101,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable; /* always reserve the scrollbar gutter so content doesn't jump when it appears */
   background-color: var(--panel);
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),

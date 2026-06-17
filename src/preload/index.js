@@ -70,6 +70,7 @@ const api = {
   setTelegramToken: (tok) => ipcRenderer.invoke('telegram:set-token', tok),
   getTelegramStatus: () => ipcRenderer.invoke('telegram:status'),
   telegramReply: (chatId, text) => ipcRenderer.send('telegram:reply', { chatId, text }),
+  sendTelegram: (text) => ipcRenderer.invoke('telegram:send', text),
   onTelegramMessage: (cb) => {
     const h = (_e, m) => cb(m)
     ipcRenderer.on('telegram:message', h)

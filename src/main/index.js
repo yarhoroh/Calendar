@@ -492,10 +492,15 @@ ipcMain.handle('aiConfig:get', () => loadAiConfig())
 ipcMain.handle('aiConfig:set', (_e, patch) => saveAiConfig(patch))
 // ---- Telegram bridge ----------------------------------------------------
 let telegramOk = false
+let lastTelegramChat = null // remember who last messaged the bot, for proactive sends
 function syncTelegram() {
   const tok = loadAiConfig().telegramToken
   return startTelegram(tok, (msg) => {
     console.log(`[telegram] in from ${msg.from || msg.chatId}: ${msg.text}`)
+    if (msg.chatId && msg.chatId !== lastTelegramChat) {
+      lastTelegramChat = msg.chatId
+      saveAiConfig({ telegramChat: msg.chatId }) // remember across restarts for proactive sends
+    }
     mainWindow?.webContents?.send('telegram:message', msg)
   }).then((ok) => {
     telegramOk = ok
@@ -509,6 +514,15 @@ ipcMain.handle('telegram:set-token', (_e, tok) => {
 })
 ipcMain.handle('telegram:status', () => ({ on: telegramOk, hasToken: !!loadAiConfig().telegramToken }))
 ipcMain.on('telegram:reply', (_e, { chatId, text }) => sendTelegram(chatId, text))
+// proactive send (from the in-app assistant) to the last chat that messaged the bot
+ipcMain.handle('telegram:send', async (_e, text) => {
+  if (!telegramOk) return { ok: false, error: 'telegram bridge is off (no/invalid token)' }
+  const chat = lastTelegramChat || loadAiConfig().telegramChat
+  if (!chat) return { ok: false, error: 'no Telegram chat yet — message the bot once so I know where to send' }
+  const res = await sendTelegram(chat, text) // await the API so we report real delivery, not a false success
+  if (res && res.ok) return { ok: true }
+  return { ok: false, error: res?.description || 'Telegram did not confirm delivery (message not sent)' }
+})
 
 ipcMain.handle('aiConfig:path', () => aiConfigPath())
 ipcMain.handle('aiConfig:open', () => shell.openPath(aiConfigPath()))

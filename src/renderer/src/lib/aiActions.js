@@ -2,6 +2,8 @@ import api from './api'
 import { newItem } from '../hooks/useDayItems'
 import { getActiveEditor, replaceSelection, appendToNote, setNoteContent } from './activeEditor'
 import { ui } from './uiBridge'
+import { pushChat, hasChat } from './chatBridge'
+import { openAsk, closeAsk } from './askBridge'
 
 // plain text from an HTML string (for the searchable/AI `text` field)
 const stripHtml = (html) => {
@@ -57,6 +59,29 @@ export async function execAction(a, onCommand, channel) {
         return { ok: true }
       case 'notify':
         if (a.text) api.notify?.(a.text)
+        return { ok: true }
+      case 'telegram':
+      case 'sendTelegram': {
+        if (!a.text) return { ok: false, error: 'telegram needs text' }
+        const r = await api.sendTelegram?.(a.text)
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'telegram send failed' }
+      }
+      case 'chat':
+      case 'message': {
+        // proactively post a message into the in-app chat (for background tasks /
+        // notifications — not your normal reply, which already shows)
+        if (!a.text) return { ok: false, error: 'chat needs text' }
+        return hasChat() ? (pushChat(a.text), { ok: true }) : { ok: false, error: 'in-app chat is not open' }
+      }
+      case 'ask': {
+        // pop a question to the user and wait — their answer comes back as a new
+        // message that quotes this question, so keep it short and specific
+        if (!a.text) return { ok: false, error: 'ask needs text' }
+        openAsk(a.text)
+        return { ok: true }
+      }
+      case 'closeAsk':
+        closeAsk()
         return { ok: true }
       case 'remember':
         if (a.text) await api.addMemory?.(a.text)
@@ -252,7 +277,9 @@ const MAX_ROUNDS = 5
 const NO_REPORT = new Set([
   'goto', 'today', 'everyday', 'general', 'expand', 'speak', 'notify', 'getNotes', 'openFile', 'setModel',
   'replaceSelection', 'appendNote', 'setNoteContent', // live edits are visible in the editor already
-  'exitFullscreen', 'closeEditor', 'openPanel' // UI control; failures are still reported (see needsFollowUp)
+  'exitFullscreen', 'closeEditor', 'openPanel', // UI control; failures are still reported (see needsFollowUp)
+  'chat', 'message', // the posted message IS the output
+  'ask', 'closeAsk' // ask waits for the user's answer (arrives later as a new message); no immediate follow-up
 ])
 
 // Run the actions the model emitted, then feed the OUTCOME back so it can either

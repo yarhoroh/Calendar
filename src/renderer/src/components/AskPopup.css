@@ -1,0 +1,66 @@
+.ask-popup {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 90;
+  max-width: 360px;
+}
+
+.ask-popup__box {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+  padding: 14px 14px 12px;
+}
+
+.ask-popup__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+.ask-popup__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.ask-popup__q {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+  margin: 2px 26px 10px 2px;
+  white-space: pre-wrap;
+}
+
+.ask-popup__input {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  padding: 7px 9px;
+  outline: none;
+}
+.ask-popup__input:focus {
+  border-color: var(--accent);
+}
+
+.ask-popup__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}

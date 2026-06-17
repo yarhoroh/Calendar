@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import api from '../lib/api'
 import { startOfToday, dateKey } from '../lib/dates'
 import { extractActions, runActions } from '../lib/aiActions'
 import { activeContext } from '../lib/activeEditor'
 import { getUiState } from '../lib/uiBridge'
+import { registerChatSink } from '../lib/chatBridge'
 
 // Tell the AI where the user is (tab / fullscreen / editing / selected folder)
 // and, if a note is open, its content + selection — so it can act on "this note"
@@ -17,7 +18,9 @@ function withEditorContext(t) {
     `editing=${st.editing ? 'yes' : 'no'}; selected folder=${st.folder || 'General (all)'}; ` +
     `side panel=${onoff(s.panelOpen)}; theme=${st.theme || '?'}; language=${st.language || '?'}; ` +
     `chat=${onoff(st.showChat)}; everyday-in-calendar=${onoff(s.everydayInCal)}; ` +
-    `day-expanded=${onoff(s.expanded)}; focus-blur=${onoff(s.focusBlur)}]`
+    `day-expanded=${onoff(s.expanded)}; focus-blur=${onoff(s.focusBlur)}` +
+    (st.ask?.open ? `; OPEN QUESTION awaiting answer: "${st.ask.question}"` : '') +
+    `]`
   const ed = activeContext()
   if (ed) {
     ctx +=
@@ -41,6 +44,10 @@ function withEditorContext(t) {
 export function useChat({ onCommand }) {
   const [messages, setMessages] = useState([])
   const [busy, setBusy] = useState(false)
+
+  // single entry point for anything posting into the chat (the assistant
+  // proactively, background tasks, action outcomes) — see lib/chatBridge
+  useEffect(() => registerChatSink((m) => setMessages((prev) => [...prev, m])), [])
 
   const send = async (text, images) => {
     const t = text.trim()

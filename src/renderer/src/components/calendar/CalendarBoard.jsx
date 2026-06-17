@@ -126,16 +126,16 @@ export default function CalendarBoard({ command }) {
   // let the AI drive calendar settings, language, the side panel and folder
   // selection in real time
   const ctrlRef = useRef({})
-  ctrlRef.current = { update, setLang, updatePanel, setSel }
+  ctrlRef.current = { update, setLang, updatePanel }
   useEffect(
     () =>
       registerUi((name, arg) => {
-        const { update, setLang, updatePanel, setSel } = ctrlRef.current
+        const { update, setLang, updatePanel } = ctrlRef.current
         if (name === 'openPanel') return (updatePanel({ open: arg?.value !== false }), true)
         if (name === 'selectFolder') {
-          // null = General root (everything); otherwise a folder id from FOLDERS
-          setSel(arg?.id ?? null)
-          updatePanel({ open: true })
+          // null = General root (everything); otherwise a folder id from FOLDERS.
+          // ONE patch — selecting and opening in two calls would clobber each other
+          updatePanel({ selected: arg?.id ?? null, open: true })
           return true
         }
         if (name !== 'setSetting') return undefined
@@ -402,6 +402,10 @@ export default function CalendarBoard({ command }) {
 
   const handleToggleExpand = useCallback(
     (date) => {
+      // the header doubles as the pan handle, so the click's mouseup fires
+      // startMomentum → animateOrigin(round(origin)); kill that pending RAF or it
+      // snaps origin back to the old (leftmost) date after we set the clicked one
+      cancelAnimationFrame(rafRef.current)
       update({ expanded: !expandedRef.current })
       setOrigin(daysDiff(date, today))
     },

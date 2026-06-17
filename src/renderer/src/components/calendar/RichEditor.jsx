@@ -12,10 +12,32 @@ export default function RichEditor({ initialHtml, onReady, meta }) {
   const editorRef = useRef(null)
   const [, force] = useReducer((x) => x + 1, 0) // re-render the toolbar on selection change
 
+  // Insert an image, downscaled so a huge phone photo doesn't freeze the editor
+  // (and doesn't bloat the note in the DB). Small images / transparent PNGs are
+  // kept untouched so screenshots stay crisp.
+  const MAX_SIDE = 1280
+  const insertSrc = (src) => editorRef.current?.chain().focus().setImage({ src }).run()
   const addImageFile = (file) => {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
-    reader.onload = () => editorRef.current?.chain().focus().setImage({ src: reader.result }).run()
+    reader.onload = () => {
+      const src = reader.result
+      const img = new Image()
+      img.onload = () => {
+        const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height))
+        // already small enough → keep the original (preserves PNG transparency)
+        if (scale === 1 && file.size < 600_000) return insertSrc(src)
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        insertSrc(canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.onerror = () => insertSrc(src) // not decodable here? fall back to raw
+      img.src = src
+    }
     reader.readAsDataURL(file)
   }
 
@@ -50,9 +72,20 @@ export default function RichEditor({ initialHtml, onReady, meta }) {
     if (!editor) return
     onReady?.(editor)
     setActiveEditor(editor, meta) // the AI can read/edit the open note live
-    editor.on('transaction', force)
+    // coalesce toolbar re-renders into one per frame — resizing an image fires a
+    // flood of transactions, and re-rendering on each made dragging janky
+    let raf = 0
+    const onTx = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        force()
+      })
+    }
+    editor.on('transaction', onTx)
     return () => {
-      editor.off('transaction', force)
+      if (raf) cancelAnimationFrame(raf)
+      editor.off('transaction', onTx)
       clearActiveEditor(editor)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

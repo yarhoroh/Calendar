@@ -1,6 +1,6 @@
 {
   "name": "calendar",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Calendar with notes — desktop app",
   "main": "./out/main/index.js",
   "author": "Calendar",
@@ -53,13 +53,13 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
+    "@tiptap/extension-image": "^3.26.1",
     "@tiptap/extension-underline": "^3.26.1",
     "@tiptap/pm": "^3.26.1",
     "@tiptap/react": "^3.26.1",
     "@tiptap/starter-kit": "^3.26.1",
     "better-sqlite3": "^12.10.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "tiptap-extension-resize-image": "^1.4.3"
+    "react-dom": "^19.2.7"
   }
 }

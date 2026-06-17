@@ -12,6 +12,12 @@ function textToHtml(text) {
   return div.innerHTML.replace(/\n/g, '<br>')
 }
 
+// The image resize/drag plugin can bake a leftover `opacity: 0.6` (from a
+// cancelled drag) into an image's inline style and persist it, leaving the
+// image permanently semi-transparent. We never set opacity in note content, so
+// strip it on both save and load.
+const stripOpacity = (html) => html.replace(/opacity\s*:\s*[\d.]+\s*;?/gi, '')
+
 // Rich note editor: a title line + a Quill HTML body (bold/italic/underline,
 // sizes, lists, inline base64 images). Saves both the HTML and a plain-text
 // version (for search / the AI). Enter (in title) / Ctrl+Enter / blur = save.
@@ -41,12 +47,12 @@ export default function ItemEditor({
   const remBtnRef = useRef(null)
   const editorRef = useRef(null)
 
-  const startHtml = initialHtml || (initialText ? textToHtml(initialText) : '')
+  const startHtml = stripOpacity(initialHtml || (initialText ? textToHtml(initialText) : ''))
 
   const getContent = () => {
     const ed = editorRef.current
     const text = (ed?.getText() || '').trim()
-    const raw = ed?.getHTML() || ''
+    const raw = stripOpacity(ed?.getHTML() || '')
     const hasImg = /<img/i.test(raw)
     const html = ed && (text || hasImg) ? raw : ''
     return { text, html, empty: !text && !hasImg }

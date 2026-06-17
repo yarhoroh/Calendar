@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import ImageResize from 'tiptap-extension-resize-image'
+import RichImage from '../../lib/richImage'
 import { setActiveEditor, clearActiveEditor } from '../../lib/activeEditor'
 import './RichEditor.css'
 
@@ -42,7 +42,7 @@ export default function RichEditor({ initialHtml, onReady, meta }) {
   }
 
   const editor = useEditor({
-    extensions: [StarterKit, ImageResize.extend({ draggable: true })],
+    extensions: [StarterKit, RichImage],
     content: initialHtml || '',
     autofocus: 'end',
     editorProps: {
@@ -55,7 +55,9 @@ export default function RichEditor({ initialHtml, onReady, meta }) {
         return false
       },
       handleDrop: (view, event) => {
-        if (view.dragging) return false // internal node move → let ProseMirror reposition it
+        // internal node move (dragging an image to a new spot) → let ProseMirror
+        // reposition it natively
+        if (view.dragging) return false
         const files = [...(event.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'))
         if (files.length) {
           event.preventDefault()

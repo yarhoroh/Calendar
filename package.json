@@ -1,6 +1,6 @@
 {
   "name": "calendar",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Calendar with notes — desktop app",
   "main": "./out/main/index.js",
   "author": "Calendar",
@@ -14,6 +14,13 @@
   "build": {
     "appId": "com.calendar.app",
     "productName": "Calendar",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "yarhoroh",
+        "repo": "Calendar"
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "resources"
@@ -59,6 +66,7 @@
     "@tiptap/react": "^3.26.1",
     "@tiptap/starter-kit": "^3.26.1",
     "better-sqlite3": "^12.10.1",
+    "electron-updater": "^6.8.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   }

@@ -8,6 +8,7 @@ import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram } from './telegram'
+import electronUpdater from 'electron-updater'
 import { initTts, speak, setTtsEngine } from './tts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
@@ -618,6 +619,33 @@ ipcMain.on('settings:set-tts-engine', (_e, engine) => {
 // silent text notification (toast near the clock, no voice)
 ipcMain.on('notify:push', (_e, text) => pushMessage({ title: 'Calendar', body: String(text || '') }))
 
+// ---- auto-update (electron-updater, reads the GitHub release) -----------
+const { autoUpdater } = electronUpdater
+const UPDATE_TXT = {
+  en: (v) => ({ msg: `Version ${v} is ready to install.`, restart: 'Restart now', later: 'Later', title: 'Update' }),
+  uk: (v) => ({ msg: `Версія ${v} готова до встановлення.`, restart: 'Перезапустити', later: 'Пізніше', title: 'Оновлення' })
+}
+function initAutoUpdate() {
+  if (!app.isPackaged) return // only the built app has a release to update from
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('update-downloaded', async (info) => {
+    const lang = loadSettings().language === 'uk' ? 'uk' : 'en'
+    const t = (UPDATE_TXT[lang] || UPDATE_TXT.en)(info.version)
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: [t.restart, t.later],
+      defaultId: 0,
+      cancelId: 1,
+      title: t.title,
+      message: t.msg
+    })
+    if (response === 0) autoUpdater.quitAndInstall()
+  })
+  autoUpdater.on('error', () => {}) // never let an update hiccup crash the app
+  autoUpdater.checkForUpdates().catch(() => {})
+}
+
 // ---- single instance + lifecycle ---------------------------------------
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -651,6 +679,7 @@ if (!gotLock) {
     startTtsServer()
     syncTelegram()
     warmAi(loadSettings().ai || 'gemini')
+    initAutoUpdate()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

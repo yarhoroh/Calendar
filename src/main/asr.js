@@ -1,8 +1,9 @@
 import { app } from 'electron'
-import { spawn } from 'child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync, createWriteStream, statSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, createWriteStream, createReadStream } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
+import bz2 from 'unbzip2-stream'
+import tarStream from 'tar-stream'
 
 // Local offline speech-to-text via sherpa-onnx. Models are downloaded at runtime
 // into userData (NOT bundled in the installer): a small ru zipformer and the
@@ -81,29 +82,30 @@ export async function downloadAsrModel(lang, onProgress) {
   return asrModelReady(lang)
 }
 
-// extract the tarball into dir (flattening the top folder), then drop the heavy
-// fp32 .onnx files and sample wavs — keep only *.int8.onnx + tokens
+// extract the .tar.bz2 entirely in JS — a plain Windows install may have no
+// `tar` at all, so we decompress (unbzip2-stream) and untar (tar-stream)
+// ourselves. We flatten the top folder and write ONLY the int8 onnx files +
+// tokens.txt (skipping the heavy fp32 .onnx and sample wavs), so there is no
+// post-cleanup to do.
 function extractInt8(tarPath, dir) {
-  // use the SYSTEM tar (bsdtar at System32\tar.exe) explicitly — a GNU tar from
-  // Git/MSYS on PATH misreads "C:\..." as a remote host and fails
-  const sysTar = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
-  const tarBin = existsSync(sysTar) ? sysTar : 'tar'
   return new Promise((resolve, reject) => {
-    const p = spawn(tarBin, ['xf', tarPath, '-C', dir, '--strip-components=1'], { windowsHide: true })
-    p.on('error', reject)
-    p.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`tar exited ${code}`))
-      try {
-        for (const f of readdirSync(dir)) {
-          const full = join(dir, f)
-          if (/\.onnx$/.test(f) && !/\.int8\.onnx$/.test(f)) rmSync(full, { force: true })
-          else if (statSync(full).isDirectory()) rmSync(full, { recursive: true, force: true }) // test_wavs
-        }
-      } catch {
-        // best-effort cleanup
+    const ex = tarStream.extract()
+    ex.on('entry', (header, stream, next) => {
+      const base = (header.name || '').split('/').pop()
+      const keep = header.type === 'file' && (/\.int8\.onnx$/.test(base) || /tokens\.txt$/.test(base))
+      if (keep) {
+        const out = createWriteStream(join(dir, base))
+        out.on('error', reject)
+        out.on('finish', next)
+        stream.pipe(out)
+      } else {
+        stream.on('end', next)
+        stream.resume() // drain & skip this entry
       }
-      resolve()
     })
+    ex.on('finish', resolve)
+    ex.on('error', reject)
+    createReadStream(tarPath).on('error', reject).pipe(bz2()).on('error', reject).pipe(ex)
   })
 }
 

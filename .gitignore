@@ -2,3 +2,8 @@ node_modules/
 out/
 dist/
 release/
+
+# Secrets baked into the build (Google OAuth client) — never commit
+.env
+.env.local
+.env.*.local

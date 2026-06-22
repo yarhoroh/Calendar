@@ -77,6 +77,16 @@ export function initDb() {
       created TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
+
+    -- which Google Calendar events were already imported as notes (dedupe).
+    -- Keyed by composite google_event_id (email:calId:eventId); authoritative,
+    -- independent of the notes table's delete-and-reinsert save model.
+    CREATE TABLE IF NOT EXISTS gcal_imports (
+      google_event_id TEXT PRIMARY KEY,
+      note_id TEXT NOT NULL,
+      day TEXT,
+      imported_at TEXT
+    );
   `)
   // migrate older DBs: add columns added after first release
   try {
@@ -108,6 +118,26 @@ export function initDb() {
   }
   try {
     db.exec('ALTER TABLE notes ADD COLUMN html TEXT')
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN google_event_id TEXT')
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN google_calendar TEXT') // source calendar name (display)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN google_account TEXT') // source account email (display)
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN google_shared INTEGER') // 1 = local note we pushed to Google (vs imported)
   } catch {
     // column already exists
   }
@@ -161,7 +191,11 @@ function rowToItem(r) {
     collapsed: !!r.collapsed,
     folderId: r.folder_id || null,
     days: r.days ? r.days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null,
-    html: r.html || ''
+    html: r.html || '',
+    googleEventId: r.google_event_id || null,
+    googleCalendar: r.google_calendar || null,
+    googleAccount: r.google_account || null,
+    googleShared: !!r.google_shared
   }
 }
 
@@ -172,8 +206,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html, google_event_id, google_calendar, google_account, google_shared)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html, @google_event_id, @google_calendar, @google_account, @google_shared)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -192,7 +226,11 @@ export function saveItems(day, items) {
         collapsed: it.collapsed ? 1 : 0,
         folder_id: it.folderId ?? null,
         days: Array.isArray(it.days) && it.days.length ? it.days.join(',') : null,
-        html: it.html ?? null
+        html: it.html ?? null,
+        google_event_id: it.googleEventId ?? null,
+        google_calendar: it.googleCalendar ?? null,
+        google_account: it.googleAccount ?? null,
+        google_shared: it.googleShared ? 1 : 0
       })
     )
   })
@@ -224,6 +262,53 @@ export function getItemsRange(from, to) {
 
 export function isEmpty() {
   return db.prepare('SELECT COUNT(*) AS c FROM notes').get().c === 0
+}
+
+// ---- Google Calendar import dedupe ----------------------------------------
+export function isEventImported(gid) {
+  return !!db.prepare('SELECT 1 FROM gcal_imports WHERE google_event_id = ?').get(gid)
+}
+// resolve an import mark to its note's day, BUT only if the note still exists —
+// if the user deleted the imported note, prune the stale mark so the event shows
+// as importable again. Returns the day/board string, or undefined if not imported.
+function resolveImport(gid) {
+  const row = db.prepare('SELECT note_id, day FROM gcal_imports WHERE google_event_id = ?').get(gid)
+  if (!row) return undefined
+  const exists = db.prepare('SELECT 1 FROM notes WHERE id = ?').get(row.note_id)
+  if (exists) return row.day || null
+  db.prepare('DELETE FROM gcal_imports WHERE google_event_id = ?').run(gid) // note gone → unmark
+  return undefined
+}
+
+// given a list of composite ids, return the Set of those still imported
+export function importedEventIds(gids) {
+  const set = new Set()
+  if (!Array.isArray(gids)) return set
+  for (const g of gids) if (resolveImport(g) !== undefined) set.add(g)
+  return set
+}
+
+// map of imported ids → the day/board the note lives on (for the "jump to
+// imported note" link). Includes per-instance and per-series ids.
+export function importedMap(gids) {
+  const out = {}
+  if (!Array.isArray(gids)) return out
+  for (const g of gids) {
+    const day = resolveImport(g)
+    if (day !== undefined) out[g] = day
+  }
+  return out
+}
+export function markEventImported({ gid, noteId, day }) {
+  db.prepare(
+    'INSERT OR REPLACE INTO gcal_imports (google_event_id, note_id, day, imported_at) VALUES (?, ?, ?, ?)'
+  ).run(gid, noteId, day || null, new Date().toISOString())
+}
+export function getImport(gid) {
+  return db.prepare('SELECT note_id, day FROM gcal_imports WHERE google_event_id = ?').get(gid)
+}
+export function unmarkImport(gid) {
+  db.prepare('DELETE FROM gcal_imports WHERE google_event_id = ?').run(gid)
 }
 
 // one-time import from the legacy notes.json map { day: [items] }

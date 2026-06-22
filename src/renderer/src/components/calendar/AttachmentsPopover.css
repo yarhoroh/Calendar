@@ -23,6 +23,18 @@
   gap: 6px;
 }
 
+.attach-pop__icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  margin-left: 2px;
+}
+.attach-pop__icon--ph {
+  border-radius: 3px;
+  background: var(--hover);
+}
+
 .attach-pop__name {
   flex: 1;
   min-width: 0;
@@ -45,6 +57,7 @@
   color: var(--accent);
 }
 
+.attach-pop__reveal,
 .attach-pop__del {
   flex: 0 0 auto;
   display: grid;
@@ -56,6 +69,11 @@
   color: var(--muted);
   cursor: pointer;
   border-radius: 6px;
+}
+
+.attach-pop__reveal:hover {
+  color: var(--accent);
+  background: var(--hover);
 }
 
 .attach-pop__del:hover {

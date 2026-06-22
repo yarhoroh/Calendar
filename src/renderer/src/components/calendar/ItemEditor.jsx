@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
-import { CheckIcon, CloseIcon, CalendarIcon } from '../icons'
+import { CheckIcon, CloseIcon, CalendarIcon, GoogleIcon } from '../icons'
 import ReminderPopover from './ReminderPopover'
 import RichEditor from './RichEditor'
 import './ItemEditor.css'
@@ -33,6 +34,10 @@ export default function ItemEditor({
   timeOnly = false,
   plain = false,
   expanded = false,
+  googleEventId = null,
+  googleShared = false,
+  googleCalendar = null,
+  googleAccount = null,
   onExpand,
   onSave,
   onCancel,
@@ -44,8 +49,95 @@ export default function ItemEditor({
   const [days, setDays] = useState(initialDays)
   const [remOpen, setRemOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareCals, setShareCals] = useState(null) // null = not loaded yet
+  const [sharing, setSharing] = useState(false)
+  const [linked, setLinked] = useState(!!googleEventId) // already on a Google calendar
+  const [delFromGoogle, setDelFromGoogle] = useState(true) // delete confirm: also remove from Google
   const remBtnRef = useRef(null)
+  const shareBtnRef = useRef(null)
   const editorRef = useRef(null)
+  const busyRef = useRef(false) // guards against double-firing share/unshare (createEvent is async)
+
+  // only dated notes (not the everyday / general boards) can become Google events
+  const isDateDay = /^\d{4}-\d{2}-\d{2}$/.test(day || '')
+  // a note we pushed to a shared calendar (vs one imported read-only from Google)
+  const isShared = linked && googleShared
+
+  // load the writable shared calendars once (cheap — main reads its cache). The
+  // share button only shows if there's at least one, so it's hidden entirely
+  // when no Google account / no editable calendar is connected.
+  useEffect(() => {
+    if (!isDateDay || linked) return
+    let alive = true
+    Promise.resolve(api.google?.writableCalendars?.()).then((l) => alive && setShareCals(l || []))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const openShare = () => setShareOpen((o) => !o)
+
+  // create this note as an event on a shared Google calendar, link + save it.
+  // busyRef guards re-entry so rapid clicks can't create duplicate events.
+  const shareTo = async (cal) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setSharing(true) // dropdown shows a "syncing…" spinner; clicks are guarded
+    const { text, html } = getContent()
+    const r = await api.google?.createEvent?.(cal.account, cal.id, {
+      title: title.trim() || '(no title)',
+      day,
+      time: time ? String(time).split('T')[1] || time : null,
+      description: text
+    })
+    busyRef.current = false
+    setSharing(false)
+    if (!r?.ok) {
+      window.alert(r?.error || t('items.shareFailed'))
+      return
+    }
+    setLinked(true)
+    // save the note linked to the new event (always save — the Google event exists now)
+    onSave({
+      title: title.trim(),
+      text,
+      html,
+      time,
+      days,
+      google: {
+        googleEventId: r.event.googleEventId,
+        googleCalendar: r.event.calendarName,
+        googleAccount: r.event.account,
+        googleShared: true
+      }
+    })
+  }
+
+  // undo sharing: delete the event from Google and unlink the note (keeps it local)
+  const unShare = async () => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setSharing(true)
+    const r = await api.google?.deleteEvent?.(googleEventId)
+    busyRef.current = false
+    setSharing(false)
+    if (r?.ok === false) {
+      window.alert(r?.error || t('items.shareFailed'))
+      return
+    }
+    setLinked(false)
+    const { text, html } = getContent()
+    onSave({
+      title: title.trim(),
+      text,
+      html,
+      time,
+      days,
+      google: { googleEventId: null, googleCalendar: null, googleAccount: null, googleShared: false }
+    })
+  }
 
   const startHtml = stripOpacity(initialHtml || (initialText ? textToHtml(initialText) : ''))
 
@@ -61,13 +153,13 @@ export default function ItemEditor({
   const commit = () => {
     const tt = title.trim()
     const { text, html, empty } = getContent()
-    if (!tt && empty) onDelete()
+    if (!tt && empty) onDelete({ deleteGoogle: isShared })
     else onSave({ title: tt, text, html, time, days })
   }
 
   const askDelete = () => {
     const { empty } = getContent()
-    if (!title.trim() && empty) onDelete()
+    if (!title.trim() && empty) onDelete({ deleteGoogle: isShared })
     else setConfirmDel(true)
   }
 
@@ -133,6 +225,49 @@ export default function ItemEditor({
             )}
           </div>
         )}
+        {/* share button: for un-shared notes with a writable calendar (to share),
+            or for notes WE shared (to un-share). NOT for read-only imports. */}
+        {isDateDay && ((!linked && shareCals && shareCals.length > 0) || isShared) && (
+          <div className="item-editor__rem">
+            <button
+              ref={shareBtnRef}
+              className={'item-editor__btn item-editor__gbtn' + (isShared ? ' is-on' : '')}
+              title={isShared ? t('items.onGoogle') : t('items.shareToGoogle')}
+              disabled={sharing}
+              onMouseDown={noBlur(openShare)}
+            >
+              <GoogleIcon />
+            </button>
+            {shareOpen && (
+              <div className="item-editor__share-menu" onMouseDown={(e) => e.preventDefault()}>
+                {sharing ? (
+                  <div className="item-editor__share-syncing">
+                    <span className="ie-spin" aria-hidden />
+                    {t('items.syncing')}
+                  </div>
+                ) : isShared ? (
+                  <button className="item-editor__share-item is-linked" onMouseDown={noBlur(unShare)}>
+                    <span className="item-editor__share-cal">✓ {googleCalendar || 'Google'}</span>
+                    <span className="item-editor__share-acc">
+                      {googleAccount} · {t('items.unshare')}
+                    </span>
+                  </button>
+                ) : (
+                  shareCals.map((c) => (
+                    <button
+                      key={c.account + c.id}
+                      className="item-editor__share-item"
+                      onMouseDown={noBlur(() => shareTo(c))}
+                    >
+                      <span className="item-editor__share-cal">{c.summary}</span>
+                      <span className="item-editor__share-acc">{c.account}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <button className="item-editor__btn item-editor__btn--save" onMouseDown={noBlur(commit)}>
           <CheckIcon />
         </button>
@@ -144,7 +279,17 @@ export default function ItemEditor({
       <RichEditor initialHtml={startHtml} meta={{ id: noteId, day }} onReady={(ed) => (editorRef.current = ed)} />
 
       {onExpand && !expanded && (
-        <button className="item-editor__expand" title={t('items.expand')} onMouseDown={noBlur(onExpand)}>
+        <button
+          className="item-editor__expand"
+          title={t('items.expand')}
+          // going fullscreen remounts the editor (it gets portalled), which would
+          // re-read the original props and drop unsaved edits — so hand the live
+          // draft up so the parent can persist it before expanding
+          onMouseDown={noBlur(() => {
+            const { text, html } = getContent()
+            onExpand({ title, text, html, time, days })
+          })}
+        >
           ⛶
         </button>
       )}
@@ -153,8 +298,17 @@ export default function ItemEditor({
         <div className="item-editor__confirm" onMouseDown={(e) => e.preventDefault()}>
           <div className="item-editor__confirm-box">
             <span className="item-editor__confirm-text">{t('items.deleteConfirm')}</span>
+            {isShared && (
+              <label className="item-editor__confirm-check">
+                <input type="checkbox" checked={delFromGoogle} onChange={(e) => setDelFromGoogle(e.target.checked)} />
+                {t('items.deleteFromGoogle')}
+              </label>
+            )}
             <div className="item-editor__confirm-actions">
-              <button className="btn btn--danger" onMouseDown={noBlur(onDelete)}>
+              <button
+                className="btn btn--danger"
+                onMouseDown={noBlur(() => onDelete({ deleteGoogle: isShared && delFromGoogle }))}
+              >
                 {t('items.yes')}
               </button>
               <button className="btn" onMouseDown={noBlur(() => setConfirmDel(false))}>

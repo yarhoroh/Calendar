@@ -3,33 +3,3 @@
   flex-direction: column;
   min-height: 0;
 }
-
-/* normally the chat wrapper is transparent — its parts flow in the column */
-.calendar-view__chat {
-  display: contents;
-}
-
-/* a note is fullscreen AND the chat is on: dock the chat over the overlay so it
-   stays visible and usable. The dock sizes to its content (capped), and JS
-   writes its real height into --fs-chat-h so the note reserves exactly that
-   much — an empty/cleared chat takes only the input bar, no empty slab */
-:root.fs-chat {
-  --fs-chat-h: 0px;
-}
-:root.fs-chat .calendar-view__chat {
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-height: 50vh;
-  z-index: 80;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-}
-:root.fs-chat .calendar-view__chat .chat {
-  flex: 1 1 auto;
-  max-height: none;
-  min-height: 0;
-}

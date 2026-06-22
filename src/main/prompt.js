@@ -65,7 +65,7 @@ function dateReference(now) {
 }
 
 const ACTION_BLOCK =
-  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional","status":"todo|doing|done|customId optional","days":"[0-6] everyday-only optional","html":"<p>formatted…</p> optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"telegram","text":"message to send to the user via Telegram"}, {"action":"chat","text":"post a message into the in-app chat"}, {"action":"ask","text":"a question for the user; waits for their answer"}, {"action":"closeAsk"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"}, {"action":"addStatus","name":"...","color":"#hex optional"}, {"action":"renameStatus","id":"statusId","name":"...","color":"#hex optional"}, {"action":"deleteStatus","id":"statusId"}, {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"todo|doing|done|customId"}, {"action":"replaceSelection","html":"..."}, {"action":"appendNote","html":"..."}, {"action":"setNoteContent","html":"..."}, {"action":"enterEdit","date":"YYYY-MM-DD","id":"noteId"}, {"action":"enterFullscreen","date":"YYYY-MM-DD","id":"noteId"}, {"action":"exitFullscreen"}, {"action":"closeEditor"}, {"action":"setSetting","key":"everydayInCal|expanded|focusBlur|panelOpen|theme|showChat|language|colWidth","value":true}, {"action":"openPanel","value":true}, {"action":"selectFolder","id":"folderId or null"} ]'
+  '[ {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"listGoogleEvents","from":"YYYY-MM-DD","to":"YYYY-MM-DD"}, {"action":"importGoogleEvents","from":"YYYY-MM-DD","to":"YYYY-MM-DD","title":"optional substring to import ONLY matching events","gid":"optional exact <gid> to import ONE event"}, {"action":"addGoogleEvent","title":"event title","date":"YYYY-MM-DD","time":"HH:mm optional","durationMin":60,"calendar":"shared calendar name (optional if only one writable)","text":"optional description"}, {"action":"goto","date":"YYYY-MM-DD"}, {"action":"today"}, {"action":"everyday"}, {"action":"general"}, {"action":"expand","date":"YYYY-MM-DD"}, {"action":"addNote","date":"YYYY-MM-DD","title":"optional","text":"note text","time":"HH:mm optional","folder":"folderId optional","status":"todo|doing|done|customId optional","days":"[0-6] everyday-only optional","html":"<p>formatted…</p> optional"}, {"action":"reorder","date":"YYYY-MM-DD","ids":["id1","id2"]}, {"action":"delete","date":"YYYY-MM-DD","ids":["id1"]}, {"action":"speak","lang":"uk|ru|en","text":"what to say out loud"}, {"action":"notify","text":"silent toast text"}, {"action":"telegram","text":"message to send to the user via Telegram"}, {"action":"chat","text":"post a message into the in-app chat"}, {"action":"ask","text":"a question for the user; waits for their answer"}, {"action":"closeAsk"}, {"action":"remember","text":"a lasting fact/preference"}, {"action":"forget","id":"memoryId"}, {"action":"addAiTask","at":"YYYY-MM-DDTHH:mm optional","every":"minutes optional","from":"HH:mm optional","to":"HH:mm optional","text":"what to do when it fires"}, {"action":"deleteAiTask","id":"taskId"}, {"action":"openFile","id":"attachmentId"}, {"action":"attachFile","noteId":"noteId","path":"C:\\\\path\\\\to\\\\file"}, {"action":"setModel","model":"gpt-5.4-mini","reasoning":"low"}, {"action":"addFolder","board":"today|everyday|general","name":"...","parent":"folderId optional"}, {"action":"renameFolder","id":"folderId","name":"..."}, {"action":"moveFolder","id":"folderId","parent":"newParentId or null"}, {"action":"deleteFolder","id":"folderId"}, {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1"],"folder":"folderId or null"}, {"action":"addStatus","name":"...","color":"#hex optional"}, {"action":"renameStatus","id":"statusId","name":"...","color":"#hex optional"}, {"action":"deleteStatus","id":"statusId"}, {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"todo|doing|done|customId"}, {"action":"replaceSelection","html":"..."}, {"action":"appendNote","html":"..."}, {"action":"setNoteContent","html":"..."}, {"action":"enterEdit","date":"YYYY-MM-DD","id":"noteId"}, {"action":"enterFullscreen","date":"YYYY-MM-DD","id":"noteId"}, {"action":"exitFullscreen"}, {"action":"closeEditor"}, {"action":"setSetting","key":"everydayInCal|expanded|focusBlur|panelOpen|theme|showChat|language|colWidth","value":true}, {"action":"openPanel","value":true}, {"action":"selectFolder","id":"folderId or null"} ]'
 
 function formatMemory(rows) {
   if (!rows || !rows.length) return '(nothing remembered yet)'
@@ -109,6 +109,23 @@ function formatStatuses(rows) {
   return `${head}\n${rows.map((r) => `  - (id:${r.id}) ${r.name} [${r.color}]`).join('\n')}`
 }
 
+// Connected Google accounts + their selected calendars (no tokens). Tells the
+// model whether the Google Calendar integration is available and what's connected.
+function formatGoogleAccounts(rows) {
+  if (!rows || !rows.length) return '(no Google account connected — the user can connect one in Settings)'
+  return rows
+    .map((a) => {
+      if (a.needsReconnect) return `  - ${a.email} — NEEDS RECONNECT (tell the user to reconnect in Settings)`
+      // calendars marked (writable) accept addGoogleEvent (shared-calendar notes)
+      const cals =
+        a.calendars && a.calendars.length
+          ? a.calendars.map((c) => `${c.summary}${c.writable ? ' (writable)' : ''}`).join(', ')
+          : '(no calendars selected)'
+      return `  - ${a.email}: ${cals}`
+    })
+    .join('\n')
+}
+
 function nowLine(now) {
   const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`
   const todayLocal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
@@ -119,7 +136,7 @@ function nowLine(now) {
 // the action protocol. `ctx` = { notes, memory, tasks }. Used for the one-shot
 // path and the first ACP turn.
 export function buildSystem(ctx = {}) {
-  const { memory, tasks, folders, statuses, configPath } = ctx
+  const { memory, tasks, folders, statuses, configPath, googleAccounts } = ctx
   const now = new Date()
   return [
     'You are the built-in assistant of a desktop calendar + notes app. Your job is to help the user manage their schedule, notes and reminders.',
@@ -149,11 +166,16 @@ export function buildSystem(ctx = {}) {
     '--- STATUSES ---',
     formatStatuses(statuses),
     '--- END STATUSES ---',
+    'GOOGLE CALENDARS — connected Google accounts (read-only) and the calendars selected for import. listGoogleEvents reads their events; importGoogleEvents turns events into notes.',
+    '--- GOOGLE CALENDARS ---',
+    formatGoogleAccounts(googleAccounts),
+    '--- END GOOGLE CALENDARS ---',
     'To act or read notes, append to the very end of your reply a fenced block:',
     '```calendar',
     ACTION_BLOCK,
     '```',
     'getNotes = read notes for a date or range when you need them: {"action":"getNotes","from":"YYYY-MM-DD","to":"YYYY-MM-DD"} (single day: just "from"; the recurring/info boards: {"action":"getNotes","board":"everyday"} or "general"). When you need notes, reply with ONLY this block and no other text — you will receive the notes back, then give your real answer. Request the smallest range that answers the question. Notes can contain inline images: when present they are attached to the results AS PICTURES, so you can actually see/describe what is drawn or photographed inside a note (don\'t say you can\'t see images — request the notes and look).',
+    'GOOGLE CALENDAR (read-only import): listGoogleEvents = read the user\'s Google Calendar events for a date range {"action":"listGoogleEvents","from":"YYYY-MM-DD","to":"YYYY-MM-DD"} — like getNotes, reply with ONLY this block and you\'ll receive the events back. Each event line shows its time/title, optional @location, its source in brackets [calendar name · account email], a (recurring) marker, a <gid:...> id, and [already imported] if it was. Use the bracketed source to tell the user WHICH account/calendar an event (or an imported note) came from. importGoogleEvents = create notes from those events in a range {"action":"importGoogleEvents","from":"YYYY-MM-DD","to":"YYYY-MM-DD"} — already-imported events are skipped automatically (you get back how many were imported). For "import my meetings this week" just call importGoogleEvents for the week. RECURRING events (listGoogleEvents marks them) are imported as ONE note on the "everyday" board with their weekday repeats + time; one-time events go onto their date; a complex repeat the everyday board can\'t express (monthly / every N weeks) falls back to a single dated note. Add "mode":"day" to force single-day import of everything. IMPORTANT: importGoogleEvents with no filter imports EVERY event in the range — to import ONE specific event (e.g. "import only test 1") FIRST call listGoogleEvents to see the events, then call importGoogleEvents with "title" set to that event\'s name (substring match) — or, to target one exact event from a specific calendar/account, "gid" set to its <gid:...> value — so only it is imported. If the user is ambiguous about a recurring event (this day vs every day), you may ask them first with the ask action. If GOOGLE CALENDARS shows none connected (or NEEDS RECONNECT), tell the user to connect/reconnect in Settings. A periodic check is a normal addAiTask, e.g. {"action":"addAiTask","every":30,"text":"check Google calendar and import upcoming meetings"}. addGoogleEvent = CREATE an event on a SHARED Google calendar (one marked "(writable)" in GOOGLE CALENDARS) and auto-import it into the local calendar — use this for shared tasks so the event also appears for everyone else who has that calendar connected. Pick the calendar with "calendar" (its name); if there is only one writable calendar you may omit it. Without a writable calendar this fails — tell the user to connect a calendar they can edit and reconnect. This is for genuinely shared/Google-side events; a normal private note is still just addNote.',
     "Actions: goto = scroll to a date; today = today (normal calendar); everyday = recurring board; general = open the general (plain info) notes board; expand = day full-screen; addNote = create a note (time HH:mm = reminder; date \"everyday\" = recurring; date \"general\" = plain info note, no time/status). To file the new note straight into a folder, add \"folder\":\"<folderId from FOLDERS>\" (omit = General root). editNote also accepts \"folder\" to move a note (\"folder\":null = back to General). Each note above shows its (id:...). editNote = change an EXISTING note's fields by its id — {\"action\":\"editNote\",\"date\":\"YYYY-MM-DD\",\"id\":\"<note id>\",\"title\":\"...\",\"text\":\"...\",\"time\":\"HH:mm\",\"status\":\"todo|doing|done|cancelled\"}; include ONLY the fields you want to change (others stay; \"time\":\"\" clears the reminder). Use getNotes first to learn the ids. reorder = set the new order of a day's notes by listing their ids in the desired order (sort by time/status/etc.). delete = remove notes by id (e.g. delete all [done] on a date — list those ids). NOTE: creating or changing notes/folders/statuses does NOT move the calendar view by itself — if you want to show the user the result, ALSO emit a navigation action (goto / today / everyday / general) in the same block.",
     'You have several ways to reach the user — pick by what they asked and where the request came from:',
     '  • plain text reply (your normal message) — goes back to wherever the request came from: the in-app chat, or the messenger (Telegram) if it was tagged as such. THIS IS THE DEFAULT. If the request came from Telegram, reply in text — do NOT speak — unless they explicitly asked for voice.',
@@ -189,7 +211,7 @@ export function buildSystem(ctx = {}) {
 // and protocol, so we only refresh the volatile data (time, dates, notes) plus
 // a short reminder of the action-block format.
 export function buildRefresh(ctx = {}) {
-  const { memory, tasks, folders, statuses } = ctx
+  const { memory, tasks, folders, statuses, googleAccounts } = ctx
   const now = new Date()
   return [
     `[context update] ${nowLine(now)}`,
@@ -212,6 +234,10 @@ export function buildRefresh(ctx = {}) {
     '--- STATUSES ---',
     formatStatuses(statuses),
     '--- END STATUSES ---',
+    'Google calendars (listGoogleEvents to read, importGoogleEvents to import; addGoogleEvent to CREATE an event on a "(writable)" shared calendar + auto-import it for shared tasks):',
+    '--- GOOGLE CALENDARS ---',
+    formatGoogleAccounts(googleAccounts),
+    '--- END GOOGLE CALENDARS ---',
     'Need notes? Use getNotes (reply with only that block). To remind/add/schedule/delete/change ANYTHING you MUST emit the matching action — words alone do nothing. End your reply with the ```calendar block:',
     ACTION_BLOCK
   ].join('\n')

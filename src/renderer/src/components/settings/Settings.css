@@ -4,6 +4,44 @@
   padding: 32px;
 }
 
+/* themed dropdown (used by the Google auto-sync interval) */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 30px 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--panel);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.select:hover {
+  border-color: var(--accent);
+}
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* check-for-updates row */
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.update-row__note {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
 .settings__list {
   width: 100%;
   max-width: 720px;
@@ -210,6 +248,83 @@
   font-size: 13px;
   color: var(--muted);
   cursor: pointer;
+}
+
+/* Google account calendar checkboxes */
+.google-cals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 18px;
+}
+.google-cal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.google-cal {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+/* per-calendar auto-sync toggle (⟳) — grey off, green on */
+.google-cal__sync {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.google-cal__sync:hover {
+  color: var(--text);
+}
+.google-cal__sync.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.google-cal__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.google-cal input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  display: inline-grid;
+  place-content: center;
+}
+.google-cal input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.google-cal input:checked::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-top: -1px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .compact-row__item input {

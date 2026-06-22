@@ -10,7 +10,7 @@ import './TitleBar.css'
 // the right. It only wires children to handlers — no logic of its own.
 export default function TitleBar({
   view,
-  onToggleView,
+  onSelectView,
   theme,
   onToggleTheme,
   pinned,
@@ -34,8 +34,13 @@ export default function TitleBar({
       </div>
 
       <div className="titlebar__controls">
+        {import.meta.env.DEV && (
+          <button className="titlebar__dev" title="DevTools" onClick={() => api.openDevTools?.()}>
+            {'</>'}
+          </button>
+        )}
         <PinToggle pinned={pinned} onToggle={onTogglePin} />
-        <ViewSwitch view={view} onToggle={onToggleView} />
+        <ViewSwitch view={view} onSelectView={onSelectView} />
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <WindowControls
           maximized={maximized}

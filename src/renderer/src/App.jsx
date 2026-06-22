@@ -4,6 +4,7 @@ import TitleBar from './components/TitleBar'
 import CloseDialog from './components/CloseDialog'
 import ErrorBoundary from './components/ErrorBoundary'
 import CalendarView from './views/CalendarView'
+import AppointmentsView from './views/AppointmentsView'
 import SettingsView from './views/SettingsView'
 import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
@@ -11,7 +12,10 @@ import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
-import { registerUi, updateUiState } from './lib/uiBridge'
+import ChatPanel from './components/ChatPanel'
+import PromptBar from './components/PromptBar'
+import { registerUi, updateUiState, subscribeUi, getUiState } from './lib/uiBridge'
+import { runGoogleAutoSync } from './lib/autoSyncGoogle'
 import { setAnswerHandler, subscribeAsk } from './lib/askBridge'
 import AskPopup from './components/AskPopup'
 import './styles/compact.css'
@@ -65,6 +69,15 @@ export default function App() {
   useAiTaskRunner({ onCommand: runCommand })
   useTelegramBridge({ onCommand: runCommand })
 
+  // Google → local auto-sync: driven by the main-process timer tick (interval is
+  // set in Settings; 0 = off). Also sync once at startup, but only if enabled.
+  useEffect(() => {
+    Promise.resolve(api.google?.getSyncInterval?.()).then((m) => {
+      if (Number(m) > 0) runGoogleAutoSync()
+    })
+    return api.google?.onAutoSync?.(() => runGoogleAutoSync())
+  }, [])
+
   // assistant "ask the user" popups: route the answer back to the AI together
   // with its own question, and publish whether a question is pending
   const chatRef = useRef(chat)
@@ -74,8 +87,37 @@ export default function App() {
     return subscribeAsk((p) => updateUiState({ ask: p ? { open: true, question: p.question } : { open: false } }))
   }, [])
 
+  // when a note is fullscreen (calendar view) + chat is on, dock the shared chat
+  // over the overlay and reserve its real height (--fs-chat-h)
+  const [fullscreen, setFullscreen] = useState(false)
+  const chatElRef = useRef(null)
   useEffect(() => {
-    api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
+    const apply = (s) => setFullscreen(!!s.fullscreen)
+    apply(getUiState())
+    return subscribeUi(apply)
+  }, [])
+  const dockChat = fullscreen && showChat && view === 'calendar'
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('fs-chat', dockChat)
+    if (!dockChat) {
+      root.style.removeProperty('--fs-chat-h')
+      return
+    }
+    const el = chatElRef.current
+    const sync = () => root.style.setProperty('--fs-chat-h', `${el?.offsetHeight || 0}px`)
+    sync()
+    const ro = el ? new ResizeObserver(sync) : null
+    ro?.observe(el)
+    return () => {
+      ro?.disconnect()
+      root.classList.remove('fs-chat')
+      root.style.removeProperty('--fs-chat-h')
+    }
+  }, [dockChat])
+
+  useEffect(() => {
+    const off = api.onReminderOpen?.((dayKey) => runCommand({ kind: 'goto', date: dayKey }))
     Promise.resolve(api.getShowChat?.()).then((v) => setShowChat(!!v))
     Promise.resolve(api.getCalendar?.()).then((c) => {
       const cm = c?.compact
@@ -83,6 +125,7 @@ export default function App() {
       if (cm && typeof cm === 'object') setCompact(cm)
       else if (cm) setCompact({ topbar: true, menu: true, calendar: true, chat: true })
     })
+    return () => off?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -122,13 +165,13 @@ export default function App() {
       return next
     })
 
-  const toggleView = () => setView((v) => (v === 'calendar' ? 'settings' : 'calendar'))
+  const selectView = (name) => setView(name)
 
   return (
     <div className="app">
       <TitleBar
         view={view}
-        onToggleView={toggleView}
+        onSelectView={selectView}
         theme={theme}
         onToggleTheme={toggleTheme}
         pinned={win.pinned}
@@ -141,16 +184,36 @@ export default function App() {
 
       <main className="content">
         <ErrorBoundary>
-          {view === 'calendar' ? (
-          <CalendarView command={command} showChat={showChat} chat={chat} />
-        ) : (
-          <SettingsView
-            showChat={showChat}
-            onToggleChat={toggleChat}
-            compact={compact}
-            onToggleCompact={toggleCompact}
-          />
-        )}
+          {view === 'settings' ? (
+            <SettingsView
+              showChat={showChat}
+              onToggleChat={toggleChat}
+              compact={compact}
+              onToggleCompact={toggleCompact}
+            />
+          ) : (
+            <>
+              {/* calendar + appointments stay mounted (hidden when inactive) so
+                  their scroll position and state survive switching views */}
+              <div className="views">
+                <div className="view-pane" style={{ display: view === 'calendar' ? undefined : 'none' }}>
+                  <CalendarView command={command} />
+                </div>
+                <div className="view-pane" style={{ display: view === 'appointments' ? undefined : 'none' }}>
+                  <AppointmentsView
+                    onJump={(day) => runCommand(day === 'everyday' ? { kind: 'everyday' } : { kind: 'goto', date: day })}
+                  />
+                </div>
+              </div>
+              {/* one shared chat under both views (the AI can read/import Google) */}
+              {showChat && (
+                <div className="app-chat" ref={chatElRef}>
+                  <ChatPanel messages={chat.messages} busy={chat.busy} onClear={chat.clear} />
+                  <PromptBar onSend={chat.send} busy={chat.busy} />
+                </div>
+              )}
+            </>
+          )}
         </ErrorBoundary>
       </main>
 

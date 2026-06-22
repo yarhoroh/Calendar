@@ -39,8 +39,27 @@ import {
   allAttachments,
   addAttachment,
   removeAttachment,
-  attachmentById
+  attachmentById,
+  importedMap,
+  markEventImported,
+  getImport,
+  unmarkImport
 } from './db'
+import {
+  connectAccount as googleConnect,
+  removeAccount as googleRemove,
+  setSelectedCalendars as googleSetCalendars,
+  setAutoSyncCalendars as googleSetAutoSync,
+  autoSyncCalendars as googleAutoSyncCalendars,
+  listAccountsWithCalendars as googleListAccounts,
+  listEventsAllSelected as googleListEvents,
+  eventRecurrence as googleEventRecurrence,
+  createEvent as googleCreateEvent,
+  updateEvent as googleUpdateEvent,
+  deleteEvent as googleDeleteEvent,
+  writableCalendars as googleWritableCalendars,
+  accountsSummary as googleAccountsSummary
+} from './google'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import {
   initNotify,
@@ -477,7 +496,14 @@ function aiContext() {
   // notes are fetched on demand via the getNotes tool — only the small,
   // always-relevant data lives in the prompt. done tasks included (marked
   // [done]) so the AI can see and delete them.
-  return { memory: allMemory(), tasks: allAiTasks(), folders: allFolders(), statuses: listStatuses(), configPath: aiConfigPath() }
+  return {
+    memory: allMemory(),
+    tasks: allAiTasks(),
+    folders: allFolders(),
+    statuses: listStatuses(),
+    configPath: aiConfigPath(),
+    googleAccounts: googleAccountsSummary() // emails + selected calendar names only (no tokens)
+  }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'gemini'
@@ -523,6 +549,111 @@ ipcMain.handle('telegram:send', async (_e, text) => {
   const res = await sendTelegram(chat, text) // await the API so we report real delivery, not a false success
   if (res && res.ok) return { ok: true }
   return { ok: false, error: res?.description || 'Telegram did not confirm delivery (message not sent)' }
+})
+
+// ---- Google Calendar (read-only import) ---------------------------------
+ipcMain.handle('google:connect', () => googleConnect())
+ipcMain.handle('google:list-accounts', () => googleListAccounts())
+ipcMain.handle('google:disconnect', (_e, email) => googleRemove(email))
+ipcMain.handle('google:set-calendars', (_e, { email, ids }) => googleSetCalendars(email, ids))
+ipcMain.handle('google:list-events', async (_e, { from, to, email }) => {
+  const events = await googleListEvents(email || 'all', from, to)
+  // an instance counts as imported if its own id OR its series id was imported
+  const seriesGid = (ev) => (ev.recurringEventId ? `${ev.account}:${ev.calendarId}:${ev.recurringEventId}` : null)
+  const gids = []
+  for (const ev of events) {
+    gids.push(ev.googleEventId)
+    const s = seriesGid(ev)
+    if (s) gids.push(s)
+  }
+  const map = importedMap(gids)
+  return events.map((ev) => {
+    const s = seriesGid(ev)
+    const day = map[ev.googleEventId] ?? (s ? map[s] : undefined)
+    return { ...ev, imported: day !== undefined, importedDay: day ?? null }
+  })
+})
+ipcMain.handle('google:event-recurrence', (_e, { email, calId, recurringEventId }) =>
+  googleEventRecurrence(email, calId, recurringEventId)
+)
+// after we change anything ON Google, tell the renderer so the Appointments
+// agenda re-fetches that range (the new/updated/removed event shows at once)
+const broadcastGoogleChanged = () => mainWindow?.webContents?.send('google:changed')
+ipcMain.handle('google:create-event', async (_e, { email, calendarId, event }) => {
+  const r = await googleCreateEvent(email, calendarId, event)
+  if (r?.ok) broadcastGoogleChanged()
+  return r
+})
+ipcMain.handle('google:update-event', async (_e, { gid, event }) => {
+  const r = await googleUpdateEvent(gid, event)
+  if (r?.ok && !r.skipped) broadcastGoogleChanged()
+  return r
+})
+ipcMain.handle('google:delete-event', async (_e, gid) => {
+  const r = await googleDeleteEvent(gid)
+  if (r?.ok) broadcastGoogleChanged()
+  return r
+})
+ipcMain.handle('google:writable-calendars', () => googleWritableCalendars())
+ipcMain.handle('google:set-autosync', (_e, { email, ids }) => googleSetAutoSync(email, ids))
+ipcMain.handle('google:autosync-calendars', () => googleAutoSyncCalendars())
+ipcMain.handle('settings:get-sync-interval', () => loadAiConfig().googleSyncInterval || 0)
+ipcMain.on('settings:set-sync-interval', (_e, minutes) => {
+  saveAiConfig({ googleSyncInterval: Number(minutes) || 0 })
+  rescheduleGoogleSync()
+})
+
+// periodic Google → local sync: every N minutes, ask the renderer to pull
+// auto-sync calendars into notes (it reuses the import logic). 0 = off.
+let googleSyncTimer = null
+function rescheduleGoogleSync() {
+  if (googleSyncTimer) clearInterval(googleSyncTimer)
+  googleSyncTimer = null
+  const min = loadAiConfig().googleSyncInterval || 0
+  if (min > 0) googleSyncTimer = setInterval(() => mainWindow?.webContents?.send('google:autosync'), min * 60000)
+}
+// cheap (DB-only, no network) re-check of import status — used to refresh the
+// Appointments tab the instant a note is added/deleted
+ipcMain.handle('google:imported-status', (_e, items) => {
+  const seriesGid = (it) => (it.recurringEventId ? `${it.account}:${it.calendarId}:${it.recurringEventId}` : null)
+  const gids = []
+  for (const it of items || []) {
+    gids.push(it.googleEventId)
+    const s = seriesGid(it)
+    if (s) gids.push(s)
+  }
+  const map = importedMap(gids)
+  const out = {}
+  for (const it of items || []) {
+    const s = seriesGid(it)
+    const day = map[it.googleEventId] ?? (s ? map[s] : undefined)
+    out[it.googleEventId] = { imported: day !== undefined, importedDay: day ?? null }
+  }
+  return out
+})
+ipcMain.handle('google:mark-imported', (_e, p) => {
+  markEventImported(p)
+  return { ok: true }
+})
+// undo an import: delete the linked note and clear the mark (instance or series)
+ipcMain.handle('google:unimport', (_e, it) => {
+  const seriesGid = it?.recurringEventId ? `${it.account}:${it.calendarId}:${it.recurringEventId}` : null
+  for (const gid of [it?.googleEventId, seriesGid].filter(Boolean)) {
+    const row = getImport(gid)
+    if (!row) continue
+    const arr = (getItems(row.day) || []).filter((x) => x.id !== row.note_id)
+    saveItems(row.day, arr)
+    clearReminder(row.note_id)
+    unmarkImport(gid)
+    mainWindow?.webContents?.send('items:changed', row.day)
+  }
+  return { ok: true }
+})
+
+// open an external https URL in the system browser (e.g. Google Calendar)
+ipcMain.handle('app:open-external', (_e, url) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url)
+  return true
 })
 
 ipcMain.handle('aiConfig:path', () => aiConfigPath())
@@ -600,6 +731,23 @@ ipcMain.handle('attach:open', (_e, id) => {
   const a = attachmentById(id)
   return a?.path ? shell.openPath(a.path) : 'not found'
 })
+ipcMain.on('dev:devtools', () => mainWindow?.webContents?.toggleDevTools())
+ipcMain.handle('attach:reveal', (_e, id) => {
+  const a = attachmentById(id)
+  if (a?.path) shell.showItemInFolder(a.path) // open the containing folder in Explorer
+  return true
+})
+// the OS file-type icon (by extension) as a data URL, for the attachments list
+ipcMain.handle('attach:icon', async (_e, id) => {
+  const a = attachmentById(id)
+  if (!a?.path) return null
+  try {
+    const img = await app.getFileIcon(a.path, { size: 'small' })
+    return img.isEmpty() ? null : img.toDataURL()
+  } catch {
+    return null
+  }
+})
 ipcMain.handle('ai:clear', () => {
   const cli = loadSettings().ai || 'gemini'
   if (cli === 'gemini') return clearAcp()
@@ -646,6 +794,32 @@ function initAutoUpdate() {
   autoUpdater.checkForUpdates().catch(() => {})
 }
 
+// a > b for "1.2.3"-style versions
+function isNewerVersion(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0)
+  }
+  return false
+}
+
+// manual "check for updates" (Settings button). If a newer release exists, the
+// download starts (autoDownload) and the usual "restart to install" dialog
+// appears when it finishes — this just reports what was found.
+ipcMain.handle('update:check', async () => {
+  const version = app.getVersion()
+  if (!app.isPackaged) return { status: 'dev', version }
+  try {
+    const r = await autoUpdater.checkForUpdates()
+    const latest = r?.updateInfo?.version
+    if (latest && isNewerVersion(latest, version)) return { status: 'available', version: latest }
+    return { status: 'latest', version }
+  } catch {
+    return { status: 'error', version }
+  }
+})
+
 // ---- single instance + lifecycle ---------------------------------------
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -674,6 +848,7 @@ if (!gotLock) {
         mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel })
     })
     scheduleAllAiTasks()
+    rescheduleGoogleSync()
     initTts({ getMain: () => mainWindow })
     setTtsEngine(() => loadSettings().ttsEngine || 'piper')
     startTtsServer()

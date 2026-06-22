@@ -99,6 +99,20 @@ function DayItems({ dayKey, sort }) {
   const noStatus = false // status is available on every board (incl. everyday & general)
 
   const stop = () => setEditingId(null)
+
+  // inline edits from the list (e.g. the reminder clock) go through `update`,
+  // which doesn't know about Google — wrap it so a linked note's time/title/text
+  // change is also pushed to its Google event (main skips read-only calendars)
+  const isDate = /^\d{4}-\d{2}-\d{2}$/.test(dayKey)
+  const updateAndSync = (id, patch) => {
+    update(id, patch)
+    if (!isDate || !('time' in patch || 'title' in patch || 'text' in patch || 'html' in patch)) return
+    const cur = items.find((i) => i.id === id)
+    if (!cur?.googleEventId) return
+    const m = { ...cur, ...patch }
+    const hhmm = m.time ? String(m.time).split('T')[1] || m.time : null
+    api.google?.updateEvent?.(m.googleEventId, { title: m.title || '(no title)', day: dayKey, time: hhmm, description: m.text || '' })
+  }
   const clearDrag = () => {
     setDraggingId(null)
     setOverAt(-1)
@@ -233,22 +247,46 @@ function DayItems({ dayKey, sort }) {
             timeOnly={dayKey === 'everyday'}
             plain={plain}
             expanded={expandedId === it.id}
-            onExpand={() => setExpandedId(it.id)}
+            googleEventId={it.googleEventId}
+            googleShared={it.googleShared}
+            onExpand={(draft) => {
+              if (draft)
+                update(it.id, {
+                  title: draft.title.trim() || null,
+                  text: draft.text,
+                  html: draft.html,
+                  time: draft.time || null,
+                  days: draft.days
+                })
+              setExpandedId(it.id)
+            }}
             onSave={(f) => {
               update(it.id, {
                 title: f.title || null,
                 text: f.text,
                 html: f.html,
                 time: f.time || null,
-                days: f.days
+                days: f.days,
+                ...(f.google || {}) // fresh share → link the note to the new Google event
               })
               if (f.time)
                 api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text, days: f.days })
               else api.clearReminder?.(it.id)
+              if (f.google) {
+                // just shared → register it so the Appointments tab dedupes it
+                if (f.google.googleEventId) api.google?.markImported?.({ gid: f.google.googleEventId, noteId: it.id, day: dayKey })
+              } else if (it.googleEventId && /^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+                // editing ANY linked Google note on a real date → push the change up.
+                // main skips read-only calendars; dated-only avoids breaking recurring
+                // (everyday) series, whose gid is the repeating master.
+                const hhmm = f.time ? String(f.time).split('T')[1] || f.time : null
+                api.google?.updateEvent?.(it.googleEventId, { title: f.title || '(no title)', day: dayKey, time: hhmm, description: f.text })
+              }
               stop()
             }}
             onCancel={stop}
-            onDelete={() => {
+            onDelete={(opts) => {
+              if (opts?.deleteGoogle && it.googleEventId) api.google?.deleteEvent?.(it.googleEventId)
               remove(it.id)
               stop()
             }}
@@ -263,7 +301,7 @@ function DayItems({ dayKey, sort }) {
             expanded={expandedId === it.id}
             onExpand={() => setExpandedId(it.id)}
             onEdit={() => setEditingId(it.id)}
-            onUpdate={update}
+            onUpdate={updateAndSync}
             onRemove={remove}
             onDragStart={onStart}
             onDragEnd={clearDrag}
@@ -297,40 +335,55 @@ function DayItems({ dayKey, sort }) {
     >
       {rows}
 
-      {editingId === 'new' &&
-        (() => {
-          return (
-            <ItemEditor
-              defaultDays={proj.workingDays}
-              day={dayKey}
-              timeOnly={dayKey === 'everyday'}
-              plain={plain}
-              onSave={(f) => {
-                const item = {
-                  ...newItem(f.text),
-                  title: f.title || null,
-                  html: f.html,
-                  time: f.time || null,
-                  days: f.days,
-                  folderId: activeId || null // file new notes into the active folder
-                }
-                add(item)
-                if (item.time)
-                  api.setReminder?.({
-                    id: item.id,
-                    when: item.time,
-                    dayKey,
-                    title: item.title || 'Calendar',
-                    body: item.text,
-                    days: item.days
-                  })
-                stop()
-              }}
-              onCancel={stop}
-              onDelete={stop}
-            />
-          )
-        })()}
+      {editingId === 'new' && (
+        <ItemEditor
+          defaultDays={proj.workingDays}
+          day={dayKey}
+          timeOnly={dayKey === 'everyday'}
+          plain={plain}
+          // expanding a brand-new note: persist it now (so it has an id and can be
+          // portalled fullscreen) and keep editing it as a normal note — this also
+          // means the draft survives the remount instead of being lost
+          onExpand={(draft) => {
+            const item = {
+              ...newItem(draft?.text || ''),
+              title: draft?.title?.trim() || null,
+              html: draft?.html || '',
+              time: draft?.time || null,
+              days: draft?.days,
+              folderId: activeId || null
+            }
+            add(item)
+            setEditingId(item.id)
+            setExpandedId(item.id)
+          }}
+          onSave={(f) => {
+            const item = {
+              ...newItem(f.text),
+              title: f.title || null,
+              html: f.html,
+              time: f.time || null,
+              days: f.days,
+              folderId: activeId || null, // file new notes into the active folder
+              ...(f.google || {}) // shared straight from a new note → link it
+            }
+            add(item)
+            if (item.time)
+              api.setReminder?.({
+                id: item.id,
+                when: item.time,
+                dayKey,
+                title: item.title || 'Calendar',
+                body: item.text,
+                days: item.days
+              })
+            if (f.google) api.google?.markImported?.({ gid: f.google.googleEventId, noteId: item.id, day: dayKey })
+            stop()
+          }}
+          onCancel={stop}
+          onDelete={stop}
+        />
+      )}
 
       <div
         className="day-items__add"

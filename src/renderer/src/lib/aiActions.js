@@ -4,6 +4,8 @@ import { getActiveEditor, replaceSelection, appendToNote, setNoteContent } from 
 import { ui } from './uiBridge'
 import { pushChat, hasChat } from './chatBridge'
 import { openAsk, closeAsk } from './askBridge'
+import { importGoogleEvent, importGoogleEventEveryday } from './importGoogle'
+import { startOfToday, dateKey } from './dates'
 
 // plain text from an HTML string (for the searchable/AI `text` field)
 const stripHtml = (html) => {
@@ -83,6 +85,68 @@ export async function execAction(a, onCommand, channel) {
       case 'closeAsk':
         closeAsk()
         return { ok: true }
+      case 'importGoogleEvents': {
+        // pull Google Calendar events in a date range into notes (skips already
+        // imported ones). Recurring events go to the "everyday" board (once per
+        // series); one-time events onto their date. mode:"day" forces single-day.
+        if (!a.from) return { ok: false, error: 'importGoogleEvents needs a from date (YYYY-MM-DD)' }
+        const evs = (await api.google?.listEvents?.(a.from, a.to || a.from)) || []
+        // optional targeting: gid (exact) or title (substring) — without either,
+        // EVERY event in the range is imported
+        const q = a.title ? String(a.title).toLowerCase() : null
+        const fresh = evs
+          .filter((e) => !e.imported)
+          .filter((e) => (a.gid ? e.googleEventId === a.gid : true))
+          .filter((e) => (q ? (e.title || '').toLowerCase().includes(q) : true))
+        const doneSeries = new Set()
+        let count = 0
+        for (const ev of fresh) {
+          if (ev.recurring && a.mode !== 'day') {
+            if (doneSeries.has(ev.recurringEventId)) continue
+            doneSeries.add(ev.recurringEventId)
+            const res = await importGoogleEventEveryday(ev)
+            if (res?.unsupported) await importGoogleEvent(ev) // complex repeat → single day
+          } else {
+            await importGoogleEvent(ev)
+          }
+          count++
+        }
+        return { ok: true, result: { count, skipped: evs.length - fresh.length } }
+      }
+      case 'addGoogleEvent': {
+        // create an event on a SHARED (writable) Google calendar, then import it
+        // locally — so it shows up for everyone who has that calendar connected
+        if (!a.title) return { ok: false, error: 'addGoogleEvent needs a title' }
+        const day = a.date || dateKey(startOfToday()) // no date given → today, so it's visible
+        const accs = (await api.google?.listAccounts?.()) || []
+        const writable = []
+        for (const acc of accs)
+          for (const c of acc.calendars || [])
+            if (c.selected && c.writable) writable.push({ account: acc.email, id: c.id, summary: c.summary })
+        if (!writable.length)
+          return { ok: false, error: 'no writable shared calendar connected — connect one you can edit and reconnect the account (grant calendar edit)' }
+        let target = null
+        if (a.calendar) {
+          const q = String(a.calendar).toLowerCase()
+          target = writable.find((c) => c.id === a.calendar) || writable.find((c) => c.summary.toLowerCase().includes(q))
+        }
+        if (!target && writable.length === 1) target = writable[0]
+        if (!target)
+          return { ok: false, error: `which calendar? writable: ${writable.map((c) => c.summary).join(', ')}` }
+        const r = await api.google?.createEvent?.(target.account, target.id, {
+          title: a.title,
+          day,
+          time: a.time || null,
+          durationMin: a.durationMin,
+          description: a.text || a.description || '',
+          location: a.location || ''
+        })
+        if (!r?.ok) return { ok: false, error: r?.error || 'create failed' }
+        // mark the local note as shared (we created it on Google), so it can later
+        // be edited/deleted on Google too — same as the editor's share button
+        const imp = await importGoogleEvent(r.event, { googleShared: true })
+        return { ok: true, result: { calendar: target.summary, day: imp?.day } }
+      }
       case 'remember':
         if (a.text) await api.addMemory?.(a.text)
         return { ok: true }
@@ -149,6 +213,17 @@ export async function execAction(a, onCommand, channel) {
         if (patched.time)
           api.setReminder?.({ id: it.id, when: patched.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '', days: patched.days })
         else if (a.time !== undefined) api.clearReminder?.(it.id)
+        // editing a Google-linked note on a real date → push the change up to
+        // Google too (main skips read-only calendars). Same as the UI editor.
+        if (it.googleEventId && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) {
+          const hhmm = patched.time ? String(patched.time).split('T')[1] || patched.time : null
+          api.google?.updateEvent?.(it.googleEventId, {
+            title: patched.title || '(no title)',
+            day: a.date,
+            time: hhmm,
+            description: patched.text || ''
+          })
+        }
         return { ok: true }
       }
       case 'addFolder': {

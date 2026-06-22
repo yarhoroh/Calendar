@@ -6,6 +6,7 @@ import ClaudeSetting from '../components/settings/ClaudeSetting'
 import CodexSetting from '../components/settings/CodexSetting'
 import AiConfigSetting from '../components/settings/AiConfigSetting'
 import TelegramSetting from '../components/settings/TelegramSetting'
+import GoogleAccountsSetting from '../components/settings/GoogleAccountsSetting'
 import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
@@ -19,6 +20,7 @@ import AiTasksPanel from '../components/settings/AiTasksPanel'
 import StatusesPanel from '../components/settings/StatusesPanel'
 import FocusBlurSetting from '../components/settings/FocusBlurSetting'
 import CompactSetting from '../components/settings/CompactSetting'
+import UpdateSetting from '../components/settings/UpdateSetting'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
@@ -69,8 +71,14 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             <SettingsSection title={t('settings.bots')}>
               <TelegramSetting />
             </SettingsSection>
+            <SettingsSection title={t('settings.google.title')}>
+              <GoogleAccountsSetting />
+            </SettingsSection>
             <SettingsSection title={t('settings.statuses')}>
               <StatusesPanel />
+            </SettingsSection>
+            <SettingsSection title={t('settings.update.section')}>
+              <UpdateSetting />
             </SettingsSection>
           </>
         ) : (

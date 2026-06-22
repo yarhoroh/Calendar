@@ -158,6 +158,11 @@
 .ri-img--selected .ri-img__bar {
   display: flex;
 }
+/* image at the very top: drop the toolbar below it so it isn't clipped */
+.ri-img--bar-below .ri-img__bar {
+  top: auto;
+  bottom: -32px;
+}
 .ri-img__bar button {
   width: 24px;
   height: 24px;

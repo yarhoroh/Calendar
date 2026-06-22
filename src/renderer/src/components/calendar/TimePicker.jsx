@@ -9,18 +9,20 @@ const MINUTES = Array.from({ length: 60 }, (_, i) => i)
 
 export default function TimePicker({ value, onChange }) {
   const now = new Date()
-  const parts =
-    value && value.includes(':')
-      ? value.split(':')
-      : [String(now.getHours()), String(now.getMinutes())]
-  const h = Number(parts[0]) || 0
-  const m = Number(parts[1]) || 0
+  const has = !!(value && value.includes(':')) // a time is actually set
+  const parts = has ? value.split(':') : [String(now.getHours()), String(now.getMinutes())]
+  // when nothing is set yet, scroll near the current time but DON'T mark a
+  // selection — otherwise a new note looks like it already has "now" chosen
+  const h = has ? Number(parts[0]) || 0 : -1
+  const m = has ? Number(parts[1]) || 0 : -1
+  const scrollH = Number(parts[0]) || 0
+  const scrollM = Number(parts[1]) || 0
   const hRef = useRef(null)
   const mRef = useRef(null)
 
   useEffect(() => {
-    hRef.current?.querySelector('.is-sel')?.scrollIntoView({ block: 'center' })
-    mRef.current?.querySelector('.is-sel')?.scrollIntoView({ block: 'center' })
+    hRef.current?.children[scrollH]?.scrollIntoView({ block: 'center' })
+    mRef.current?.children[scrollM]?.scrollIntoView({ block: 'center' })
   }, [])
 
   return (

@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 const api = {
   // custom titlebar controls
   getVersion: () => ipcRenderer.invoke('app:version'),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  openDevTools: () => ipcRenderer.send('dev:devtools'),
   minimize: () => ipcRenderer.send('window:minimize'),
   toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
   close: () => ipcRenderer.send('window:close'),
@@ -16,7 +18,11 @@ const api = {
   // theme persistence
   getTheme: () => ipcRenderer.invoke('settings:get-theme'),
   setTheme: (theme) => ipcRenderer.send('settings:set-theme', theme),
-  onThemeChange: (cb) => ipcRenderer.on('theme:set', (_e, theme) => cb(theme)),
+  onThemeChange: (cb) => {
+    const h = (_e, theme) => cb(theme)
+    ipcRenderer.on('theme:set', h)
+    return () => ipcRenderer.removeListener('theme:set', h)
+  },
 
   // calendar settings persistence
   getCalendar: () => ipcRenderer.invoke('settings:get-calendar'),
@@ -115,6 +121,8 @@ const api = {
   addAttachmentPath: (noteId, path) => ipcRenderer.invoke('attach:addPath', { noteId, path }),
   removeAttachment: (id) => ipcRenderer.invoke('attach:remove', id),
   openAttachment: (id) => ipcRenderer.invoke('attach:open', id),
+  revealAttachment: (id) => ipcRenderer.invoke('attach:reveal', id),
+  attachmentIcon: (id) => ipcRenderer.invoke('attach:icon', id),
   onAttachChanged: (cb) => {
     const h = (_e, p) => cb(p)
     ipcRenderer.on('attach:changed', h)
@@ -130,8 +138,16 @@ const api = {
   // reminders (in-app toasts)
   setReminder: (payload) => ipcRenderer.send('reminder:set', payload),
   clearReminder: (id) => ipcRenderer.send('reminder:clear', id),
-  onReminderFire: (cb) => ipcRenderer.on('reminder:fire', (_e, payload) => cb(payload)),
-  onReminderOpen: (cb) => ipcRenderer.on('reminder:open', (_e, dayKey) => cb(dayKey)),
+  onReminderFire: (cb) => {
+    const h = (_e, payload) => cb(payload)
+    ipcRenderer.on('reminder:fire', h)
+    return () => ipcRenderer.removeListener('reminder:fire', h)
+  },
+  onReminderOpen: (cb) => {
+    const h = (_e, dayKey) => cb(dayKey)
+    ipcRenderer.on('reminder:open', h)
+    return () => ipcRenderer.removeListener('reminder:open', h)
+  },
   getReminderDuration: () => ipcRenderer.invoke('settings:get-reminder-duration'),
   setReminderDuration: (v) => ipcRenderer.send('settings:set-reminder-duration', v),
   notifyResize: (height) => ipcRenderer.send('notify:resize', height),
@@ -157,9 +173,52 @@ const api = {
     install: () => ipcRenderer.invoke('gemini:install')
   },
 
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+
+  // Google Calendar (read-only import)
+  google: {
+    connect: () => ipcRenderer.invoke('google:connect'),
+    listAccounts: () => ipcRenderer.invoke('google:list-accounts'),
+    disconnect: (email) => ipcRenderer.invoke('google:disconnect', email),
+    setCalendars: (email, ids) => ipcRenderer.invoke('google:set-calendars', { email, ids }),
+    listEvents: (from, to, email) => ipcRenderer.invoke('google:list-events', { from, to, email }),
+    eventRecurrence: (email, calId, recurringEventId) =>
+      ipcRenderer.invoke('google:event-recurrence', { email, calId, recurringEventId }),
+    createEvent: (email, calendarId, event) =>
+      ipcRenderer.invoke('google:create-event', { email, calendarId, event }),
+    updateEvent: (gid, event) => ipcRenderer.invoke('google:update-event', { gid, event }),
+    deleteEvent: (gid) => ipcRenderer.invoke('google:delete-event', gid),
+    writableCalendars: () => ipcRenderer.invoke('google:writable-calendars'),
+    setAutoSync: (email, ids) => ipcRenderer.invoke('google:set-autosync', { email, ids }),
+    autoSyncCalendars: () => ipcRenderer.invoke('google:autosync-calendars'),
+    getSyncInterval: () => ipcRenderer.invoke('settings:get-sync-interval'),
+    setSyncInterval: (minutes) => ipcRenderer.send('settings:set-sync-interval', minutes),
+    onChanged: (cb) => {
+      const h = () => cb()
+      ipcRenderer.on('google:changed', h)
+      return () => ipcRenderer.removeListener('google:changed', h)
+    },
+    onAutoSync: (cb) => {
+      const h = () => cb()
+      ipcRenderer.on('google:autosync', h)
+      return () => ipcRenderer.removeListener('google:autosync', h)
+    },
+    importedStatus: (items) => ipcRenderer.invoke('google:imported-status', items),
+    markImported: (p) => ipcRenderer.invoke('google:mark-imported', p),
+    unimport: (it) => ipcRenderer.invoke('google:unimport', it)
+  },
+
   // events from main
-  onConfirmClose: (cb) => ipcRenderer.on('window:confirm-close', () => cb()),
-  onMaximized: (cb) => ipcRenderer.on('window:maximized', (_e, value) => cb(value))
+  onConfirmClose: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('window:confirm-close', h)
+    return () => ipcRenderer.removeListener('window:confirm-close', h)
+  },
+  onMaximized: (cb) => {
+    const h = (_e, value) => cb(value)
+    ipcRenderer.on('window:maximized', h)
+    return () => ipcRenderer.removeListener('window:maximized', h)
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

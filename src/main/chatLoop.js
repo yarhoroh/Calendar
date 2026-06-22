@@ -1,5 +1,5 @@
 import { buildSystem, buildRefresh } from './prompt'
-import { extractGetNotes, fetchNotes } from './notesTool'
+import { extractGetNotes, fetchNotes, extractGetGoogleEvents, fetchGoogleEvents } from './notesTool'
 
 const MAX_STEPS = 4
 // the reply "promised" to do something (so it should have emitted an action)
@@ -18,7 +18,8 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     pendingImages = null
     if (!reply?.ok) return reply
     const req = extractGetNotes(reply.text)
-    if (!req) {
+    const gReq = req ? null : extractGetGoogleEvents(reply.text)
+    if (!req && !gReq) {
       // weak models sometimes "agree" in words but forget the action block —
       // if the reply promised something yet emitted no block, force it once
       if (!hasBlock(reply.text) && PROMISES.test(`${userMsg} ${reply.text}`)) {
@@ -30,11 +31,18 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       }
       return reply
     }
-    // feed the notes back — including any inline images, so the model can SEE
-    // pictures inside notes, not just their text
-    const { text: notesText, images: notesImages } = fetchNotes(req)
-    text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.`
-    pendingImages = notesImages.length ? notesImages : null
+    if (gReq) {
+      // Google Calendar read tool — feed events back so the model can answer or import
+      const gtext = await fetchGoogleEvents(gReq)
+      text = `Google Calendar events for ${gReq.from}..${gReq.to}:\n${gtext}\n\nNow answer the user's request, or import what they asked with importGoogleEvents. Do not call listGoogleEvents again for the same range.`
+      pendingImages = null
+    } else {
+      // feed the notes back — including any inline images, so the model can SEE
+      // pictures inside notes, not just their text
+      const { text: notesText, images: notesImages } = fetchNotes(req)
+      text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.`
+      pendingImages = notesImages.length ? notesImages : null
+    }
   }
   return sendOne('Answer the user now without requesting more notes.')
 }

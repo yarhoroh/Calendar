@@ -10,9 +10,10 @@ export default function ToastApp() {
     Promise.resolve(api.getTheme?.()).then((t) => {
       if (t) document.documentElement.dataset.theme = t
     })
-    api.onThemeChange?.((t) => {
+    const off = api.onThemeChange?.((t) => {
       if (t) document.documentElement.dataset.theme = t
     })
+    return () => off?.()
   }, [])
 
   return <ReminderToasts onOpen={(dayKey) => api.notifyOpen?.(dayKey)} />

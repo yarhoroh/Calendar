@@ -15,7 +15,7 @@ export default function ReminderToasts({ onOpen }) {
     Promise.resolve(api.getReminderDuration?.()).then((d) => {
       durationRef.current = d || 0
     })
-    api.onReminderFire?.((p) => {
+    const off = api.onReminderFire?.((p) => {
       const toast = { ...p, key: `${p.id}:${Date.now()}` }
       setToasts((prev) => [...prev, toast])
       if (durationRef.current > 0) {
@@ -24,6 +24,7 @@ export default function ReminderToasts({ onOpen }) {
         }, durationRef.current * 1000)
       }
     })
+    return () => off?.()
   }, [])
 
   // size the host window to fit

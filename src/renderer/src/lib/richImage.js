@@ -113,7 +113,14 @@ const RichImage = Image.extend({
 
       return {
         dom: wrap,
-        selectNode: () => wrap.classList.add('ri-img--selected'),
+        selectNode: () => {
+          wrap.classList.add('ri-img--selected')
+          // the toolbar sits above the image (top:-32px); for an image at the very
+          // top of the scroll area that would be clipped — flip it below instead
+          const scroller = wrap.closest('.ProseMirror')
+          const room = img.getBoundingClientRect().top - (scroller?.getBoundingClientRect().top || 0)
+          wrap.classList.toggle('ri-img--bar-below', room < 36)
+        },
         deselectNode: () => wrap.classList.remove('ri-img--selected'),
         update: (updated) => {
           if (updated.type.name !== current.type.name) return false

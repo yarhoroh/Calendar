@@ -9,11 +9,15 @@ export function useWindowControls() {
   const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
-    api.onMaximized?.((value) => setMaximized(value))
-    api.onConfirmClose?.(() => setConfirmClose(true))
+    const offMax = api.onMaximized?.((value) => setMaximized(value))
+    const offClose = api.onConfirmClose?.(() => setConfirmClose(true))
     Promise.resolve(api.getWindowState?.()).then((state) => {
       if (state) setPinned(state.pinned)
     })
+    return () => {
+      offMax?.()
+      offClose?.()
+    }
   }, [])
 
   const togglePin = () => {

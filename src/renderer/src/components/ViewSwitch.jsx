@@ -1,14 +1,27 @@
 import { useI18n } from '../i18n/I18nContext'
-import { CalendarIcon, SettingsIcon } from './icons'
+import { CalendarIcon, AppointmentsIcon, SettingsIcon } from './icons'
 
-// Switches between the Calendar and Settings views. Shows the icon of the
-// view you'd switch *to*.
-export default function ViewSwitch({ view, onToggle }) {
+// Switches between the top-level views. Highlights the active one.
+const VIEWS = [
+  ['calendar', CalendarIcon, 'nav.calendar'],
+  ['appointments', AppointmentsIcon, 'nav.appointments'],
+  ['settings', SettingsIcon, 'nav.settings']
+]
+
+export default function ViewSwitch({ view, onSelectView }) {
   const { t } = useI18n()
-  const toSettings = view === 'calendar'
   return (
-    <button className="winbtn" title={toSettings ? t('nav.settings') : t('nav.calendar')} onClick={onToggle}>
-      {toSettings ? <SettingsIcon /> : <CalendarIcon />}
-    </button>
+    <>
+      {VIEWS.map(([name, Icon, label]) => (
+        <button
+          key={name}
+          className={'winbtn' + (view === name ? ' winbtn--active' : '')}
+          title={t(label)}
+          onClick={() => onSelectView(name)}
+        >
+          <Icon />
+        </button>
+      ))}
+    </>
   )
 }

@@ -15,7 +15,7 @@
   border: 1px solid var(--border);
   border-left: 3px solid var(--today-2);
   border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   animation: toast-in 0.18s ease;
 }

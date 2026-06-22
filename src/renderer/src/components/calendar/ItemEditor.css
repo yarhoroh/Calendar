@@ -131,12 +131,122 @@
   color: #ffffff;
 }
 
+/* the Google share button: grey G when the note isn't shared yet, full-colour
+   G once it's linked to a calendar */
+.item-editor__gbtn svg {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+.item-editor__gbtn:hover svg {
+  opacity: 0.85;
+}
+.item-editor__gbtn.is-on svg,
+.item-editor__gbtn.is-on:hover svg {
+  filter: none;
+  opacity: 1;
+}
+
 .item-editor__btn--save:hover {
   color: var(--today-2);
 }
 
 .item-editor__btn--del:hover {
   color: var(--danger);
+}
+
+/* "share to Google" dropdown (list of writable calendars) */
+.item-editor__share-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 25;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.item-editor__share-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.item-editor__share-item:hover {
+  background: var(--hover);
+}
+.item-editor__share-cal {
+  font-size: 13px;
+  color: var(--text);
+}
+.item-editor__share-acc {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.item-editor__share-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.item-editor__share-item.is-linked .item-editor__share-cal {
+  color: var(--accent);
+}
+
+/* syncing indicator while the Google create/delete is in flight */
+.item-editor__share-syncing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ie-spin {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ie-spin 0.7s linear infinite;
+}
+@keyframes ie-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* small G shown once a note is linked to a Google event */
+.item-editor__linked {
+  display: inline-flex;
+  place-items: center;
+  padding: 0 4px;
+  opacity: 0.85;
+}
+.item-editor__linked svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* "also delete from Google" checkbox in the delete confirm */
+.item-editor__confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
 }
 
 .item-editor__input {

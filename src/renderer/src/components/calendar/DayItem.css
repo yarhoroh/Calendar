@@ -1,7 +1,7 @@
 .day-item {
   position: relative;
   min-height: 42px;
-  padding: 5px 6px 7px 8px;
+  padding: 5px 2px 7px 8px;
   border-bottom: 1px solid var(--divider);
   transition: filter 0.35s ease, opacity 0.35s ease;
 }
@@ -179,6 +179,40 @@
   margin-bottom: 2px;
   word-break: break-word;
   cursor: pointer;
+}
+
+/* small Google "G" marking a note imported from Google Calendar */
+.day-item__gtag {
+  position: relative;
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+/* the ↑ badge overflows ~5px to the right — keep the title clear of it */
+.day-item__gtag--shared {
+  margin-right: 9px;
+}
+.day-item__gtag svg {
+  width: 12px;
+  height: 12px;
+}
+/* a LOCAL note we exported to a shared Google calendar: same G + a small up
+   arrow badge (vs a plain G for events imported FROM Google) */
+.day-item__gtag--shared::after {
+  content: '↑';
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 50%;
+  width: 9px;
+  height: 9px;
+  display: grid;
+  place-items: center;
 }
 
 .day-item__text {

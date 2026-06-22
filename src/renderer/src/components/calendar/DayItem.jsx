@@ -5,7 +5,7 @@ import { useFolderFilter } from '../../lib/folderFilter'
 import { useFocusNote } from '../../lib/focusNote'
 import { BUILTIN_SET, useCustomStatuses } from '../../lib/statuses'
 import { weekdayShort } from '../../lib/dates'
-import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon } from '../icons'
+import { CheckIcon, CloseIcon, CalendarIcon, PaperclipIcon, GoogleIcon } from '../icons'
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] // Mon … Sun for display
 import StatusMenu from './StatusMenu'
@@ -294,6 +294,17 @@ export default function DayItem({
               onUpdate(item.id, { collapsed: !item.collapsed })
             }}
           >
+            {item.googleEventId && (
+              <span
+                className={'day-item__gtag' + (item.googleShared ? ' day-item__gtag--shared' : '')}
+                title={
+                  (item.googleShared ? t('items.onGoogle') + ' — ' : '') +
+                    [item.googleCalendar, item.googleAccount].filter(Boolean).join(' · ') || 'Google Calendar'
+                }
+              >
+                <GoogleIcon />
+              </span>
+            )}
             {item.title}
           </div>
         )}

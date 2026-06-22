@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import SettingsSection from '../components/settings/SettingsSection'
-import GeminiSetting from '../components/settings/GeminiSetting'
 import ClaudeSetting from '../components/settings/ClaudeSetting'
 import CodexSetting from '../components/settings/CodexSetting'
+import AntigravitySetting from '../components/settings/AntigravitySetting'
 import AiConfigSetting from '../components/settings/AiConfigSetting'
 import TelegramSetting from '../components/settings/TelegramSetting'
 import GoogleAccountsSetting from '../components/settings/GoogleAccountsSetting'
@@ -21,6 +21,7 @@ import StatusesPanel from '../components/settings/StatusesPanel'
 import FocusBlurSetting from '../components/settings/FocusBlurSetting'
 import CompactSetting from '../components/settings/CompactSetting'
 import UpdateSetting from '../components/settings/UpdateSetting'
+import VoiceInputSetting from '../components/settings/VoiceInputSetting'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
@@ -54,6 +55,7 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <ReminderSoundSetting />
               <WorkingDaysSetting />
               <VoiceSetting />
+              <VoiceInputSetting />
               <AutostartSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.interface')}>
@@ -63,9 +65,9 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             </SettingsSection>
             <SettingsSection title={t('settings.tools')}>
               <AiEngineSetting />
-              <GeminiSetting />
               <ClaudeSetting />
               <CodexSetting />
+              <AntigravitySetting />
               <AiConfigSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.bots')}>

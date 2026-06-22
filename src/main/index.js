@@ -1,11 +1,11 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, shell } from 'electron'
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, shell, clipboard } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
-import { detectGemini, installGemini } from './tools/gemini'
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs'
 import { detectClaude, detectCodex, warmUp } from './ai'
-import { warmAcp, stopAcp, askAcp, clearAcp } from './acp'
 import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
+import { askAgy, resetAgy, detectAgy } from './agy'
+import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram } from './telegram'
 import electronUpdater from 'electron-updater'
@@ -173,6 +173,11 @@ function createWindow() {
 
   if (saved.maximized) mainWindow.maximize()
   if (saved.pinned) mainWindow.setAlwaysOnTop(true)
+
+  // allow microphone capture (voice input in the chat); deny everything else
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, cb) =>
+    cb(permission === 'media' || permission === 'audioCapture')
+  )
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
 
@@ -432,11 +437,10 @@ ipcMain.on('settings:set-reminder-duration', (_e, v) => {
 })
 
 // ---- local AI tools ----------------------------------------------------
-ipcMain.handle('gemini:detect', () => detectGemini())
-ipcMain.handle('gemini:install', () => installGemini())
 ipcMain.handle('ai:detect-claude', () => detectClaude())
 ipcMain.handle('ai:detect-codex', () => detectCodex())
-ipcMain.handle('settings:get-ai', () => loadSettings().ai || 'gemini')
+ipcMain.handle('ai:detect-agy', () => detectAgy())
+ipcMain.handle('settings:get-ai', () => loadSettings().ai || 'agy')
 ipcMain.on('settings:set-ai', (_e, v) => {
   const s = loadSettings()
   s.ai = v
@@ -449,37 +453,34 @@ ipcMain.on('settings:set-ai', (_e, v) => {
 let aiState = 'warming' // 'warming' | 'ready' | 'offline'
 function activeModel(cli) {
   const cfg = loadAiConfig()
-  if (cli === 'gemini') return cfg.geminiModel || 'auto'
   if (cli === 'claude') return cfg.claudeModel || 'default'
+  if (cli === 'agy') return cfg.agyModel || 'default'
   return cfg.codexModel || 'default'
 }
 function broadcastAiStatus() {
-  const cli = loadSettings().ai || 'gemini'
+  const cli = loadSettings().ai || 'agy'
   mainWindow?.webContents?.send('ai:status', { state: aiState, cli, model: activeModel(cli) })
 }
 function warmAi(cli) {
   aiState = 'warming'
   broadcastAiStatus()
   // unload whatever persistent process isn't the chosen engine, then start the
-  // chosen one — same as a fresh start. gemini = ACP session, claude = streaming
-  // process, codex = resumable one-shot (just warm the binary + reset session).
-  if (cli !== 'gemini') stopAcp()
+  // chosen one — same as a fresh start. claude = streaming process, codex =
+  // resumable one-shot, agy = per-call --print (just warm the binary + reset).
   if (cli !== 'claude') stopClaude()
   resetCodex()
+  resetAgy()
   const cfg = loadAiConfig()
   // if a configured model turns out to be unavailable, the engine falls back to
   // the CLI default and calls back so we persist the fix (so it never re-breaks)
   let warming
-  if (cli === 'gemini') {
-    warming = warmAcp(cfg.geminiModel, (m) => {
-      saveAiConfig({ geminiModel: m })
-      broadcastAiStatus()
-    })
-  } else if (cli === 'claude') {
+  if (cli === 'claude') {
     warming = warmClaude(cfg.claudeModel, (m) => {
       saveAiConfig({ claudeModel: m })
       broadcastAiStatus()
     })
+  } else if (cli === 'agy') {
+    warming = detectAgy().then((r) => r.found) // no persistent process to warm; just confirm it's installed
   } else {
     warming = warmUp('codex')
   }
@@ -489,7 +490,7 @@ function warmAi(cli) {
   })
 }
 ipcMain.handle('ai:status', () => {
-  const cli = loadSettings().ai || 'gemini'
+  const cli = loadSettings().ai || 'agy'
   return { state: aiState, cli, model: activeModel(cli) }
 })
 function aiContext() {
@@ -506,14 +507,42 @@ function aiContext() {
   }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {
-  const cli = loadSettings().ai || 'gemini'
+  const cli = loadSettings().ai || 'agy'
   const ctx = aiContext()
   if (cli === 'claude') return askClaude({ messages, ctx })
   if (cli === 'codex') {
     const cfg = loadAiConfig()
     return askCodex({ messages, ctx, model: cfg.codexModel, reasoning: cfg.codexReasoning })
   }
-  return askAcp({ messages, ctx })
+  return askAgy({ messages, ctx, model: loadAiConfig().agyModel }) // default engine
+})
+// ---- local voice input (sherpa-onnx offline ASR) -----------------------
+ipcMain.handle('asr:status', () => asrStatus())
+ipcMain.handle('asr:get-config', () => loadSettings().asr || { enabled: false, lang: 'ru' })
+ipcMain.on('asr:set-config', (_e, patch) => {
+  const s = loadSettings()
+  s.asr = { enabled: false, lang: 'ru', ...(s.asr || {}), ...patch }
+  saveSettings(s)
+  mainWindow?.webContents?.send('asr:changed')
+})
+ipcMain.handle('asr:download', async (_e, lang) => {
+  try {
+    const ok = await downloadAsrModel(lang, (p) =>
+      mainWindow?.webContents?.send('asr:progress', { lang, progress: p })
+    )
+    mainWindow?.webContents?.send('asr:changed')
+    return { ok }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
+  }
+})
+ipcMain.handle('asr:transcribe', (_e, { lang, samples }) => {
+  try {
+    const pcm = samples instanceof Float32Array ? samples : Float32Array.from(samples || [])
+    return { ok: true, text: asrTranscribe(lang, pcm) }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
+  }
 })
 ipcMain.handle('aiConfig:get', () => loadAiConfig())
 ipcMain.handle('aiConfig:set', (_e, patch) => saveAiConfig(patch))
@@ -664,8 +693,8 @@ ipcMain.handle('aiConfig:reveal', () => {
 })
 // change the CURRENT engine's model, then restart it so the change takes effect
 ipcMain.handle('ai:set-model', (_e, { model, reasoning } = {}) => {
-  const cli = loadSettings().ai || 'gemini'
-  const key = { gemini: 'geminiModel', claude: 'claudeModel', codex: 'codexModel' }[cli] || 'codexModel'
+  const cli = loadSettings().ai || 'agy'
+  const key = { claude: 'claudeModel', codex: 'codexModel', agy: 'agyModel' }[cli] || 'agyModel'
   const patch = { [key]: model || '' }
   if (cli === 'codex' && reasoning) patch.codexReasoning = reasoning
   saveAiConfig(patch)
@@ -732,6 +761,8 @@ ipcMain.handle('attach:open', (_e, id) => {
   return a?.path ? shell.openPath(a.path) : 'not found'
 })
 ipcMain.on('dev:devtools', () => mainWindow?.webContents?.toggleDevTools())
+// navigator.clipboard.writeText is blocked in Electron → use the native module
+ipcMain.on('clipboard:write', (_e, text) => clipboard.writeText(String(text ?? '')))
 ipcMain.handle('attach:reveal', (_e, id) => {
   const a = attachmentById(id)
   if (a?.path) shell.showItemInFolder(a.path) // open the containing folder in Explorer
@@ -749,10 +780,13 @@ ipcMain.handle('attach:icon', async (_e, id) => {
   }
 })
 ipcMain.handle('ai:clear', () => {
-  const cli = loadSettings().ai || 'gemini'
-  if (cli === 'gemini') return clearAcp()
+  const cli = loadSettings().ai || 'agy'
   if (cli === 'claude') return clearClaude()
-  resetCodex() // codex: next turn starts a fresh session
+  if (cli === 'codex') {
+    resetCodex() // codex: next turn starts a fresh session
+    return true
+  }
+  resetAgy() // agy (default): next turn starts a fresh conversation
   return true
 })
 
@@ -853,7 +887,7 @@ if (!gotLock) {
     setTtsEngine(() => loadSettings().ttsEngine || 'piper')
     startTtsServer()
     syncTelegram()
-    warmAi(loadSettings().ai || 'gemini')
+    warmAi(loadSettings().ai || 'agy')
     initAutoUpdate()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -865,7 +899,6 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
-    stopAcp()
     stopClaude()
     stopTtsServer()
     stopTelegram()

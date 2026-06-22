@@ -4,17 +4,17 @@ import { useI18n } from '../../i18n/I18nContext'
 import SettingRow from './SettingRow'
 
 const OPTIONS = [
-  { v: 'gemini', label: 'Gemini' },
+  { v: 'agy', label: 'Antigravity' },
   { v: 'claude', label: 'Claude' },
   { v: 'codex', label: 'Codex' }
 ]
 
 export default function AiEngineSetting() {
   const { t } = useI18n()
-  const [ai, setAiState] = useState('gemini')
+  const [ai, setAiState] = useState('agy')
 
   useEffect(() => {
-    Promise.resolve(api.getAi?.()).then((v) => setAiState(v || 'gemini'))
+    Promise.resolve(api.getAi?.()).then((v) => setAiState(v || 'agy'))
   }, [])
 
   const pick = (v) => {

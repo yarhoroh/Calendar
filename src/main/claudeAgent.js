@@ -5,8 +5,8 @@ import { chatLoop } from './chatLoop'
 // Persistent Claude agent over Claude Code's streaming JSON protocol
 // (`claude -p --input-format stream-json --output-format stream-json`): one
 // long-lived process, messages sent as JSON lines, conversation context kept in
-// the live session — so replies are fast and we don't replay history. Mirrors
-// the gemini ACP client. Tools are disabled (chat only).
+// the live session — so replies are fast and we don't replay history. Tools are
+// disabled (chat only).
 
 const TIMEOUT = 120000
 const FLAGS = [

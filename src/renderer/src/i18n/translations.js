@@ -56,7 +56,10 @@ export const translations = {
       send: 'Send',
       stop: 'Stop',
       attachImage: 'Attach image',
-      removeImage: 'Remove image'
+      removeImage: 'Remove image',
+      mic: 'Hold to record voice',
+      recording: 'Recording… release to send',
+      transcribing: 'Transcribing…'
     },
     calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General', everydayInCal: 'Show weekday "every day" notes on the calendar' },
     items: {
@@ -150,6 +153,13 @@ export const translations = {
         dev: 'Updates only work in the installed app',
         error: "Couldn't check (try again later)"
       },
+      voiceInput: {
+        title: 'Voice input',
+        desc: 'Hold the mic in the chat to dictate; recognized offline on your machine.',
+        enable: 'Enable',
+        ready: '✓ ready',
+        download: 'Download model'
+      },
       tabGeneral: 'General',
       tabAi: 'Assistant',
       statuses: 'Custom statuses',
@@ -164,7 +174,7 @@ export const translations = {
       add: 'Add',
       delete: 'Delete',
       notifyDuration: { label: 'Notification duration', always: 'Always on', s5: '5 sec', s10: '10 sec' },
-      gemini: {
+      cli: {
         desc: 'Local AI assistant that will help manage the calendar.',
         checking: 'Checking…',
         active: 'Active',
@@ -224,7 +234,10 @@ export const translations = {
       send: 'Надіслати',
       stop: 'Зупинити',
       attachImage: 'Додати зображення',
-      removeImage: 'Прибрати зображення'
+      removeImage: 'Прибрати зображення',
+      mic: 'Утримуйте, щоб записати голос',
+      recording: 'Запис… відпустіть, щоб надіслати',
+      transcribing: 'Розпізнавання…'
     },
     calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні', everydayInCal: 'Показувати «щоденні» нотатки з днями тижня в календарі' },
     items: {
@@ -318,6 +331,13 @@ export const translations = {
         dev: 'Оновлення працюють лише у встановленому застосунку',
         error: 'Не вдалося перевірити (спробуйте пізніше)'
       },
+      voiceInput: {
+        title: 'Голосовий ввід',
+        desc: 'Утримуйте мікрофон у чаті, щоб диктувати; розпізнається офлайн на вашому ПК.',
+        enable: 'Увімкнути',
+        ready: '✓ готово',
+        download: 'Завантажити модель'
+      },
       tabGeneral: 'Загальні',
       tabAi: 'Асистент',
       statuses: 'Власні статуси',
@@ -332,7 +352,7 @@ export const translations = {
       add: 'Додати',
       delete: 'Видалити',
       notifyDuration: { label: 'Тривалість сповіщення', always: 'Завжди', s5: '5 сек', s10: '10 сек' },
-      gemini: {
+      cli: {
         desc: 'Локальний AI-помічник, який допомагатиме керувати календарем.',
         checking: 'Перевіряю…',
         active: 'Активний',

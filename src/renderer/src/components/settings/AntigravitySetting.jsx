@@ -10,15 +10,14 @@ const META = {
   missing: { tone: 'red', key: 'missing' }
 }
 
-export default function CodexSetting() {
+// Status row for the Antigravity CLI (agy), mirroring the other engine rows.
+export default function AntigravitySetting() {
   const { t } = useI18n()
-  const [st, setSt] = useState({ status: 'checking', version: '' })
+  const [st, setSt] = useState({ status: 'checking' })
 
   const detect = () => {
-    setSt({ status: 'checking', version: '' })
-    Promise.resolve(api.detectCodex?.()).then((r) =>
-      setSt(r?.found ? { status: 'found', version: r.version } : { status: 'missing', version: '' })
-    )
+    setSt({ status: 'checking' })
+    Promise.resolve(api.detectAgy?.()).then((r) => setSt({ status: r?.found ? 'found' : 'missing' }))
   }
 
   useEffect(() => {
@@ -28,12 +27,11 @@ export default function CodexSetting() {
   const meta = META[st.status]
 
   return (
-    <SettingRow title="Codex CLI" description={t('settings.cli.desc')}>
+    <SettingRow title="Antigravity CLI" description={t('settings.cli.desc')}>
       <div className="tool-status">
         <span className="tool-status__badge">
           <StatusDot tone={meta.tone} pulse={meta.pulse} />
           {t(`settings.cli.${meta.key}`)}
-          {st.status === 'found' && st.version ? ` · ${st.version}` : ''}
         </span>
         <button className="btn btn--ghost" onClick={detect}>
           {t('settings.cli.check')}

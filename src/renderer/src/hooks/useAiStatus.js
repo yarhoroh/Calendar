@@ -5,7 +5,7 @@ import api from '../lib/api'
 // prompts. The main process warms it on startup / engine switch and pushes
 // status updates; we also fetch the current value once on mount.
 export function useAiStatus() {
-  const [status, setStatus] = useState({ state: 'warming', cli: 'gemini' })
+  const [status, setStatus] = useState({ state: 'warming', cli: 'agy' })
 
   useEffect(() => {
     let alive = true

@@ -28,15 +28,15 @@ export default function ClaudeSetting() {
   const meta = META[st.status]
 
   return (
-    <SettingRow title="Claude CLI" description={t('settings.gemini.desc')}>
+    <SettingRow title="Claude CLI" description={t('settings.cli.desc')}>
       <div className="tool-status">
         <span className="tool-status__badge">
           <StatusDot tone={meta.tone} pulse={meta.pulse} />
-          {t(`settings.gemini.${meta.key}`)}
+          {t(`settings.cli.${meta.key}`)}
           {st.status === 'found' && st.version ? ` · ${st.version}` : ''}
         </span>
         <button className="btn btn--ghost" onClick={detect}>
-          {t('settings.gemini.check')}
+          {t('settings.cli.check')}
         </button>
       </div>
     </SettingRow>

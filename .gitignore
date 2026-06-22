@@ -7,3 +7,6 @@ release/
 .env
 .env.local
 .env.*.local
+
+# runtime-downloaded ASR models (not shipped)
+resources/asr/

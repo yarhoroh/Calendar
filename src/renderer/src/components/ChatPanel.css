@@ -79,6 +79,11 @@
 .chat__typing {
   color: var(--muted);
 }
+/* elapsed-seconds counter to the left of the typing dots, same grey */
+.chat__timer {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .chat__imgs {
   display: flex;

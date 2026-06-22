@@ -2,8 +2,8 @@
 
 A Windows desktop app built on Electron: an infinite calendar, notes with
 reminders, and a built-in **local AI assistant** that drives the calendar,
-answers questions about your notes, and **speaks out loud** — all running
-locally, no cloud.
+answers questions about your notes, **listens to your voice** and **speaks out
+loud** — all running locally, no cloud.
 
 ---
 
@@ -44,8 +44,8 @@ locally, no cloud.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 
 ### 🤖 AI assistant (local CLI)
-Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
-- **Persistent & fast** — Gemini (ACP) and Claude (streaming JSON) run as live sessions; Codex resumes its session. Context is kept, replies are quick.
+Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
+- **Runs on your own login** — Antigravity (Google's `agy` CLI) answers per message via its `--print` mode using your existing Antigravity subscription; Claude runs as a live streaming session; Codex resumes its session. For Antigravity the full chat history is sent every turn, so it always remembers the conversation.
 - **Pick the model** per engine in an editable config file (`ai-config.json`), or just ask the assistant to switch model — it rewrites the config and restarts itself. (A bad model self-heals back to the default.)
 - **Reads notes on demand** — the assistant requests only the date/range it needs (`getNotes`), so it scales to any number of notes instead of stuffing them all into every prompt.
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
@@ -59,7 +59,7 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 ### 💬 Telegram & images
 - **Telegram bridge** — connect a bot token in Settings and chat with the assistant from Telegram (long-polling, works behind NAT, no public webhook). Replies — and reminders it scheduled from Telegram — go back to that chat; a **Disconnect** button clears the token.
   - *Creating the bot:* open Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, pick a name and a username — it replies with a token like `12345:ABC…`. Paste that token into Settings → *Bots & messengers* → Telegram, then message your new bot. (Keep the token private; if it leaks, use `/revoke` in @BotFather and paste the new one.)
-- **Image understanding** — send a photo (with a caption) from Telegram, or **paste / drag-and-drop / attach** an image in the in-app chat, and the assistant sees it (vision on Claude, Gemini and Codex). Pasted images show removable thumbnail previews before sending.
+- **Image understanding** — send a photo (with a caption) from Telegram, or **paste / drag-and-drop / attach** an image in the in-app chat, and the assistant sees it (vision on Claude and Codex). Pasted images show removable thumbnail previews before sending.
 - **Chat context persists** when you switch to Settings and back — cleared only when you clear it.
 
 ### 📆 Google Calendar (import, share & two-way sync)
@@ -70,7 +70,11 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
   - *Setup (one-time):* in [Google Cloud Console](https://console.cloud.google.com/) create a project, enable the **Google Calendar API**, configure the **OAuth consent screen**, and create an **OAuth client ID** of type **Desktop app**. Paste the `client id` / `client secret` into `ai-config.json` (`googleClientId` / `googleClientSecret`, open it from Settings → *Assistant config file*) or, for distributed builds, into `.env` as `MAIN_VITE_GOOGLE_CLIENT_ID` / `MAIN_VITE_GOOGLE_CLIENT_SECRET`. Scopes used: `calendar.readonly` + `calendar.events` (read + create/edit events). Then **Connect Google account** and sign in in your browser.
   - *Note:* **Publish** the consent screen to **Production** so refresh tokens don't expire (Testing mode drops them after ~7 days). Unverified is fine for personal/shared use — users just see a one-time "Google hasn't verified this app" notice; full Google verification removes it but needs a review. The desktop `client secret` is **not** a real secret (Google's own model for installed apps — it's protected by PKCE + each user's own login).
 
-### 🔊 Voice (TTS)
+### 🎙️ Voice input (speech-to-text)
+- A **mic button** in the chat (next to **+**): **push-to-talk** — hold to record, release to transcribe, and the text is inserted **at the cursor** in the prompt.
+- Recognition is **fully local** via a small **sherpa-onnx** model **downloaded on first use from inside the app** (not bundled in the installer, so the `.exe` stays light). Enable it and pick the language (🇷🇺 / 🇬🇧) in Settings → Voice input.
+
+### 🔊 Voice output (TTS)
 - Two engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**) or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
 - The assistant **decides when to speak** (only when you ask) and in which language.
 - **Playback queue** — phrases don't interrupt each other.
@@ -95,8 +99,9 @@ Chat with a local AI — **Gemini**, **Claude** or **Codex** CLI — your data i
 | UI | React 19 (plain JavaScript, **no TypeScript**) |
 | Note editor | Tiptap (rich text → HTML, inline base64 images) |
 | Storage | better-sqlite3 |
-| AI | local Gemini (ACP) / Claude (stream-json) / Codex CLI |
-| Voice | Piper (standalone, bundled in `resources/tts`) |
+| AI | local Antigravity (`agy --print`) / Claude (stream-json) / Codex CLI |
+| Voice out | Piper (standalone, bundled in `resources/tts`) |
+| Voice in | sherpa-onnx (offline STT, model downloaded at runtime) |
 | Packaging | electron-builder (Windows NSIS) |
 
 The codebase is decomposed into small modules — separate components, hooks,
@@ -115,7 +120,7 @@ npm run dist         # build the .exe installer (Windows, into release/)
 
 ### Requirements for the AI chat
 The chat works if one of these CLIs is installed and logged in (pick the engine in Settings):
-- **Gemini CLI** — `npm i -g @google/gemini-cli`, then sign in with Google (`gemini`).
+- **Antigravity CLI** (`agy`, default) — install Antigravity and sign in with your Google account; the app drives it with your existing subscription.
 - **Claude CLI** — install and log in.
 - **Codex CLI** — install and log in.
 
@@ -128,7 +133,8 @@ If no CLI is found / signed in, the calendar and notes still work — the chat j
 ```
 src/
   main/        # Electron main: window, tray, DB, reminders,
-               #   AI (acp.js / ai.js / prompt.js), TTS (tts.js / ttsServer.js),
+               #   AI engines (agy.js / claudeAgent.js / codex.js / chatLoop.js / prompt.js),
+               #   TTS (tts.js / ttsServer.js), STT (asr.js),
                #   assistant task scheduler (aiTasks.js)
   preload/     # IPC bridge (window.api)
   renderer/    # React app (UI)

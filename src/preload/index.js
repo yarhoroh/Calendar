@@ -5,6 +5,7 @@ const api = {
   getVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdate: () => ipcRenderer.invoke('update:check'),
   openDevTools: () => ipcRenderer.send('dev:devtools'),
+  writeClipboard: (text) => ipcRenderer.send('clipboard:write', text),
   minimize: () => ipcRenderer.send('window:minimize'),
   toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
   close: () => ipcRenderer.send('window:close'),
@@ -67,9 +68,27 @@ const api = {
   // AI chat
   detectClaude: () => ipcRenderer.invoke('ai:detect-claude'),
   detectCodex: () => ipcRenderer.invoke('ai:detect-codex'),
+  detectAgy: () => ipcRenderer.invoke('ai:detect-agy'),
   getAi: () => ipcRenderer.invoke('settings:get-ai'),
   setAi: (v) => ipcRenderer.send('settings:set-ai', v),
   aiSend: (payload) => ipcRenderer.invoke('ai:send', payload),
+  asr: {
+    status: () => ipcRenderer.invoke('asr:status'),
+    getConfig: () => ipcRenderer.invoke('asr:get-config'),
+    setConfig: (patch) => ipcRenderer.send('asr:set-config', patch),
+    download: (lang) => ipcRenderer.invoke('asr:download', lang),
+    transcribe: (lang, samples) => ipcRenderer.invoke('asr:transcribe', { lang, samples }),
+    onProgress: (cb) => {
+      const h = (_e, p) => cb(p)
+      ipcRenderer.on('asr:progress', h)
+      return () => ipcRenderer.removeListener('asr:progress', h)
+    },
+    onChanged: (cb) => {
+      const h = () => cb()
+      ipcRenderer.on('asr:changed', h)
+      return () => ipcRenderer.removeListener('asr:changed', h)
+    }
+  },
   aiClear: () => ipcRenderer.invoke('ai:clear'),
   getAiConfig: () => ipcRenderer.invoke('aiConfig:get'),
   setAiConfig: (patch) => ipcRenderer.invoke('aiConfig:set', patch),
@@ -166,12 +185,6 @@ const api = {
   // chat field visibility
   getShowChat: () => ipcRenderer.invoke('settings:get-show-chat'),
   setShowChat: (flag) => ipcRenderer.send('settings:set-show-chat', flag),
-
-  // local AI tools
-  gemini: {
-    detect: () => ipcRenderer.invoke('gemini:detect'),
-    install: () => ipcRenderer.invoke('gemini:install')
-  },
 
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
 

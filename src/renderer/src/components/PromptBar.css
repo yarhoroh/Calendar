@@ -103,7 +103,7 @@
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 4px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -132,6 +132,27 @@
   border-color: var(--accent);
 }
 
+/* the mic shares the attach look; while recording it goes red + pulses */
+.promptbar__mic--rec {
+  color: #fff;
+  background: var(--danger, #e5484d);
+  border-color: var(--danger, #e5484d);
+  animation: pb-mic-pulse 1s ease-in-out infinite;
+}
+.promptbar__mic--rec:hover {
+  color: #fff;
+  border-color: var(--danger, #e5484d);
+}
+@keyframes pb-mic-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+.promptbar__mic:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .promptbar__box:focus-within {
   border-color: var(--accent);
 }
@@ -145,6 +166,7 @@
 .promptbar__input {
   flex: 1;
   min-width: 0;
+  margin-left: 4px;
   resize: none;
   border: none;
   outline: none;

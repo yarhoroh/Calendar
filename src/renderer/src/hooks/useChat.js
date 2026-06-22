@@ -39,8 +39,8 @@ function withEditorContext(t) {
   )
 }
 
-// Conversation with the chosen local AI. With gemini the context lives in the
-// persistent ACP session; clearing wipes it on both sides.
+// Conversation with the chosen local AI engine. Clearing wipes both the on-screen
+// chat and the engine's own (server-side or in-prompt) context.
 export function useChat({ onCommand }) {
   const [messages, setMessages] = useState([])
   const [busy, setBusy] = useState(false)

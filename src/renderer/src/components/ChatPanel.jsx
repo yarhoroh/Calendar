@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import './ChatPanel.css'
 
@@ -7,11 +7,20 @@ import './ChatPanel.css'
 export default function ChatPanel({ messages, busy, onClear }) {
   const { t } = useI18n()
   const listRef = useRef(null)
+  const [elapsed, setElapsed] = useState(0) // seconds the current reply is taking
 
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, busy])
+
+  // tick a seconds counter while waiting for a reply
+  useEffect(() => {
+    if (!busy) return
+    setElapsed(0)
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [busy])
 
   if (!messages.length && !busy) return null
 
@@ -36,7 +45,11 @@ export default function ChatPanel({ messages, busy, onClear }) {
             {m.content}
           </div>
         ))}
-        {busy && <div className="chat__msg chat__msg--assistant chat__typing">…</div>}
+        {busy && (
+          <div className="chat__msg chat__msg--assistant chat__typing">
+            <span className="chat__timer">{elapsed}s</span> …
+          </div>
+        )}
       </div>
     </div>
   )

@@ -90,7 +90,7 @@ export default function DayItem({
 
   const copyNote = () => {
     const txt = (item.title ? item.title + '\n' : '') + (item.text || '')
-    navigator.clipboard?.writeText(txt)
+    api.writeClipboard?.(txt) // native Electron clipboard (navigator.clipboard is blocked)
   }
   const remBtnRef = useRef(null)
   const clipBtnRef = useRef(null)

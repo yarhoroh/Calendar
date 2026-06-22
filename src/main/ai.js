@@ -14,13 +14,13 @@ async function detect(cmd) {
 export const detectClaude = () => detect('claude')
 export const detectCodex = () => detect('codex')
 
-const CMD = { gemini: 'gemini', claude: 'claude', codex: 'codex' }
+const CMD = { claude: 'claude', codex: 'codex' }
 
 // Spawn the CLI once (cheap --version) at startup / engine switch so the node
 // runtime and binary are warm in the OS cache. Resolves true if the CLI exists.
-// (gemini → acp.js, claude → claudeAgent.js, codex → codex.js handle the chat.)
+// (claude → claudeAgent.js, codex → codex.js, agy → agy.js handle the chat.)
 export function warmUp(cli) {
-  const cmd = CMD[cli] || 'gemini'
+  const cmd = CMD[cli] || 'codex'
   return new Promise((resolve) => {
     let child
     try {

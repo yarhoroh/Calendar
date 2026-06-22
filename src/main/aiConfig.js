@@ -6,10 +6,10 @@ import { readFileSync, writeFileSync } from 'fs'
 // and can be edited by hand or changed by the assistant via the setModel action.
 // Empty model = use that CLI's own default. codexReasoning: low/medium/high/xhigh.
 const DEFAULTS = {
-  geminiModel: 'gemini-2.5-flash',
   claudeModel: '',
   codexModel: 'gpt-5.4-mini',
   codexReasoning: 'low',
+  agyModel: '', // Antigravity CLI model ('' = its default)
   telegramToken: '', // bot token for the Telegram bridge ('' = off)
   // Google Calendar (read-only import). Create a "Desktop app" OAuth client in
   // Google Cloud, enable the Calendar API, set the consent screen to Testing and
@@ -39,7 +39,7 @@ export function loadAiConfig() {
 }
 
 // Write the file on startup so users can find/edit it; merging keeps any values
-// they set and fills in newly-added keys (gemini/claude/codex…).
+// they set and fills in newly-added keys (claude/codex/agy…).
 export function ensureAiConfig() {
   try {
     writeFileSync(file(), JSON.stringify(loadAiConfig(), null, 2))

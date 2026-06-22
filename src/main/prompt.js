@@ -1,5 +1,5 @@
-// Prompt construction shared by both AI backends: the one-shot CLI path
-// (ai.js, claude) and the persistent ACP session (acp.js, gemini).
+// Prompt construction shared by all AI engines: claude (streaming), codex
+// (resumable one-shot) and agy (Antigravity, per-call --print).
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const pad = (n) => String(n).padStart(2, '0')
@@ -196,7 +196,7 @@ export function buildSystem(ctx = {}) {
     'openFile = open a note\'s attached file in its default app (Word/Excel/PDF/…) by the attachment id shown after the note as {files: name[id:..]}. attachFile = attach a file already on disk to a note (note id + absolute path).',
     'Statuses: addStatus = create a custom status {"action":"addStatus","name":"Waiting","color":"#f59e0b"} (color optional hex). renameStatus {id, name and/or color}. deleteStatus {id} (notes using a deleted status fall back to To do). Apply a status to one or more notes with setNoteStatus {"action":"setNoteStatus","date":"YYYY-MM-DD","ids":["id1"],"status":"<built-in key or custom id>"}, or set "status" on addNote / editNote. After addStatus you get the new id back to use. Statuses work on every board.',
     'Folders: addFolder = make a new folder on a board ("parent" = an existing folder id to nest it, omit for top level). renameFolder = rename by id. moveFolder = reparent ("parent": another folder id, or null for top level). deleteFolder = delete by id (only if it has no subfolders and no notes). setNoteFolder = file one or more notes into a folder: {"action":"setNoteFolder","date":"YYYY-MM-DD","ids":["id1","id2"],"folder":"folderId"} (folder:null moves them back to General; date is the notes\' day, or "everyday"/"general"). Folder ids are in FOLDERS above; note ids + their current folder come from getNotes. You may reorganise a board\'s whole tree and re-file notes freely.',
-    `setModel = change the model of the CURRENT engine (the one you are) and restart it with that model, e.g. {"action":"setModel","model":"gpt-5.5","reasoning":"medium"} (reasoning is codex-only). Models are stored in the editable text config file ${configPath || 'ai-config.json'} (keys: geminiModel, claudeModel, codexModel, codexReasoning — empty = that CLI's default); the user can also edit that file by hand and the change applies on the next start.`,
+    `setModel = change the model of the CURRENT engine (the one you are) and restart it with that model, e.g. {"action":"setModel","model":"gpt-5.5","reasoning":"medium"} (reasoning is codex-only). Models are stored in the editable text config file ${configPath || 'ai-config.json'} (keys: claudeModel, codexModel, codexReasoning, agyModel — empty = that CLI's default); the user can also edit that file by hand and the change applies on the next start.`,
     'Examples — always emit the block when you act (copy the pattern):',
     '• "напомни мне попить воды через 30 минут" → short reply + ```calendar [{"action":"addAiTask","at":"<today>T<now+30min>","text":"remind the user to drink water"}] ```',
     '• "напоминай отжиматься каждый час с 9 до 18" → ```calendar [{"action":"addAiTask","every":60,"from":"09:00","to":"18:00","text":"remind the user to do push-ups"}] ```',

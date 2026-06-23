@@ -156,7 +156,7 @@ export async function execAction(a, onCommand, channel) {
       case 'addAiTask': {
         if (!a.text || (!a.at && !a.every))
           return { ok: false, error: 'addAiTask needs text and either a time (at) or an interval (every)' }
-        const r = await api.addAiTask?.({ at: a.at, text: a.text, every: a.every, from: a.from, to: a.to, channel })
+        const r = await api.addAiTask?.({ at: a.at, text: a.text, every: a.every, from: a.from, to: a.to, notify: a.notify, channel })
         return r ? { ok: true, result: { id: r.id } } : { ok: false, error: 'task was not created' }
       }
       case 'deleteAiTask':

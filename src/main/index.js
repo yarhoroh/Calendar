@@ -34,6 +34,7 @@ import {
   deleteMemory,
   allAiTasks,
   addAiTask,
+  updateAiTask,
   deleteAiTask,
   attachmentsFor,
   allAttachments,
@@ -725,6 +726,16 @@ ipcMain.handle('aiTask:add', (_e, payload) => {
   broadcastAiData()
   return row
 })
+
+ipcMain.handle('aiTask:update', (_e, { id, payload }) => {
+  const row = updateAiTask(id, payload || {})
+  if (row) {
+    cancelAiTask(id) // drop the old timer, then re-arm with the new schedule
+    scheduleAiTask(row)
+  }
+  broadcastAiData()
+  return row
+})
 ipcMain.handle('aiTask:delete', (_e, id) => {
   cancelAiTask(id)
   deleteAiTask(id)
@@ -881,7 +892,7 @@ if (!gotLock) {
     scheduleStoredReminders()
     initAiTasks({
       onFire: (task) =>
-        mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel })
+        mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel, notify: task.notify })
     })
     scheduleAllAiTasks()
     rescheduleGoogleSync()

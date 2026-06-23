@@ -1,26 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import api from '../lib/api'
+import { useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nContext'
 import { useAutosizeTextarea } from '../hooks/useAutosizeTextarea'
 import { useAiStatus } from '../hooks/useAiStatus'
+import { useVoiceInput } from '../hooks/useVoiceInput'
 import { SendIcon, MicIcon } from './icons'
 import './PromptBar.css'
-
-// decode a recorded audio Blob (webm/opus) to the 16kHz mono Float32 the local
-// ASR model expects (the renderer can decode audio; the main process can't)
-const decodeTo16kMono = async (arrayBuffer) => {
-  const Ac = window.AudioContext || window.webkitAudioContext
-  const ac = new Ac()
-  const decoded = await ac.decodeAudioData(arrayBuffer)
-  ac.close()
-  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000)
-  const src = off.createBufferSource()
-  src.buffer = decoded
-  src.connect(off.destination)
-  src.start()
-  const rendered = await off.startRendering()
-  return rendered.getChannelData(0)
-}
 
 // Read an image File/Blob into the { media_type, data } shape the AI expects.
 const fileToImage = (file) =>
@@ -40,24 +24,7 @@ export default function PromptBar({ onSend, busy }) {
   const [text, setText] = useState('')
   const [images, setImages] = useState([])
   const [dragging, setDragging] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
-  const [asr, setAsr] = useState({ enabled: false, lang: 'ru', ready: false })
-  const recRef = useRef(null) // MediaRecorder
-  const chunksRef = useRef([])
   const fileRef = useRef(null)
-
-  // local voice input availability (Settings toggle + downloaded model)
-  useEffect(() => {
-    let alive = true
-    const load = async () => {
-      const cfg = (await api.asr?.getConfig?.()) || { enabled: false, lang: 'ru' }
-      const st = (await api.asr?.status?.()) || {}
-      if (alive) setAsr({ enabled: !!cfg.enabled, lang: cfg.lang || 'ru', ready: !!st[cfg.lang || 'ru']?.ready })
-    }
-    load()
-    return api.asr?.onChanged?.(load)
-  }, [])
   const ref = useAutosizeTextarea(text, 8)
   const { state, cli, model } = useAiStatus()
   const statusLabel =
@@ -105,45 +72,6 @@ export default function PromptBar({ onSend, busy }) {
     setImages([])
   }
 
-  // push-to-talk: hold the mic to record, release to transcribe + insert text
-  const startRec = async () => {
-    if (recording || transcribing) return
-    let stream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch {
-      return // mic denied / unavailable
-    }
-    const mr = new MediaRecorder(stream)
-    chunksRef.current = []
-    mr.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data)
-    mr.onstop = async () => {
-      stream.getTracks().forEach((tr) => tr.stop())
-      const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' })
-      if (blob.size < 1200) return // too short → ignore
-      setTranscribing(true)
-      try {
-        const samples = await decodeTo16kMono(await blob.arrayBuffer())
-        const r = await api.asr?.transcribe?.(asr.lang, samples)
-        if (r?.ok && r.text) insertAtCursor(r.text.trim())
-      } finally {
-        setTranscribing(false)
-      }
-    }
-    recRef.current = mr
-    mr.start()
-    setRecording(true)
-  }
-  const stopRec = () => {
-    if (!recording) return
-    setRecording(false)
-    try {
-      recRef.current?.stop()
-    } catch {
-      // already stopped
-    }
-  }
-
   const insertNewline = () => {
     const el = ref.current
     const start = el.selectionStart
@@ -169,6 +97,9 @@ export default function PromptBar({ onSend, busy }) {
       el.selectionStart = el.selectionEnd = start + str.length
     })
   }
+
+  // push-to-talk voice input: transcription is inserted at the caret
+  const { available: micReady, recording, transcribing, start: startRec, stop: stopRec } = useVoiceInput(insertAtCursor)
 
   const onKeyDown = (e) => {
     if (e.key !== 'Enter') return
@@ -212,7 +143,7 @@ export default function PromptBar({ onSend, busy }) {
         >
           +
         </button>
-        {asr.enabled && asr.ready && (
+        {micReady && (
           <button
             className={'promptbar__attach promptbar__mic' + (recording ? ' promptbar__mic--rec' : '')}
             title={recording ? t('prompt.recording') : transcribing ? t('prompt.transcribing') : t('prompt.mic')}

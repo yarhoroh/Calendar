@@ -121,6 +121,7 @@ const api = {
   deleteMemory: (id) => ipcRenderer.invoke('memory:delete', id),
   getAiTasks: () => ipcRenderer.invoke('aiTask:get'),
   addAiTask: (payload) => ipcRenderer.invoke('aiTask:add', payload),
+  updateAiTask: (id, payload) => ipcRenderer.invoke('aiTask:update', { id, payload }),
   deleteAiTask: (id) => ipcRenderer.invoke('aiTask:delete', id),
   onAiDataChanged: (cb) => {
     const h = () => cb()

@@ -107,6 +107,11 @@ export function initDb() {
     }
   }
   try {
+    db.exec('ALTER TABLE ai_tasks ADD COLUMN notify TEXT') // how an in-app task announces: 'voice','tray','voice,tray'
+  } catch {
+    // column already exists
+  }
+  try {
     db.exec('ALTER TABLE notes ADD COLUMN folder_id TEXT')
   } catch {
     // column already exists
@@ -331,14 +336,14 @@ export function deleteMemory(id) {
 }
 
 // ---- AI tasks: scheduled jobs that trigger the AI (one-time or periodic) ---
-const TASK_COLS = 'id, at, text, done, every, channel, winfrom, winto, created'
+const TASK_COLS = 'id, at, text, done, every, channel, winfrom, winto, notify, created'
 export function allAiTasks() {
   return db.prepare(`SELECT ${TASK_COLS} FROM ai_tasks ORDER BY at`).all()
 }
 export function pendingAiTasks() {
   return db.prepare(`SELECT ${TASK_COLS} FROM ai_tasks WHERE done = 0 ORDER BY at`).all()
 }
-export function addAiTask({ at, text, every, channel, from, to }) {
+export function addAiTask({ at, text, every, channel, from, to, notify }) {
   const mins = Number(every) > 0 ? Math.round(Number(every)) : null
   const row = {
     id: randomUUID(),
@@ -349,14 +354,35 @@ export function addAiTask({ at, text, every, channel, from, to }) {
     channel: String(channel || '').trim() || null, // e.g. 'telegram:<chatId>'; null = in-app
     winfrom: String(from || '').trim() || null, // daily active window for periodic tasks (HH:mm)
     winto: String(to || '').trim() || null,
+    notify: String(notify || '').trim() || null, // in-app announce method: 'voice','tray','voice,tray'; null = AI default
     created: new Date().toISOString()
   }
   // need text, and either a time or a repeat interval
   if (!row.text || (!row.at && !row.every)) return null
   db.prepare(
-    'INSERT INTO ai_tasks (id, at, text, done, every, channel, winfrom, winto, created) VALUES (@id, @at, @text, @done, @every, @channel, @winfrom, @winto, @created)'
+    'INSERT INTO ai_tasks (id, at, text, done, every, channel, winfrom, winto, notify, created) VALUES (@id, @at, @text, @done, @every, @channel, @winfrom, @winto, @notify, @created)'
   ).run(row)
   return row
+}
+// edit an existing task (from the manual form). Leaves `channel` untouched so a
+// Telegram-sourced task keeps replying to its chat; re-arms it (done=0) so the
+// new time/interval fires. Returns the updated row (for rescheduling) or null.
+export function updateAiTask(id, { at, text, every, from, to, notify }) {
+  const mins = Number(every) > 0 ? Math.round(Number(every)) : null
+  const patch = {
+    id,
+    at: String(at || '').trim(),
+    text: String(text || '').trim(),
+    every: mins,
+    winfrom: String(from || '').trim() || null,
+    winto: String(to || '').trim() || null,
+    notify: String(notify || '').trim() || null
+  }
+  if (!patch.text || (!patch.at && !patch.every)) return null
+  db.prepare(
+    'UPDATE ai_tasks SET at=@at, text=@text, every=@every, winfrom=@winfrom, winto=@winto, notify=@notify, done=0 WHERE id=@id'
+  ).run(patch)
+  return db.prepare(`SELECT ${TASK_COLS} FROM ai_tasks WHERE id = ?`).get(id) || null
 }
 export function deleteAiTask(id) {
   db.prepare('DELETE FROM ai_tasks WHERE id = ?').run(id)

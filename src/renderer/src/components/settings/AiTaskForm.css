@@ -1,0 +1,50 @@
+.ai-task-add-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.ai-task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.ai-task-form__text {
+  width: 100%;
+  resize: vertical;
+  min-height: 38px;
+  font-family: inherit;
+}
+
+.ai-task-form__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-task-form__row--actions {
+  justify-content: flex-end;
+}
+
+.ai-task-form__lbl {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ai-task-form__num {
+  width: 72px;
+}
+
+.ai-task-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}

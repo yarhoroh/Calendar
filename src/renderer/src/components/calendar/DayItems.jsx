@@ -260,6 +260,17 @@ function DayItems({ dayKey, sort }) {
                 })
               setExpandedId(it.id)
             }}
+            onCollapse={(draft) => {
+              if (draft)
+                update(it.id, {
+                  title: draft.title.trim() || null,
+                  text: draft.text,
+                  html: draft.html,
+                  time: draft.time || null,
+                  days: draft.days
+                })
+              setExpandedId(null)
+            }}
             onSave={(f) => {
               update(it.id, {
                 title: f.title || null,

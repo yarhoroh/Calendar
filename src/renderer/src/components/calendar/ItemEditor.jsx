@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
-import { CheckIcon, CloseIcon, CalendarIcon, GoogleIcon } from '../icons'
+import { useVoiceInput } from '../../hooks/useVoiceInput'
+import { CheckIcon, CloseIcon, CalendarIcon, GoogleIcon, MicIcon } from '../icons'
 import ReminderPopover from './ReminderPopover'
 import RichEditor from './RichEditor'
 import './ItemEditor.css'
@@ -39,6 +40,7 @@ export default function ItemEditor({
   googleCalendar = null,
   googleAccount = null,
   onExpand,
+  onCollapse,
   onSave,
   onCancel,
   onDelete
@@ -59,6 +61,27 @@ export default function ItemEditor({
   const shareBtnRef = useRef(null)
   const editorRef = useRef(null)
   const busyRef = useRef(false) // guards against double-firing share/unshare (createEvent is async)
+
+  const titleRef = useRef(null)
+
+  // voice input — same push-to-talk as the AI chat bar. The mic's preventDefault
+  // keeps the caret where it was, so we insert into the title field if that's
+  // focused, otherwise into the note body (at the caret, or the end if unset).
+  const insertVoice = (str) => {
+    const el = titleRef.current
+    if (el && document.activeElement === el) {
+      const start = el.selectionStart ?? title.length
+      const end = el.selectionEnd ?? title.length
+      setTitle((prev) => prev.slice(0, start) + str + prev.slice(end))
+      requestAnimationFrame(() => {
+        el.focus()
+        el.selectionStart = el.selectionEnd = start + str.length
+      })
+      return
+    }
+    editorRef.current?.chain().focus().insertContent(str).run()
+  }
+  const voice = useVoiceInput(insertVoice)
 
   // only dated notes (not the everyday / general boards) can become Google events
   const isDateDay = /^\d{4}-\d{2}-\d{2}$/.test(day || '')
@@ -200,6 +223,7 @@ export default function ItemEditor({
     <div className="item-editor" onBlur={onBlur}>
       <div className="item-editor__head">
         <input
+          ref={titleRef}
           className="item-editor__title"
           placeholder={t('items.titlePlaceholder')}
           value={title}
@@ -296,16 +320,34 @@ export default function ItemEditor({
 
       <RichEditor initialHtml={startHtml} meta={{ id: noteId, day }} onReady={(ed) => (editorRef.current = ed)} />
 
-      {onExpand && !expanded && (
+      {voice.available && (
+        <button
+          className={'item-editor__mic' + (voice.recording ? ' is-rec' : '')}
+          title={voice.recording ? t('prompt.recording') : voice.transcribing ? t('prompt.transcribing') : t('prompt.mic')}
+          disabled={voice.transcribing}
+          onPointerDown={(e) => {
+            e.preventDefault() // keep the editor's caret so we insert there
+            voice.start()
+          }}
+          onPointerUp={voice.stop}
+          onPointerLeave={voice.stop}
+        >
+          <MicIcon />
+        </button>
+      )}
+
+      {onExpand && (
         <button
           className="item-editor__expand"
-          title={t('items.expand')}
-          // going fullscreen remounts the editor (it gets portalled), which would
-          // re-read the original props and drop unsaved edits — so hand the live
-          // draft up so the parent can persist it before expanding
+          title={expanded ? t('items.collapse') : t('items.expand')}
+          // entering AND leaving fullscreen remounts the editor (it gets portalled
+          // / un-portalled), which would re-read the original props and drop unsaved
+          // edits — so hand the live draft up so the parent can persist it first
           onMouseDown={noBlur(() => {
             const { text, html } = getContent()
-            onExpand({ title, text, html, time, days })
+            const draft = { title, text, html, time, days }
+            if (expanded) onCollapse?.(draft)
+            else onExpand(draft)
           })}
         >
           ⛶

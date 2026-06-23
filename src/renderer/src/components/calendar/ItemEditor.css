@@ -28,6 +28,42 @@
   color: var(--accent);
 }
 
+/* voice input — borderless mic, sits just left of the expand icon */
+.item-editor__mic {
+  position: absolute;
+  right: 34px;
+  bottom: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.item-editor__mic:hover {
+  color: var(--accent);
+}
+
+.item-editor__mic.is-rec {
+  color: var(--danger, #e5484d);
+  animation: ie-mic-pulse 1s ease-in-out infinite;
+}
+
+.item-editor__mic:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@keyframes ie-mic-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 /* delete confirmation over the editor */
 .item-editor__confirm {
   position: absolute;

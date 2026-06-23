@@ -7,12 +7,25 @@ import { extractActions, runActions } from '../lib/aiActions'
 // back to that Telegram chat (text, no voice); in-app tasks act normally.
 export function useAiTaskRunner({ onCommand }) {
   useEffect(() => {
-    const off = api.onAiTaskFire?.(async ({ text, channel }) => {
+    const off = api.onAiTaskFire?.(async ({ text, channel, notify }) => {
       if (!text) return
       const tg = channel && channel.startsWith('telegram:') ? channel.slice('telegram:'.length) : null
+      // how an in-app task should announce its result — the user's choice when
+      // creating it ('voice','tray', both, or empty = AI default)
+      const m = String(notify || '').split(',').map((s) => s.trim()).filter(Boolean)
+      const voice = m.includes('voice')
+      const tray = m.includes('tray')
+      const deliver =
+        voice && tray
+          ? 'When you tell the user something, BOTH say it aloud with the speak action AND show it with the notify action.'
+          : tray
+            ? 'When you tell the user something, use the notify action to show a tray message (do NOT use voice).'
+            : voice
+              ? 'When you tell the user something, use the speak action to say it aloud.'
+              : 'If it should tell/remind the user something, use the speak action to say it aloud.'
       const prompt = tg
         ? `[Your scheduled task fired] ${text}\nThis task came from Telegram — reply with a short text message; it will be sent to that Telegram chat (do NOT use voice).`
-        : `[Your scheduled task fired] ${text}\nDo it now. If it should tell/remind the user something, use the speak action to say it aloud.`
+        : `[Your scheduled task fired] ${text}\nDo it now. ${deliver}`
       const res = await api.aiSend?.({ messages: [{ role: 'user', content: prompt }] })
       if (!res?.ok) return
       const { text: clean, actions } = extractActions(res.text)

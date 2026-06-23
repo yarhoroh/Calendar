@@ -2,7 +2,7 @@ import { createServer } from 'http'
 import { speak } from './tts'
 
 // Local audio server: the calendar listens on 127.0.0.1 so the AI or any other
-// local agent ("ишка") can POST text and have it spoken. Bound to loopback
+// local agent can POST text and have it spoken. Bound to loopback
 // only — never exposed off the machine.
 
 const PORT = 51273

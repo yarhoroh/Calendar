@@ -52,7 +52,7 @@ export function formatNotes(rows) {
 }
 
 // A concrete date table for the next two weeks so the model never has to guess
-// weekdays or do error-prone date math for "next Friday" / "послезавтра" / etc.
+// weekdays or do error-prone date math for "next Friday" / "the day after tomorrow" / etc.
 function dateReference(now) {
   const lines = []
   for (let i = 0; i <= 14; i++) {

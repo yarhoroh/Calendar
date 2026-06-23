@@ -18,7 +18,8 @@
       {
         "provider": "github",
         "owner": "yarhoroh",
-        "repo": "Calendar"
+        "repo": "Calendar",
+        "releaseType": "release"
       }
     ],
     "directories": {

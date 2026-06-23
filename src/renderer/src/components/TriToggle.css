@@ -1,0 +1,61 @@
+.tri-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 60px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 11px;
+  background: var(--hover);
+  box-sizing: border-box;
+}
+
+/* the sliding knob sits behind the segment glyphs */
+.tri-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  height: calc(100% - 4px);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.16s ease, background 0.16s ease;
+  pointer-events: none;
+}
+
+.tri-toggle--off .tri-toggle__knob {
+  transform: translateX(0);
+}
+.tri-toggle--auto .tri-toggle__knob {
+  transform: translateX(100%);
+}
+.tri-toggle--on .tri-toggle__knob {
+  transform: translateX(200%);
+  background: var(--accent);
+}
+
+.tri-toggle__seg {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+/* highlight the glyph of the active position */
+.tri-toggle--off .tri-toggle__seg:nth-child(1),
+.tri-toggle--auto .tri-toggle__seg:nth-child(2) {
+  color: var(--text);
+}
+.tri-toggle--on .tri-toggle__seg:nth-child(3) {
+  color: #fff;
+}

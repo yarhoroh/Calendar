@@ -57,6 +57,7 @@ import {
   createEvent as googleCreateEvent,
   updateEvent as googleUpdateEvent,
   deleteEvent as googleDeleteEvent,
+  eventWritable as googleEventWritable,
   writableCalendars as googleWritableCalendars,
   accountsSummary as googleAccountsSummary
 } from './google'
@@ -620,10 +621,11 @@ ipcMain.handle('google:update-event', async (_e, { gid, event }) => {
 })
 ipcMain.handle('google:delete-event', async (_e, gid) => {
   const r = await googleDeleteEvent(gid)
-  if (r?.ok) broadcastGoogleChanged()
+  if (r?.ok && !r.skipped) broadcastGoogleChanged()
   return r
 })
 ipcMain.handle('google:writable-calendars', () => googleWritableCalendars())
+ipcMain.handle('google:event-writable', (_e, gid) => googleEventWritable(gid))
 ipcMain.handle('google:set-autosync', (_e, { email, ids }) => googleSetAutoSync(email, ids))
 ipcMain.handle('google:autosync-calendars', () => googleAutoSyncCalendars())
 ipcMain.handle('settings:get-sync-interval', () => loadAiConfig().googleSyncInterval || 0)

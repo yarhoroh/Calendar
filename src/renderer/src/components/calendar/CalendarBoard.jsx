@@ -3,6 +3,7 @@ import DayColumn from './DayColumn'
 import DayItems from './DayItems'
 import MonthPicker from './MonthPicker'
 import SidePanel from '../SidePanel'
+import TriToggle from '../TriToggle'
 import FolderTree from '../FolderTree'
 import { useFolders } from '../../hooks/useFolders'
 import { useStatuses } from '../../hooks/useStatuses'
@@ -107,6 +108,10 @@ export default function CalendarBoard({ command }) {
   const sel = panel.selected ?? null
   const setSel = (id) => updatePanel({ selected: id })
 
+  // "top (General) folder shows only unsorted notes": a global default that each
+  // tab can override. panel.generalUnsortedOnly is undefined (inherit) | true | false.
+  const unsortedOnly = panel.generalUnsortedOnly ?? settings.generalUnsortedOnly
+
   // publish the current tab + selected folder + the calendar settings so the AI
   // knows where the user is and what's toggled
   useEffect(() => {
@@ -153,9 +158,10 @@ export default function CalendarBoard({ command }) {
   )
 
   // selected folder + all its descendants → the set of folders to show
-  // (null = General root → show everything)
+  // (null = General root → show everything, or only unfiled notes when the
+  // "General shows only unsorted" setting is on)
   const visibleIds = useMemo(() => {
-    if (sel == null) return null
+    if (sel == null) return unsortedOnly ? new Set([null]) : null
     const set = new Set([sel])
     let grew = true
     while (grew) {
@@ -169,7 +175,7 @@ export default function CalendarBoard({ command }) {
       }
     }
     return set
-  }, [sel, folders])
+  }, [sel, folders, unsortedOnly])
 
   const { statuses: customStatuses } = useStatuses()
 
@@ -532,7 +538,21 @@ export default function CalendarBoard({ command }) {
       <EverydayProjectionContext.Provider value={everydayValue}>
       <FocusNoteContext.Provider value={focusValue}>
       <div className="calendar-board__body">
-        <SidePanel state={panel} onChange={updatePanel}>
+        <SidePanel
+          state={panel}
+          onChange={updatePanel}
+          headExtra={
+            <TriToggle
+              value={panel.generalUnsortedOnly}
+              onChange={(v) => updatePanel({ generalUnsortedOnly: v })}
+              titles={{
+                off: t('panel.unsortedOff'),
+                auto: t('panel.unsortedAuto'),
+                on: t('panel.unsortedOn')
+              }}
+            />
+          }
+        >
           <FolderTree
             folders={folders}
             selected={sel}

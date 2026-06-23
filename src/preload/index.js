@@ -201,6 +201,7 @@ const api = {
       ipcRenderer.invoke('google:create-event', { email, calendarId, event }),
     updateEvent: (gid, event) => ipcRenderer.invoke('google:update-event', { gid, event }),
     deleteEvent: (gid) => ipcRenderer.invoke('google:delete-event', gid),
+    eventWritable: (gid) => ipcRenderer.invoke('google:event-writable', gid),
     writableCalendars: () => ipcRenderer.invoke('google:writable-calendars'),
     setAutoSync: (email, ids) => ipcRenderer.invoke('google:set-autosync', { email, ids }),
     autoSyncCalendars: () => ipcRenderer.invoke('google:autosync-calendars'),

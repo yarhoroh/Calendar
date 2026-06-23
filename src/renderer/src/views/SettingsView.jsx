@@ -19,6 +19,7 @@ import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
 import StatusesPanel from '../components/settings/StatusesPanel'
 import FocusBlurSetting from '../components/settings/FocusBlurSetting'
+import GeneralUnsortedSetting from '../components/settings/GeneralUnsortedSetting'
 import CompactSetting from '../components/settings/CompactSetting'
 import UpdateSetting from '../components/settings/UpdateSetting'
 import VoiceInputSetting from '../components/settings/VoiceInputSetting'
@@ -61,6 +62,7 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             <SettingsSection title={t('settings.interface')}>
               <ShowChatSetting checked={showChat} onChange={onToggleChat} />
               <FocusBlurSetting />
+              <GeneralUnsortedSetting />
               <CompactSetting compact={compact} onToggle={onToggleCompact} />
             </SettingsSection>
             <SettingsSection title={t('settings.tools')}>

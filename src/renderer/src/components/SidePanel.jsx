@@ -11,7 +11,7 @@ const clamp = (v, a, b) => Math.min(Math.max(v, a), b)
 // `state` = { open, pinned, width }, `onChange` persists a patch. Pinned pushes
 // the content (in layout flow); unpinned floats over it (position: absolute).
 // Body is empty for now — a menu will live here later.
-export default function SidePanel({ state, onChange, children }) {
+export default function SidePanel({ state, onChange, children, headExtra }) {
   const { t } = useI18n()
   const { open, pinned, width } = state
   const [w, setW] = useState(width)
@@ -74,6 +74,7 @@ export default function SidePanel({ state, onChange, children }) {
   return (
     <aside ref={panelRef} className={`side-panel side-panel--${pinned ? 'pinned' : 'float'}`} style={{ width: w }}>
       <div className="side-panel__head">
+        {headExtra && <div className="side-panel__head-extra">{headExtra}</div>}
         <button
           className={`side-panel__btn${pinned ? ' side-panel__btn--on' : ''}`}
           title={t('panel.pin')}

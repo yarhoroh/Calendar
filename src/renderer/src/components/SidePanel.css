@@ -33,6 +33,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* extra control on the left of the head; pushes pin/collapse to the right */
+.side-panel__head-extra {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+}
+
 .side-panel__btn {
   display: grid;
   place-items: center;

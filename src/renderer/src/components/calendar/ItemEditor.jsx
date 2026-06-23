@@ -53,7 +53,8 @@ export default function ItemEditor({
   const [shareCals, setShareCals] = useState(null) // null = not loaded yet
   const [sharing, setSharing] = useState(false)
   const [linked, setLinked] = useState(!!googleEventId) // already on a Google calendar
-  const [delFromGoogle, setDelFromGoogle] = useState(true) // delete confirm: also remove from Google
+  const [linkedWritable, setLinkedWritable] = useState(false) // imported note on a calendar we can write to
+  const [delFromGoogle, setDelFromGoogle] = useState(googleShared) // delete confirm: also remove from Google
   const remBtnRef = useRef(null)
   const shareBtnRef = useRef(null)
   const editorRef = useRef(null)
@@ -63,6 +64,10 @@ export default function ItemEditor({
   const isDateDay = /^\d{4}-\d{2}-\d{2}$/.test(day || '')
   // a note we pushed to a shared calendar (vs one imported read-only from Google)
   const isShared = linked && googleShared
+  // can deletion also remove the Google event? yes for notes we shared, and —
+  // symmetric with editing, which pushes to any writable calendar — for imported
+  // events on a calendar we can write to (owner/writer)
+  const canDeleteGoogle = isDateDay && linked && (googleShared || linkedWritable)
 
   // load the writable shared calendars once (cheap — main reads its cache). The
   // share button only shows if there's at least one, so it's hidden entirely
@@ -71,6 +76,19 @@ export default function ItemEditor({
     if (!isDateDay || linked) return
     let alive = true
     Promise.resolve(api.google?.writableCalendars?.()).then((l) => alive && setShareCals(l || []))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // for a note imported from Google (linked, but not one WE shared), check once
+  // whether its source calendar is writable — so deletion can offer to also
+  // remove the event from the shared calendar, mirroring how editing pushes up
+  useEffect(() => {
+    if (!isDateDay || !linked || googleShared) return
+    let alive = true
+    Promise.resolve(api.google?.eventWritable?.(googleEventId)).then((w) => alive && setLinkedWritable(!!w))
     return () => {
       alive = false
     }
@@ -298,7 +316,7 @@ export default function ItemEditor({
         <div className="item-editor__confirm" onMouseDown={(e) => e.preventDefault()}>
           <div className="item-editor__confirm-box">
             <span className="item-editor__confirm-text">{t('items.deleteConfirm')}</span>
-            {isShared && (
+            {canDeleteGoogle && (
               <label className="item-editor__confirm-check">
                 <input type="checkbox" checked={delFromGoogle} onChange={(e) => setDelFromGoogle(e.target.checked)} />
                 {t('items.deleteFromGoogle')}
@@ -307,7 +325,7 @@ export default function ItemEditor({
             <div className="item-editor__confirm-actions">
               <button
                 className="btn btn--danger"
-                onMouseDown={noBlur(() => onDelete({ deleteGoogle: isShared && delFromGoogle }))}
+                onMouseDown={noBlur(() => onDelete({ deleteGoogle: canDeleteGoogle && delFromGoogle }))}
               >
                 {t('items.yes')}
               </button>

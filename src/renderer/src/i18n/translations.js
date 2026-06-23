@@ -84,7 +84,7 @@ export const translations = {
       status: { todo: 'To do', doing: 'In progress', done: 'Done', cancelled: 'Cancelled' }
     },
     chat: { clear: 'Clear context', ready: 'AI ready', starting: 'Starting AI…', offline: 'AI not found' },
-    panel: { open: 'Open panel', collapse: 'Collapse', pin: 'Pin / unpin', resize: 'Drag to resize' },
+    panel: { open: 'Open panel', collapse: 'Collapse', pin: 'Pin / unpin', resize: 'Drag to resize', unsortedOff: 'This tab: show all notes in the top folder', unsortedAuto: 'Follow the global setting', unsortedOn: 'This tab: show only unsorted notes in the top folder' },
     folders: {
       newName: 'Folder name…',
       addChild: 'New subfolder',
@@ -103,6 +103,8 @@ export const translations = {
       reminderSound: 'Notification sound',
       focusBlur: 'Focus a note on hover',
       focusBlurDesc: 'Hold the cursor on a note (~2s) to blur the others so it reads clearly.',
+      generalUnsorted: 'General folder shows only unsorted notes',
+      generalUnsortedDesc: 'In every tab, selecting the General (top) folder shows only notes not filed into a subfolder, instead of all notes.',
       interface: 'Interface',
       compactMode: 'Compact',
       compactTopbar: 'Top bar',
@@ -262,7 +264,7 @@ export const translations = {
       status: { todo: 'Не виконано', doing: 'В роботі', done: 'Виконано', cancelled: 'Скасовано' }
     },
     chat: { clear: 'Очистити контекст', ready: 'AI готовий', starting: 'Запуск AI…', offline: 'AI не знайдено' },
-    panel: { open: 'Відкрити панель', collapse: 'Згорнути', pin: 'Закріпити / відкріпити', resize: 'Потягни, щоб змінити розмір' },
+    panel: { open: 'Відкрити панель', collapse: 'Згорнути', pin: 'Закріпити / відкріпити', resize: 'Потягни, щоб змінити розмір', unsortedOff: 'Ця вкладка: показувати всі нотатки у верхній папці', unsortedAuto: 'Використовувати глобальне налаштування', unsortedOn: 'Ця вкладка: показувати лише нерозподілені нотатки у верхній папці' },
     folders: {
       newName: 'Назва папки…',
       addChild: 'Нова підпапка',
@@ -281,6 +283,8 @@ export const translations = {
       reminderSound: 'Звук сповіщення',
       focusBlur: 'Фокус на нотатці при наведенні',
       focusBlurDesc: 'Затримай курсор на нотатці (~2с), щоб розмити інші — так її легше читати.',
+      generalUnsorted: 'Папка «Загальні» показує лише нерозподілені нотатки',
+      generalUnsortedDesc: 'У кожній вкладці вибір верхньої папки «Загальні» показує лише нотатки без підпапки, а не всі.',
       interface: 'Інтерфейс',
       compactMode: 'Компактно',
       compactTopbar: 'Верхня панель',

@@ -106,6 +106,10 @@
   background-size: 22px 22px;
 }
 
+.calendar-board__everyday .day-items__row {
+  padding-right: 6px;
+}
+
 .calendar-board__month {
   position: relative;
   margin-left: auto;

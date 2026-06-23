@@ -512,10 +512,30 @@ export async function updateEvent(gid, ev) {
   return { ok: true }
 }
 
-// Delete an event we own from its Google calendar (when a shared note is deleted)
+// Is the calendar behind a linked event writable (owner/writer)? Mirrors
+// updateEvent's gate so the editor can offer "delete from Google" for ANY
+// editable event (imported from a shared calendar we can write to), not only
+// notes we created ourselves.
+export async function eventWritable(gid) {
+  const g = splitGid(gid)
+  if (!g) return false
+  if (!calCache.has(g.email)) {
+    try { await listCalendars(g.email) } catch { return false }
+  }
+  const cal = (calCache.get(g.email) || []).find((c) => c.id === g.calId)
+  return !!(cal && cal.writable)
+}
+
+// Delete an event from its Google calendar (when a shared/imported note is
+// deleted). Skips read-only calendars silently, symmetric with updateEvent.
 export async function deleteEvent(gid) {
   const g = splitGid(gid)
   if (!g) return { ok: false, error: 'bad event id' }
+  if (!calCache.has(g.email)) {
+    try { await listCalendars(g.email) } catch { /* no cache → let Google decide */ }
+  }
+  const cal = (calCache.get(g.email) || []).find((c) => c.id === g.calId)
+  if (cal && !cal.writable) return { ok: true, skipped: true } // read-only → don't delete, not an error
   const path = `/calendars/${encodeURIComponent(g.calId)}/events/${encodeURIComponent(g.eventId)}`
   const send = (tok) => fetch(CAL + path, { method: 'DELETE', headers: { Authorization: `Bearer ${tok}` } })
   let res = await send(await accessTokenFor(g.email))

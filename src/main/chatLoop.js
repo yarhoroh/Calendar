@@ -51,7 +51,7 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     } else {
       // feed the notes back — including any inline images, so the model can SEE
       // pictures inside notes, not just their text
-      const { text: notesText, images: notesImages } = fetchNotes(req)
+      const { text: notesText, images: notesImages } = fetchNotes(req, ctx)
       text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.`
       pendingImages = notesImages.length ? notesImages : null
     }

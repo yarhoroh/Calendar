@@ -197,6 +197,7 @@ function DayItems({ dayKey, sort }) {
           <DayItem
             item={it}
             dayKey="everyday"
+            projectedOn={dayKey}
             plain={false}
             noStatus={false}
             dragging={false}

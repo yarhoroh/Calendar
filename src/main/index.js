@@ -505,7 +505,11 @@ function aiContext() {
     folders: allFolders(),
     statuses: listStatuses(),
     configPath: aiConfigPath(),
-    googleAccounts: googleAccountsSummary() // emails + selected calendar names only (no tokens)
+    googleAccounts: googleAccountsSummary(), // emails + selected calendar names only (no tokens)
+    // "everyday" notes are projected onto calendar days when this is on; getNotes
+    // surfaces them on the requested dates so the AI sees what the user sees
+    everydayInCal: !!(loadSettings().calendar?.everydayInCal),
+    workingDays: workingDays()
   }
 }
 ipcMain.handle('ai:send', (_e, { messages }) => {

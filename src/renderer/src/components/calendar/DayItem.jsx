@@ -19,6 +19,7 @@ import './DayItem.css'
 export default function DayItem({
   item,
   dayKey,
+  projectedOn,
   plain,
   noStatus,
   dragging,
@@ -35,7 +36,10 @@ export default function DayItem({
   const { names } = useFolderFilter()
   const customStatuses = useCustomStatuses()
   const folderName = item.folderId ? names[item.folderId] : null
-  const customStatus = !BUILTIN_SET.has(item.status) ? customStatuses.find((c) => c.id === item.status) : null
+  // for an everyday note projected onto a calendar day, a status set in Today is
+  // stored per date (item.dateStatuses) and overrides the master only on that day
+  const status = (projected && projectedOn && item.dateStatuses?.[projectedOn]) || item.status
+  const customStatus = !BUILTIN_SET.has(status) ? customStatuses.find((c) => c.id === status) : null
   const [statusMenu, setStatusMenu] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [attachOpen, setAttachOpen] = useState(false)
@@ -109,7 +113,7 @@ export default function DayItem({
     }
   }, [item.id])
 
-  const struck = item.status === 'done' || item.status === 'cancelled'
+  const struck = status === 'done' || status === 'cancelled'
   const fired = dayKey !== 'everyday' && item.time ? new Date(item.time).getTime() <= Date.now() : false
   const remClass = item.time ? (fired ? ' day-item__ctrl-btn--fired' : ' day-item__ctrl-btn--on') : ''
 
@@ -259,10 +263,10 @@ export default function DayItem({
               setStatusMenu((v) => !v)
             }}
           >
-            {BUILTIN_SET.has(item.status) ? (
-              <span className={`status-ring status-ring--${item.status}`}>
-                {item.status === 'done' && <CheckIcon />}
-                {item.status === 'cancelled' && <CloseIcon />}
+            {BUILTIN_SET.has(status) ? (
+              <span className={`status-ring status-ring--${status}`}>
+                {status === 'done' && <CheckIcon />}
+                {status === 'cancelled' && <CloseIcon />}
               </span>
             ) : customStatus ? (
               <span className="status-ring status-ring--custom" style={{ '--sc': customStatus.color }} />
@@ -272,9 +276,14 @@ export default function DayItem({
           </button>
           {statusMenu && (
             <StatusMenu
-              current={item.status}
+              current={status}
               onPick={(s) => {
-                onUpdate(item.id, { status: s })
+                if (projected && projectedOn) {
+                  // store the status for THIS date only — leaves the everyday master untouched
+                  onUpdate(item.id, { dateStatuses: { ...(item.dateStatuses || {}), [projectedOn]: s } })
+                } else {
+                  onUpdate(item.id, { status: s })
+                }
                 setStatusMenu(false)
               }}
               onClose={() => setStatusMenu(false)}

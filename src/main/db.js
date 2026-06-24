@@ -146,6 +146,13 @@ export function initDb() {
   } catch {
     // column already exists
   }
+  try {
+    // per-date status overrides for everyday notes projected onto the calendar:
+    // JSON map { 'YYYY-MM-DD': '<status>' } so a status set in Today applies to that day only
+    db.exec('ALTER TABLE notes ADD COLUMN date_statuses TEXT')
+  } catch {
+    // column already exists
+  }
   // one-time migration: existing plain-text notes get an html body so html is
   // the single source of truth for content going forward (idempotent — only
   // touches notes that have text but no html yet)
@@ -183,12 +190,22 @@ function plainFromHtml(html) {
     .trim()
 }
 
+function parseDateStatuses(s) {
+  if (!s) return null
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}
+
 function rowToItem(r) {
   return {
     id: r.id,
     title: r.title,
     text: r.text || '',
     status: r.status || 'todo',
+    dateStatuses: parseDateStatuses(r.date_statuses), // everyday: per-date status overrides
     time: r.time || null,
     bold: !!r.bold,
     italic: !!r.italic,
@@ -211,8 +228,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html, google_event_id, google_calendar, google_account, google_shared)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html, @google_event_id, @google_calendar, @google_account, @google_shared)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html, google_event_id, google_calendar, google_account, google_shared, date_statuses)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html, @google_event_id, @google_calendar, @google_account, @google_shared, @date_statuses)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -235,7 +252,9 @@ export function saveItems(day, items) {
         google_event_id: it.googleEventId ?? null,
         google_calendar: it.googleCalendar ?? null,
         google_account: it.googleAccount ?? null,
-        google_shared: it.googleShared ? 1 : 0
+        google_shared: it.googleShared ? 1 : 0,
+        date_statuses:
+          it.dateStatuses && Object.keys(it.dateStatuses).length ? JSON.stringify(it.dateStatuses) : null
       })
     )
   })

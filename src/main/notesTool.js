@@ -96,12 +96,50 @@ export async function fetchGoogleEvents(req) {
     .join('\n')
 }
 
+// each date in [from, to] with its weekday (0=Sun..6=Sat), parsed in local time.
+// Capped so a silly wide range can't explode the projection below.
+function datesInRange(from, to) {
+  const parse = (s) => {
+    const [y, m, d] = String(s).split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  const pad = (n) => String(n).padStart(2, '0')
+  const out = []
+  const end = parse(to)
+  for (let d = parse(from); d <= end && out.length < 60; d.setDate(d.getDate() + 1))
+    out.push({ key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, dow: d.getDay() })
+  return out
+}
+
+// "everyday" notes projected onto each real date in the range, exactly like the
+// calendar UI: included only on dates whose weekday matches the note's own `days`
+// (or the global working days). Each carries its per-date status override if set.
+function projectEveryday(from, to, workingDays) {
+  const everyday = getItems('everyday') || []
+  if (!everyday.length) return []
+  const wd = Array.isArray(workingDays) && workingDays.length ? workingDays : [1, 2, 3, 4, 5]
+  const out = []
+  for (const { key, dow } of datesInRange(from, to)) {
+    for (const e of everyday) {
+      const eff = Array.isArray(e.days) && e.days.length ? e.days : wd
+      if (!eff.includes(dow)) continue
+      const status = (e.dateStatuses && e.dateStatuses[key]) || e.status || 'todo'
+      out.push({ ...e, day: key, status, everyday: true })
+    }
+  }
+  return out
+}
+
 // Fetch the requested notes (with attachments). Returns the formatted text plus
-// any inline images, so the caller can show the images to the model.
-export function fetchNotes(req) {
-  const rows = req.board
+// any inline images, so the caller can show the images to the model. When the
+// "everyday in calendar" toggle is on (ctx.everydayInCal), a dated request also
+// includes the recurring everyday notes that fall on those dates.
+export function fetchNotes(req, ctx = {}) {
+  let rows = req.board
     ? (getItems(req.board) || []).map((r) => ({ ...r, day: req.board }))
     : getItemsRange(req.from, req.to || req.from) || []
+  if (!req.board && ctx.everydayInCal)
+    rows = rows.concat(projectEveryday(req.from, req.to || req.from, ctx.workingDays))
   const byNote = {}
   for (const a of allAttachments()) (byNote[a.note_id] = byNote[a.note_id] || []).push({ id: a.id, name: a.name })
   for (const r of rows) r.files = byNote[r.id] || []

@@ -28,7 +28,7 @@ loud** — all running locally, no cloud.
 - **Safe delete** — removing a note asks for confirmation first.
 - **Statuses, incl. custom** — built-in To do / In progress / Done, plus your own custom statuses (name + colour) managed in Settings and stored in the database; pick any status on notes across every board.
 - **Drag-and-drop** — reorder notes within a day (a placeholder shows where it'll land), drag a note to **another day**, or drop it onto the **Every day / General / Today** buttons to move it between boards.
-- **"Every day" board** — recurring notes shown on every day. Per note you can pick **which weekdays** it fires on (weekday squares in the time popover, defaulting to your working days; the chosen days show as a tooltip on the note's time). Toggle the checkbox next to **Every day** to also project these notes onto the matching weekday columns in the calendar.
+- **"Every day" board** — recurring notes shown on every day. Per note you can pick **which weekdays** it fires on (weekday squares in the time popover, defaulting to your working days; the chosen days show as a tooltip on the note's time). Toggle the checkbox next to **Every day** to also project these notes onto the matching weekday columns in the calendar. When projected, a **status set on a given day applies only to that day** (mark it done on one date without changing the recurring note on the others).
 - **"General" board** — plain notes (no reminder, no status) for storing info / scratch data.
 - **Per-day sort** — click a day's header to cycle its note order: manual → by time ↑ → by time ↓ (saved per day).
 - **Read focus** — hold the cursor on a note (~2s) and the others blur so it reads clearly (toggle in Settings). A tall note also gets a **fullscreen** button (⛶) to open it full-window, scroll and edit it; the same ⛶ **collapses** it back to the column, or ✕ closes the editor.
@@ -51,7 +51,7 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
 - **Creates, edits, sorts and deletes** notes & reminders by voice/text: "meeting the day after tomorrow at 9am", "rename this note", "mark it done", "put it in the Work folder".
 - **Manages the folder trees** — it can create, rename, move (reparent) and delete folders on any board, and file one or many notes into them. It sees each board's tree (with ids) and every note's current folder.
-- **Manages statuses** — it can create custom statuses (name + colour) and apply built-in or custom statuses to one or many notes.
+- **Manages statuses** — it can create custom statuses (name + colour) and apply built-in or custom statuses to one or many notes. With the "everyday in calendar" toggle on, it also sees recurring everyday notes on the real dates they fall on and can mark a status for a **single day** (e.g. "mark the morning routine done for the 25th") without touching the other days.
 - **Multi-step actions with feedback** — after it acts, the app sends the result back (the new id of anything created, or a failure reason), so it can chain dependent steps (e.g. *create a folder → file a note into it*) and report honestly instead of claiming success when something failed.
 - **Four ways to respond** — a normal text reply, **speak** out loud, a **silent toast** near the clock, or a reply back to the **messenger** it was contacted from.
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.

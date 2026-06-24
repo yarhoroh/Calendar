@@ -312,11 +312,26 @@ export async function execAction(a, onCommand, channel) {
       }
       case 'setNoteStatus': {
         if (!a.date || !Array.isArray(a.ids) || !a.status) return { ok: false, error: 'setNoteStatus needs date, ids and status' }
-        const arr = (await api.getItems?.(a.date)) || []
-        api.saveItems?.(
-          a.date,
-          arr.map((it) => (a.ids.includes(it.id) ? { ...it, status: a.status } : it))
-        )
+        // an everyday note's status on a REAL date is per-date — stored in its
+        // dateStatuses map so it changes only that day, not every day. The target
+        // day is `on`, or `date` when that itself is a real date.
+        const on = /^\d{4}-\d{2}-\d{2}$/.test(a.on || '') ? a.on : /^\d{4}-\d{2}-\d{2}$/.test(a.date) ? a.date : null
+        const everyday = (await api.getItems?.('everyday')) || []
+        const evIds = new Set(everyday.filter((e) => a.ids.includes(e.id)).map((e) => e.id))
+        if (on && evIds.size)
+          api.saveItems?.(
+            'everyday',
+            everyday.map((e) => (evIds.has(e.id) ? { ...e, dateStatuses: { ...(e.dateStatuses || {}), [on]: a.status } } : e))
+          )
+        // everything else: real dated notes, or everyday notes set globally via date:"everyday"
+        const restIds = a.ids.filter((id) => !(on && evIds.has(id)))
+        if (restIds.length) {
+          const arr = (await api.getItems?.(a.date)) || []
+          api.saveItems?.(
+            a.date,
+            arr.map((it) => (restIds.includes(it.id) ? { ...it, status: a.status } : it))
+          )
+        }
         return { ok: true }
       }
       case 'reorder': {

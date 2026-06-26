@@ -1,0 +1,230 @@
+.mail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* left menu — accounts + unified folders */
+.mail__tree {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.mail__tree-head {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mail--rail .mail__tree-head {
+  justify-content: center;
+}
+
+.mail__collapse {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail__collapse:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.mail__tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.mail--rail .mail__tree-body {
+  padding: 8px 4px;
+}
+
+.mail-tree__group {
+  margin-bottom: 14px;
+}
+
+.mail-tree__group-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 4px 8px;
+}
+.mail-tree__acct {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-tree__group-title svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-1px); /* nudge the Gmail icon up to sit on the text */
+}
+
+/* collapsed rail: account shown as a 2-letter monogram badge */
+.mail-tree__mono {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hover);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mail-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mail-tree__row svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.mail-tree__row:hover {
+  background: var(--hover);
+}
+.mail-tree__row--active {
+  background: var(--active);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mail-tree__row--active svg {
+  color: var(--accent);
+}
+
+.mail-tree__label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* unread "(N)" badge, right-aligned */
+.mail-tree__count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.mail-tree__row--active .mail-tree__count {
+  color: var(--accent);
+}
+.mail-tree__marking {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+}
+.mail-tree__marking .mail-spinner--sm {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+/* in the rail, rows are centered icons only */
+.mail--rail .mail-tree__row {
+  justify-content: center;
+  padding: 7px 0;
+  gap: 0;
+}
+
+.mail-tree__more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.mail-tree__more:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.mail-tree__hint {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+
+/* drag-to-resize handle on the right edge */
+.mail__resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+/* center — message list / reader (placeholder for now) */
+.mail__center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0; /* bound the list to the window so it scrolls inside, never past it */
+  display: flex;
+}
+
+.mail__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.mail__placeholder svg {
+  width: 28px;
+  height: 28px;
+  opacity: 0.6;
+}
+.mail__placeholder-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.mail__placeholder-sub {
+  font-size: 13px;
+}

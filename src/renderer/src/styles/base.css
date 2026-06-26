@@ -158,10 +158,12 @@ input[type='checkbox']:checked::after {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0; /* let the pane shrink below its content (long subjects) — kids truncate */
 }
 .view-pane > * {
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* shared AI chat, under whichever view is active. display:contents lets its
@@ -189,4 +191,31 @@ input[type='checkbox']:checked::after {
   flex: 1 1 auto;
   max-height: none;
   min-height: 0;
+}
+
+/* shared "speak selection" floating ▶ (article reader / email body / internal browser).
+   position:fixed from the selection's viewport rect (set in JS), centered just above it. */
+.sel-speak-btn {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent, #10b981);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.32);
+}
+.sel-speak-btn:hover {
+  filter: brightness(1.08);
+}
+.sel-speak-btn svg {
+  width: 16px;
+  height: 16px;
 }

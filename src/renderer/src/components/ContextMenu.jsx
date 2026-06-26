@@ -11,10 +11,15 @@ export default function ContextMenu({ x, y, items, onClose }) {
     const close = (e) => {
       if (!ref.current?.contains(e.target)) onClose()
     }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('contextmenu', close)
-    window.addEventListener('blur', onClose)
+    // attach on the NEXT frame so the right-click that opened this menu (still propagating,
+    // and about to fire mousedown) doesn't immediately close it again
+    const id = requestAnimationFrame(() => {
+      document.addEventListener('mousedown', close)
+      document.addEventListener('contextmenu', close)
+      window.addEventListener('blur', onClose)
+    })
     return () => {
+      cancelAnimationFrame(id)
       document.removeEventListener('mousedown', close)
       document.removeEventListener('contextmenu', close)
       window.removeEventListener('blur', onClose)

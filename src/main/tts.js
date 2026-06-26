@@ -2,6 +2,8 @@ import { app } from 'electron'
 import { spawn } from 'child_process'
 import { join } from 'path'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { accentuate } from './stress'
+import { numbersToWords } from './numbers'
 
 // Embedded text-to-speech: bundled standalone piper.exe (no Python) synthesizes
 // a WAV from text, which the renderer plays. The voice is chosen per language so
@@ -39,6 +41,24 @@ export function setTtsEngine(fn) {
   if (typeof fn === 'function') resolveEngine = fn
 }
 
+// selected Supertonic voice preset (F1..F5 / M1..M5), overridable from settings
+let resolveSupertonicVoice = () => 'F1'
+export function setSupertonicVoice(fn) {
+  if (typeof fn === 'function') resolveSupertonicVoice = fn
+}
+
+// piper Ukrainian speaker (the only multi-speaker built-in model): 0=lada 1=mykyta 2=tetiana
+let resolvePiperVoice = () => 2
+export function setPiperVoice(fn) {
+  if (typeof fn === 'function') resolvePiperVoice = fn
+}
+
+// per-engine speech speed multiplier (1 = normal); resolveSpeed('piper'|'windows'|'supertonic')
+let resolveSpeed = () => 1
+export function setSpeedResolver(fn) {
+  if (typeof fn === 'function') resolveSpeed = fn
+}
+
 let seq = 0
 
 // Synthesize with the built-in Windows voices (System.Speech / SAPI) to a WAV,
@@ -58,13 +78,15 @@ function synthWindows(text, lang) {
     } catch (e) {
       return reject(e)
     }
+    // SAPI rate is -10..10; map the speed multiplier (1 = normal) onto it
+    const rate = Math.max(-10, Math.min(10, Math.round((resolveSpeed('windows') - 1) * 10)))
     // single-quoted PS strings are literal — raw Windows paths need no escaping.
     // Try each preferred culture; keep the first that an installed voice matches.
     const script = [
       "$ErrorActionPreference='Stop'",
       'Add-Type -AssemblyName System.Speech',
       '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer',
-      '$s.Rate = 2', // ~20% faster than the default speaking rate
+      `$s.Rate = ${rate}`,
       `foreach ($c in @(${psList})) { try { $s.SelectVoiceByHints('NotSet','NotSet',0,(New-Object System.Globalization.CultureInfo($c))) } catch {}; if ($s.Voice.Culture.Name -eq $c) { break } }`,
       `$s.SetOutputToWaveFile('${out}')`,
       `$t = [System.IO.File]::ReadAllText('${txt}', [System.Text.Encoding]::UTF8)`,
@@ -118,7 +140,11 @@ function synth(text, lang) {
 
     const out = join(app.getPath('temp'), `cal-tts-${process.pid}-${seq++}.wav`)
     const args = ['-m', model, '-f', out]
-    if (v.speaker != null) args.push('--speaker', String(v.speaker))
+    // uk is the only multi-speaker built-in model → let the user pick its voice
+    const speaker = lang === 'uk' ? resolvePiperVoice() : v.speaker
+    if (speaker != null) args.push('--speaker', String(speaker))
+    const speed = resolveSpeed('piper') // length_scale is inverse: higher speed → shorter phonemes
+    if (speed && speed !== 1) args.push('--length_scale', String((1 / speed).toFixed(3)))
 
     let child
     try {
@@ -150,17 +176,42 @@ function synth(text, lang) {
   })
 }
 
-// Speak text aloud. Returns { ok, error }. New speech interrupts the previous
-// one (the renderer stops the current clip when a new one arrives).
-export async function speak({ text, lang } = {}) {
-  const t = (text || '').trim()
-  if (!t) return { ok: false, error: 'empty text' }
+// Synthesize `text` in `lang` and RETURN the WAV (base64). Serialized through a single
+// chain so overlapping callers (the article reader feeding the queue, /speak, Telegram,
+// the AI) never run the Supertonic ONNX sessions concurrently — concurrent runs corrupt
+// the output. Order is preserved (FIFO), keeping the article's paragraphs in order too.
+let synthChain = Promise.resolve()
+export function synthesize(args = {}) {
+  const run = synthChain.then(() => doSynthesize(args))
+  synthChain = run.catch(() => {}) // keep the chain alive even if one synth fails
+  return run
+}
+
+async function doSynthesize({ text, lang } = {}) {
+  const raw = (text || '').trim()
+  if (!raw) return { ok: false, error: 'empty text' }
+  const t = numbersToWords(raw, lang || 'uk') // spell out digits for every engine
   try {
     const engine = resolveEngine?.() || 'piper'
+    if (engine === 'supertonic') {
+      // lazy import so onnxruntime-node loads only when this engine is actually used
+      const { synthSupertonic } = await import('./supertonic/synth.js')
+      const marked = accentuate(t, lang || 'en') // add ru/uk stress marks for correct prosody
+      const wav = await synthSupertonic(marked, lang || 'en', resolveSupertonicVoice(), resolveSpeed('supertonic'))
+      return { ok: true, wav: wav.toString('base64') }
+    }
     const wav = engine === 'windows' ? await synthWindows(t, lang || 'uk') : await synth(t, lang || 'uk')
-    getMain()?.webContents?.send('tts:play', { id: ++seq, wav: wav.toString('base64') })
-    return { ok: true }
+    return { ok: true, wav: wav.toString('base64') }
   } catch (e) {
     return { ok: false, error: e.message }
   }
+}
+
+// Speak text aloud. Returns { ok, error }. New speech interrupts the previous
+// one (the renderer stops the current clip when a new one arrives).
+export async function speak({ text, lang } = {}) {
+  const r = await synthesize({ text, lang })
+  if (!r.ok) return r
+  getMain()?.webContents?.send('tts:play', { id: ++seq, wav: r.wav })
+  return { ok: true }
 }

@@ -16,6 +16,45 @@ const FLAGS = [
   '--output-format',
   'stream-json',
   '--verbose',
+  // speed: minimal reasoning + drop cwd/git/env from the system prompt — this is
+  // a chat/translation assistant, none of that context is needed and it costs tokens
+  '--effort',
+  'low',
+  '--exclude-dynamic-system-prompt-sections',
+  // the safe parts of --bare (faster, more predictable startup) WITHOUT its auth
+  // change: --bare forces ANTHROPIC_API_KEY-only auth and never reads OAuth/keychain,
+  // which would break the subscription login. These flags don't touch auth.
+  // NOTE: --no-session-persistence is intentionally NOT here — it targets one-shot
+  // --print runs and destabilises this long-lived multi-turn chat process; it lives
+  // in ONESHOT_FLAGS instead.
+  '--strict-mcp-config', // ignore all MCP servers (we pass none) → skip their startup
+  '--no-chrome', // no Claude-in-Chrome integration
+  '--disallowedTools',
+  'Bash',
+  'Edit',
+  'Write',
+  'Read',
+  'Glob',
+  'Grep',
+  'WebFetch',
+  'WebSearch'
+]
+
+// one-shot, text in/out — for isolated utility calls (translation / article reading)
+// that must NOT share the chat's conversation. Same speed flags, no stream-json.
+const ONESHOT_FLAGS = [
+  '-p',
+  // replace Claude Code's whole preamble (tools/agent instructions) with a tiny one —
+  // these calls are pure text processing, none of that context is wanted and it only
+  // slows things down and muddies the output format
+  '--system-prompt',
+  'You are a precise text-processing engine. Do exactly what the user asks and output only the requested result — nothing else.',
+  '--effort',
+  'low',
+  '--exclude-dynamic-system-prompt-sections',
+  '--strict-mcp-config',
+  '--no-chrome',
+  '--no-session-persistence',
   '--disallowedTools',
   'Bash',
   'Edit',
@@ -112,6 +151,47 @@ export function stopClaude() {
 export function clearClaude() {
   stopClaude()
   spawnProc()
+}
+
+// Isolated one-shot prompt → reply text. Spawns a fresh `claude -p` that does NOT
+// share the persistent chat session, so utility tasks (translate / summarize) are
+// never polluted by — or pollute — the chat conversation. Returns { ok, text }.
+export function askClaudeRaw(prompt) {
+  return new Promise((resolve) => {
+    const args = model ? [...ONESHOT_FLAGS, '--model', model] : ONESHOT_FLAGS
+    let p
+    try {
+      p = spawn('claude', args, { shell: true, windowsHide: true })
+    } catch (e) {
+      return resolve({ ok: false, text: '', error: e.message })
+    }
+    let out = ''
+    let err = ''
+    const timer = setTimeout(() => {
+      try {
+        p.kill()
+      } catch {
+        // ignore
+      }
+      resolve({ ok: false, text: '', error: 'claude timed out' })
+    }, TIMEOUT)
+    p.stdout.on('data', (d) => (out += d.toString()))
+    p.stderr.on('data', (d) => (err += d.toString()))
+    p.on('error', (e) => {
+      clearTimeout(timer)
+      resolve({ ok: false, text: '', error: e.message })
+    })
+    p.on('close', (code) => {
+      clearTimeout(timer)
+      resolve(out.trim() ? { ok: true, text: out.trim() } : { ok: false, text: '', error: err.trim() || 'claude exited ' + code })
+    })
+    try {
+      p.stdin.end(prompt)
+    } catch (e) {
+      clearTimeout(timer)
+      resolve({ ok: false, text: '', error: e.message })
+    }
+  })
 }
 
 export function askClaude({ messages, ctx }) {

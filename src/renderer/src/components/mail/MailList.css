@@ -1,0 +1,1102 @@
+.mail-list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- category tabs ---- */
+.mail-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+/* the tabs live in a horizontally-scrollable strip; when they overflow the
+   arrows light up instead of wrapping to a second row */
+.mail-tabs__strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 6px 4px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mail-tabs__strip::-webkit-scrollbar {
+  display: none;
+}
+.mail-tabs__arrow {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  border: none;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-tabs__arrow:hover {
+  color: var(--text);
+}
+.mail-tabs__arrow svg {
+  width: 16px;
+  height: 16px;
+}
+.mail-tabs__arrow.is-hidden {
+  display: none;
+}
+.mail-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mail-tabs__tab svg {
+  width: 15px;
+  height: 15px;
+}
+.mail-tabs__tab:hover {
+  color: var(--text);
+}
+.mail-tabs__tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.mail-tabs__badge {
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  display: inline-grid;
+  place-items: center;
+}
+
+/* ---- toolbar ---- */
+.mail-toolbar {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* bulk-action bar shown when rows are checkbox-selected */
+.mail-bulkbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-bottom: 1px solid var(--border);
+}
+.mail-bulkbar__count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 4px;
+}
+.mail-bulkbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.mail-bulkbar__btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.mail-bulkbar__btn svg {
+  width: 15px;
+  height: 15px;
+}
+.mail-bulkbar__btn--x {
+  margin-left: auto;
+}
+
+/* spin the refresh icon while the view is (re)loading or searching */
+.mail-toolbar__btn--busy svg {
+  animation: mail-spin 0.8s linear infinite;
+}
+.mail-toolbar__select {
+  min-width: 0;
+}
+.mail-toolbar__check {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+}
+.mail-toolbar__btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-toolbar__btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mail-toolbar__count {
+  font-size: 13px;
+  color: var(--muted);
+}
+.mail-toolbar__select {
+  height: 30px;
+  font-size: 13px;
+}
+.mail-toolbar__search {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 280px;
+  min-width: 0; /* shrink to a sliver before the toolbar collapses it to a loupe */
+  padding: 0 10px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+/* compact mode: the loupe sits at the right; clicking it opens the overlay */
+.mail-toolbar__search-btn {
+  margin-left: auto;
+}
+/* the overlay search field covers the whole toolbar row */
+.mail-toolbar__search-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--panel);
+}
+.mail-toolbar__search-overlay svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.mail-toolbar__search-overlay input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.mail-toolbar__search:focus-within {
+  border-color: var(--accent);
+}
+.mail-toolbar__search svg {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.mail-toolbar__search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+/* clear (×) inside the search field — only shown when there's text */
+.mail-toolbar__search-clear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mail-toolbar__search-clear:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* faint green highlight for search matches inside the rows */
+.mail-hl {
+  background: rgba(16, 185, 129, 0.18);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* ---- rows ---- */
+/* the list column = scrollable rows + a fixed pagination footer */
+.mail-list__listcol {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mail-list__rows {
+  flex: 1;
+  min-height: 0; /* shrink to fit the available height (accounts for the chat) and scroll */
+  overflow-y: auto;
+}
+.mail-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px;
+  border-top: 1px solid var(--border);
+}
+.mail-pagination__nav,
+.mail-pagination__pg {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+.mail-pagination__nav:hover:not(:disabled),
+.mail-pagination__pg:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mail-pagination__nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mail-pagination__pg.is-active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+.mail-pagination__gap {
+  min-width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+}
+.mail-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 14px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+/* unread stands out on a plain (white in light theme) background... */
+.mail-row--unread {
+  background: var(--panel);
+}
+/* ...and hover/selection use the same green as the active row in the left tree.
+   Composited over --panel (opaque) so it looks identical regardless of whether the
+   row behind is the white unread bg or the darker list bg. */
+.mail-row:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  padding-right: 56px; /* room for the absolute trash; keeps the attachment to its left */
+}
+/* on hover the trash replaces the date + attachment cluster (bigger, Gmail-style) */
+/* absolutely positioned over the right edge → can never affect the row height */
+.mail-row__trash {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  place-items: center;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-row__trash svg {
+  width: 18px;
+  height: 18px;
+}
+.mail-row:hover .mail-row__date {
+  display: none;
+}
+.mail-row:hover .mail-row__trash {
+  display: grid;
+}
+.mail-row__trash:hover {
+  color: var(--accent);
+}
+.mail-row--selected {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+.mail-row__check {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+.mail-row__star {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+}
+.mail-row__star.is-on svg {
+  fill: #f5b400;
+  color: #f5b400;
+}
+/* important marker — gray outline when not important, amber (like the star) when on */
+.mail-row__important {
+  flex: 0 0 auto;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-row__important.is-on {
+  color: #f5b400;
+}
+/* thread message count next to the sender */
+.mail-row__count {
+  flex: 0 0 auto;
+  margin-left: -4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.mail-row__avatar {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.mail-row__from {
+  flex: 0 1 160px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.mail-row--unread .mail-row__from {
+  font-weight: 700;
+}
+.mail-row__text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-row__text span {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-row__subject {
+  color: var(--text);
+}
+.mail-row--unread .mail-row__subject {
+  font-weight: 700;
+}
+.mail-row__snippet {
+  color: var(--muted);
+}
+.mail-row svg {
+  flex: 0 0 auto;
+}
+.mail-row__date {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-align: right;
+}
+.mail-row--unread .mail-row__date {
+  color: var(--text);
+  font-weight: 600;
+}
+.mail-list__empty {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* centered loading state with an accent spinner */
+.mail-list__loading {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+}
+.mail-spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  animation: mail-spin 0.7s linear infinite;
+}
+@keyframes mail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mail-list__loading-text {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---- header bar above the tabs (matches the left menu header height) ---- */
+.mail-list__head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  min-height: 40px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+}
+.mail-list__pager {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
+}
+.mail-list__range {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-list__pgbtn,
+.mail-list__pane {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-list__pgbtn:hover,
+.mail-list__pane:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mail-list__pane.is-on {
+  color: var(--accent);
+}
+
+/* ---- split: rows on the left, reader on the right ---- */
+.mail-list__split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.mail-list__divider {
+  flex: 0 0 5px;
+  align-self: stretch;
+  cursor: col-resize;
+  border-left: 1px solid var(--border);
+}
+.mail-list__divider:hover {
+  border-left-color: var(--accent);
+}
+.mail-list__reader {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+/* ---- reader (conversation) ---- */
+.mail-reader {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mail-reader--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.mail-reader__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  min-height: 40px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+}
+.mail-reader__iconbtn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-reader__iconbtn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mail-reader__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll; /* always show the scrollbar (not just on overflow) */
+  scrollbar-gutter: stable; /* reserve its gutter so content doesn't shift */
+  padding: 14px 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.mail-reader__subject {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  user-select: text;
+  cursor: text;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mail-reader__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.mail-reader__thread {
+  /* size to the content (no flex-grow) so the reply bar sits directly under the message,
+     not pushed to the very bottom of the scroll area */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mail-reader__replybar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* one message in the conversation */
+.mail-msg {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.mail-msg__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.mail-msg--open .mail-msg__head {
+  border-bottom: 1px solid var(--border);
+}
+.mail-msg__avatar {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+.mail-msg__who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* spans sized to their text, not stretched → free clickable space */
+}
+/* the inner spans must not exceed the block; max-width keeps the ellipsis working when text
+   is longer than the available room */
+.mail-msg__from,
+.mail-msg__to,
+.mail-msg__preview {
+  max-width: 100%;
+}
+.mail-msg__from {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-msg__to,
+.mail-msg__preview {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the app disables text selection globally; re-enable it on the sender name + recipient so
+   you can select and copy them (and the address). Drag-select doesn't toggle the message. */
+.mail-msg__from,
+.mail-msg__to {
+  user-select: text;
+  cursor: text;
+}
+.mail-msg__date {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mail-msg__star {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.mail-msg__star.is-on svg {
+  fill: #f5b400;
+  color: #f5b400;
+}
+.mail-msg__open {
+  padding: 6px 12px 12px;
+  user-select: text;
+  overflow: hidden; /* no transient scrollbars while the iframe sizes itself */
+}
+.mail-msg__details-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.mail-msg__details-btn:hover {
+  color: var(--accent);
+}
+/* Details + translator on one row */
+.mail-msg__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 2px 0 6px;
+}
+.mail-msg__tr-error {
+  font-size: 12px;
+  color: #d33;
+}
+.mail-msg__lang {
+  height: 28px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mail-msg__details {
+  user-select: text;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--hover);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 4px 0 8px;
+  line-height: 1.7;
+}
+.mail-msg__details span {
+  display: inline-block;
+  min-width: 44px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text);
+}
+.mail-msg__body {
+  user-select: text;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  padding: 4px 0 10px;
+}
+/* real HTML email body, isolated in a sandboxed iframe (no scripts run) */
+.mail-msg__html-wrap {
+  position: relative;
+  margin: 4px 0 10px;
+}
+.mail-msg__html {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  border: none;
+  border-radius: 6px;
+  background: #fff;
+  margin: 4px 0 10px;
+}
+/* skeleton body outline shown while the thread loads — same white frame the message
+   body will fill, with a spinner centred where the content will appear */
+.mail-reader__bodyframe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  margin: 4px 0 10px;
+}
+/* the skeleton header isn't clickable (no body to toggle yet) */
+.mail-msg__head--static {
+  cursor: default;
+}
+/* spinner shown while external images download + inline in the background */
+/* floats over the body — no layout space, so removing it doesn't shift content */
+.mail-msg__imgloading {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  padding: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+.mail-spinner--sm {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+/* "loading more messages" footer under a thread while the rest streams in */
+.mail-reader__more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px;
+  color: var(--muted);
+}
+.mail-msg__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mail-msg__actions .btn svg,
+.mail-reader__replybar .btn svg {
+  width: 15px;
+  height: 15px;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+/* ---- attachment badge + dropdown (list rows) ---- */
+.mail-attach {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+.mail-attach__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.mail-attach__badge svg {
+  width: 15px;
+  height: 15px;
+}
+.mail-attach__badge:hover {
+  color: var(--accent);
+}
+.mail-attach__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  margin-top: 4px;
+  min-width: 200px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 4px;
+}
+.mail-attach__file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.mail-attach__file:hover {
+  background: var(--hover);
+}
+.mail-attach__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-attach__size {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ---- attachment chips inside a message ---- */
+.mail-msg__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 12px;
+}
+.mail-msg__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mail-msg__chip:hover {
+  border-color: var(--accent);
+}
+.mail-msg__chip svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.mail-msg__chip-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-msg__chip-size {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ---- shared attachment chip (list dropdown + open message) ---- */
+.mail-chip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 260px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.mail-chip:hover {
+  border-color: var(--accent);
+}
+.mail-chip__main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.mail-chip__main:hover {
+  background: var(--hover);
+}
+.mail-chip__icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.mail-chip__icon--ph {
+  background: var(--hover);
+  border-radius: 3px;
+}
+.mail-chip__name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.mail-chip__base {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-chip__ext {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.mail-chip__size {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+/* download arrow = its own button (Save As…), with a wider hit area */
+.mail-chip__dl {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 11px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-chip__dl:hover {
+  color: var(--accent);
+}
+.mail-chip__dl svg {
+  width: 15px;
+  height: 15px;
+}
+/* "open saved folder" button — appears once the attachment was saved somewhere */
+.mail-chip__folder {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 11px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mail-chip__folder:hover {
+  color: var(--accent);
+}
+.mail-chip__folder svg {
+  width: 15px;
+  height: 15px;
+}
+/* in the list dropdown the chips stack full-width */
+.mail-attach__menu .mail-chip {
+  max-width: none;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}

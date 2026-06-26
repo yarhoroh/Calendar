@@ -3,6 +3,7 @@ import api from '../lib/api'
 import PinToggle from './PinToggle'
 import ViewSwitch from './ViewSwitch'
 import ThemeToggle from './ThemeToggle'
+import TtsControls from './TtsControls'
 import WindowControls from './WindowControls'
 import './TitleBar.css'
 
@@ -40,6 +41,7 @@ export default function TitleBar({
           </button>
         )}
         <PinToggle pinned={pinned} onToggle={onTogglePin} />
+        <TtsControls />
         <ViewSwitch view={view} onSelectView={onSelectView} />
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <WindowControls

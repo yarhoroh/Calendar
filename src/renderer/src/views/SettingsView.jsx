@@ -7,6 +7,7 @@ import AntigravitySetting from '../components/settings/AntigravitySetting'
 import AiConfigSetting from '../components/settings/AiConfigSetting'
 import TelegramSetting from '../components/settings/TelegramSetting'
 import GoogleAccountsSetting from '../components/settings/GoogleAccountsSetting'
+import MailAccountsSetting from '../components/settings/MailAccountsSetting'
 import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
@@ -78,6 +79,9 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             </SettingsSection>
             <SettingsSection title={t('settings.google.title')}>
               <GoogleAccountsSetting />
+            </SettingsSection>
+            <SettingsSection title="Email (IMAP)">
+              <MailAccountsSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.statuses')}>
               <StatusesPanel />

@@ -2,14 +2,15 @@ import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, s
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs'
 import { detectClaude, detectCodex, warmUp } from './ai'
-import { warmClaude, stopClaude, clearClaude, askClaude } from './claudeAgent'
+import { warmClaude, stopClaude, clearClaude, askClaude, askClaudeRaw } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
-import { askAgy, resetAgy, detectAgy } from './agy'
+import { askAgy, resetAgy, detectAgy, agyAskRaw } from './agy'
 import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram } from './telegram'
 import electronUpdater from 'electron-updater'
-import { initTts, speak, setTtsEngine } from './tts'
+import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperVoice, setSpeedResolver } from './tts'
+import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -44,7 +45,10 @@ import {
   importedMap,
   markEventImported,
   getImport,
-  unmarkImport
+  unmarkImport,
+  listMailMessages,
+  clearMailCache,
+  getSavedAttachment
 } from './db'
 import {
   connectAccount as googleConnect,
@@ -62,6 +66,7 @@ import {
   writableCalendars as googleWritableCalendars,
   accountsSummary as googleAccountsSummary
 } from './google'
+import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import {
   initNotify,
@@ -169,6 +174,7 @@ function createWindow() {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      webviewTag: true,
       autoplayPolicy: 'no-user-gesture-required'
     }
   })
@@ -385,8 +391,28 @@ function migrateNotesJson() {
 }
 
 function scheduleStoredReminders() {
+  const all = itemsWithTime()
+  // An "everyday" note owns the weekdays it recurs on. A dated note that merely duplicates it
+  // (same title + time, on a day the everyday already covers) must NOT schedule a second
+  // reminder — the everyday's daily one already fires that day. (Don't also fire the dated
+  // "today" copy.) The notes are left untouched; we just skip the redundant reminder.
+  const wd = workingDays()
+  const everyday = all.filter((it) => it.day === 'everyday' && it.time)
+  const coveredByEveryday = (it) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(it.day)
+    if (!m) return false
+    const dow = new Date(+m[1], +m[2] - 1, +m[3]).getDay()
+    return everyday.some((e) => {
+      if ((e.title || '') !== (it.title || '') || (e.time || '') !== (it.time || '')) return false
+      const days = Array.isArray(e.days) && e.days.length ? e.days : wd
+      return days.includes(dow)
+    })
+  }
   const map = {}
-  for (const it of itemsWithTime()) (map[it.day] = map[it.day] || []).push(it)
+  for (const it of all) {
+    if (it.day !== 'everyday' && coveredByEveryday(it)) continue
+    ;(map[it.day] = map[it.day] || []).push(it)
+  }
   scheduleAll(map)
 }
 
@@ -631,6 +657,243 @@ ipcMain.handle('google:delete-event', async (_e, gid) => {
 })
 ipcMain.handle('google:writable-calendars', () => googleWritableCalendars())
 ipcMain.handle('google:event-writable', (_e, gid) => googleEventWritable(gid))
+
+// ---- Mail (IMAP, app-password) — independent of the calendar OAuth ---------
+ipcMain.handle('mail:list-accounts', () => getMailAccounts())
+ipcMain.handle('mail:add', (_e, payload) => addMailAccount(payload || {}))
+ipcMain.handle('mail:remove', (_e, email) => removeMailAccount(email))
+ipcMain.handle('mail:test', (_e, email) => testInbox(email))
+ipcMain.handle('mail:folders', (_e, email) => mailFolders(email))
+ipcMain.handle('mail:messages', (_e, { account, label, limit }) => listMailMessages(account, label, limit))
+ipcMain.handle('mail:cached', (_e, p) => cachedMessages(p || {}))
+ipcMain.handle('mail:load', (_e, p) => {
+  // a `token` opts the caller into progressive loading: a fast approximate page is pushed
+  // via 'mail:load-partial' first, then this promise resolves with the exact full page
+  const token = p?.token
+  const onPartial = token != null ? (r) => mainWindow?.webContents?.send('mail:load-partial', { token, ...r }) : null
+  return loadMessages(p || {}, onPartial)
+})
+ipcMain.handle('mail:recent', (_e, p) => recentMessages(p || {}))
+ipcMain.handle('mail:folder-stats', (_e, { email, paths }) => mailFolderStats(email, paths))
+ipcMain.handle('mail:category-stats', (_e, account) => mailCategoryStats(account))
+ipcMain.handle('mail:set-important', (_e, p) => setMailImportant(p || {}))
+ipcMain.handle('mail:thread', (_e, p) => {
+  // a `token` opts into streaming: each message is pushed via 'mail:thread-message' as its
+  // body downloads (newest first), so the UI shows the first one without waiting for the chain
+  const token = p?.token
+  const onMessage = token != null ? (m, total) => mainWindow?.webContents?.send('mail:thread-message', { token, message: m, total }) : null
+  return getMailThread(p || {}, onMessage)
+})
+ipcMain.handle('mail:clear-cache', () => ({ ok: true, removed: clearMailCache() }))
+ipcMain.handle('mail:set-seen', (_e, p) => setMailSeen(p || {}))
+ipcMain.handle('mail:inline-images', (_e, { html }) => inlineMailImages({ html }))
+ipcMain.handle('mail:open-attachment', (_e, p) => openMailAttachment(p || {}))
+ipcMain.handle('mail:delete', (_e, p) => deleteMail(p || {}))
+ipcMain.handle('mail:bulk-delete', (_e, p) => bulkDeleteMail(p || {}))
+ipcMain.handle('mail:bulk-seen', (_e, p) => bulkSeenMail(p || {}))
+// whole-folder search, streaming matches to the renderer in batches (token drops stale)
+ipcMain.handle('mail:search', async (_e, { account, folder, query, token }) => {
+  const send = (messages, done) => mainWindow?.webContents?.send('mail:search-result', { token, messages, done })
+  try {
+    await searchMessages({ account, folder, query }, (metas) => send(metas, false))
+    send([], true)
+    return { ok: true }
+  } catch (e) {
+    send([], true)
+    return { ok: false, error: e.message }
+  }
+})
+// mark a whole folder read in the background, streaming progress to the renderer
+ipcMain.handle('mail:mark-folder-read', async (_e, { account, folder }) => {
+  const send = (done, total, running) =>
+    mainWindow?.webContents?.send('mail:mark-progress', { account, folder, done, total, running })
+  send(0, 0, true)
+  try {
+    const r = await markFolderRead({ account, folder }, (done, total) => send(done, total, true))
+    send(r.marked, r.total || r.marked, false)
+    return r
+  } catch (e) {
+    send(0, 0, false)
+    return { ok: false, error: e.message }
+  }
+})
+// permanently empty Trash in the background (reuses the mark-progress channel → same
+// spinner+% next to the folder)
+ipcMain.handle('mail:empty-folder', async (_e, { account, folder }) => {
+  const send = (done, total, running) =>
+    mainWindow?.webContents?.send('mail:mark-progress', { account, folder, done, total, running })
+  send(0, 0, true)
+  try {
+    const r = await emptyFolder({ account, folder }, (done, total) => send(done, total, true))
+    send(r.deleted || 0, r.deleted || 0, false)
+    return r
+  } catch (e) {
+    send(0, 0, false)
+    return { ok: false, error: e.message }
+  }
+})
+// move all READ messages in a folder to Trash (same spinner+% via mark-progress)
+ipcMain.handle('mail:delete-read', async (_e, { account, folder }) => {
+  const send = (done, total, running) =>
+    mainWindow?.webContents?.send('mail:mark-progress', { account, folder, done, total, running })
+  send(0, 0, true)
+  try {
+    const r = await deleteReadInFolder({ account, folder }, (done, total) => send(done, total, true))
+    send(r.deleted || 0, r.total || r.deleted || 0, false)
+    return r
+  } catch (e) {
+    send(0, 0, false)
+    return { ok: false, error: e.message }
+  }
+})
+// translate email text via the built-in AI — uses whichever engine is selected
+ipcMain.handle('mail:translate', async (_e, { segments, lang }) => {
+  const cli = loadSettings().ai || 'agy'
+  const target = lang || 'English'
+  const prompt =
+    `You are a translation engine. Translate each text segment below into ${target}. ` +
+    `Detect each segment's source language automatically and keep the meaning, tone and any punctuation/emoji. ` +
+    `Return ONLY a minified JSON object mapping each segment's number (as a string key) to its translated text — ` +
+    `no markdown, no code fences, no commentary. If a segment is already in ${target}, return it unchanged.\n\n` +
+    `Segments:\n${JSON.stringify(segments)}`
+  let res
+  // isolated one-shot per engine — translation must NOT share the chat conversation
+  // (a shared session lets the chat persona bleed in and breaks the JSON output)
+  if (cli === 'claude') res = await askClaudeRaw(prompt)
+  else if (cli === 'codex') {
+    const cfg = loadAiConfig()
+    res = await askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
+  } else {
+    res = await agyAskRaw(prompt, loadAiConfig().agyModel) // agy: isolated, no calendar guard
+  }
+  const reply = typeof res === 'string' ? res : res?.text || ''
+  if (!reply) return { ok: false, error: res?.error || 'translate failed' }
+  const m = reply.match(/\{[\s\S]*\}/)
+  if (!m) return { ok: false, error: 'no JSON in reply' }
+  try {
+    return { ok: true, map: JSON.parse(m[0]) }
+  } catch {
+    return { ok: false, error: 'bad JSON in reply' }
+  }
+})
+
+// one-shot AI call, no calendar guard — used for article reading/summarizing
+async function askRawAI(prompt) {
+  const cli = loadSettings().ai || 'agy'
+  // isolated one-shot (NOT the shared chat session) — otherwise the calendar system
+  // prompt bleeds in and the summary ends with a stray ```calendar [...]``` block
+  if (cli === 'claude') return askClaudeRaw(prompt)
+  if (cli === 'codex') {
+    const cfg = loadAiConfig()
+    return askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
+  }
+  return agyAskRaw(prompt, loadAiConfig().agyModel)
+}
+
+// read an in-app-browser article through the AI: translate to `lang` (or keep the
+// source language) and condense to `level` (full / medium / brief / key points).
+// Returns clean plain text — ready to show in the reader panel and to read aloud.
+ipcMain.handle('mail:read-article', async (_e, { title, text, lang, level }) => {
+  const target = lang && lang !== 'original' ? lang : null
+  const body = `${title ? 'TITLE: ' + title + '\n\n' : ''}${text || ''}`.slice(0, 24000)
+  if (!body.trim()) return { ok: false, error: 'no article text' }
+  const langLine = target
+    ? `Write EVERYTHING in ${target} — including the title and every heading. Translate from whatever language the article is in; do NOT leave the title, any heading or any phrase in the original language.`
+    : 'Write the result in the same language as the article.'
+  const levelLine = {
+    full: 'Reproduce the full article faithfully — do not shorten, just clean it into readable paragraphs.',
+    medium: 'Condense the article to about half its length, keeping all the important details.',
+    brief: 'Summarize the article briefly in a few short paragraphs — the key facts only.',
+    key: 'Extract only the key points as a short bullet list (start each line with "• ").'
+  }[level || 'full']
+  const prompt =
+    'You are a reading assistant. Below is the text of a web article (it may include menu/ads noise — ignore any non-article text). ' +
+    `${levelLine} ${langLine} ` +
+    'It will be read aloud, so write every number, unit and abbreviation as full words in the correct grammatical form ' +
+    '— use ORDINALS for years and dates (e.g. "2026 год" → "две тысячи двадцать шестой год"), and make units agree with the number ' +
+    '(e.g. "5 МБ" → "пять мегабайт", "2 КБ" → "два килобайта", "10 %" → "десять процентов", "3 km" → "three kilometers"). ' +
+    `Begin with the article's title${target ? ' (also in ' + target + ')' : ''} on the first line. ` +
+    'Return ONLY the resulting plain text — no markdown headers, no code fences, no commentary.\n\n' +
+    `ARTICLE:\n${body}`
+  const res = await askRawAI(prompt)
+  const reply = typeof res === 'string' ? res : res?.text || ''
+  if (!reply) return { ok: false, error: res?.error || 'failed' }
+  return { ok: true, text: reply.trim() }
+})
+
+// our language names → Google Translate codes (for the in-app browser's fast translate)
+const GLANG = {
+  Ukrainian: 'uk', English: 'en', Russian: 'ru', German: 'de', French: 'fr', Spanish: 'es',
+  Polish: 'pl', Italian: 'it', Portuguese: 'pt', Chinese: 'zh-CN', Japanese: 'ja'
+}
+
+// fast, free web-page translation via Google's public gtx endpoint (no API key) — used
+// by the in-app browser so switching language is instant (summarizing still uses the AI).
+// Segments are joined with \n into length-capped batches; the endpoint preserves the line
+// boundaries, so the result splits back 1:1. If a batch's boundaries don't line up, it
+// falls back to translating that batch one segment at a time.
+ipcMain.handle('mail:web-translate', async (_e, { segments, lang }) => {
+  const tl = GLANG[lang]
+  if (!tl) return { ok: false, error: 'unsupported language' }
+  const entries = Object.entries(segments || {})
+  if (!entries.length) return { ok: true, map: {} }
+  const MAX = 900 // raw chars per request — the URL-encoded query then stays under the limit
+  const call = async (text) => {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`
+    const r = await fetch(url)
+    if (!r.ok) throw new Error('http ' + r.status)
+    const j = await r.json()
+    return (j[0] || []).map((s) => s[0]).join('')
+  }
+  // split an over-long segment into <=MAX pieces on a space boundary
+  const splitLong = (s) => {
+    const out = []
+    let rest = s
+    while (rest.length > MAX) {
+      let cut = rest.lastIndexOf(' ', MAX)
+      if (cut < MAX * 0.5) cut = MAX
+      out.push(rest.slice(0, cut))
+      rest = rest.slice(cut)
+    }
+    if (rest) out.push(rest)
+    return out
+  }
+  const map = {}
+  let batch = [] // small segments translated together (joined by \n; boundaries survive)
+  let len = 0
+  const flush = async () => {
+    if (!batch.length) return
+    const out = (await call(batch.map((b) => b.t).join('\n'))).split('\n')
+    if (out.length === batch.length) batch.forEach((b, i) => (map[b.k] = out[i]))
+    else for (const b of batch) map[b.k] = await call(b.t)
+    batch = []
+    len = 0
+  }
+  try {
+    for (const [k, v] of entries) {
+      const t = String(v).replace(/\s*\n\s*/g, ' ') // inner newlines would desync the split
+      if (t.length > MAX) {
+        await flush() // long segment on its own: translate its chunks, then join back
+        const tr = []
+        for (const p of splitLong(t)) tr.push(await call(p))
+        map[k] = tr.join('')
+        continue
+      }
+      if (len + t.length > MAX) await flush()
+      batch.push({ k, t })
+      len += t.length + 1
+    }
+    await flush()
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+  return { ok: true, map }
+})
+ipcMain.handle('mail:saved-path', (_e, { account, mid, part }) => getSavedAttachment(account, mid, part))
+ipcMain.handle('mail:reveal-saved', (_e, path) => {
+  if (path) shell.showItemInFolder(path)
+  return true
+})
 ipcMain.handle('google:set-autosync', (_e, { email, ids }) => googleSetAutoSync(email, ids))
 ipcMain.handle('google:autosync-calendars', () => googleAutoSyncCalendars())
 ipcMain.handle('settings:get-sync-interval', () => loadAiConfig().googleSyncInterval || 0)
@@ -796,6 +1059,27 @@ ipcMain.handle('attach:icon', async (_e, id) => {
     return null
   }
 })
+// OS icon for a file TYPE (by extension) — for mail attachments that aren't on
+// disk yet. Probes with an empty temp file of that extension; cached per type.
+const mailIconCache = new Map()
+ipcMain.handle('mail:file-icon', async (_e, ext) => {
+  const key = String(ext || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!key) return null
+  if (mailIconCache.has(key)) return mailIconCache.get(key)
+  try {
+    const dir = join(app.getPath('temp'), 'calendar-iconprobe')
+    mkdirSync(dir, { recursive: true })
+    const probe = join(dir, `probe.${key}`)
+    if (!existsSync(probe)) writeFileSync(probe, '')
+    const img = await app.getFileIcon(probe, { size: 'small' })
+    const url = img.isEmpty() ? null : img.toDataURL()
+    mailIconCache.set(key, url)
+    return url
+  } catch {
+    mailIconCache.set(key, null)
+    return null
+  }
+})
 ipcMain.handle('ai:clear', () => {
   const cli = loadSettings().ai || 'agy'
   if (cli === 'claude') return clearClaude()
@@ -809,10 +1093,39 @@ ipcMain.handle('ai:clear', () => {
 
 // ---- text-to-speech ----------------------------------------------------
 ipcMain.handle('tts:speak', (_e, payload) => speak(payload))
+ipcMain.handle('tts:synth', (_e, payload) => synthesize(payload))
+ipcMain.handle('supertonic:status', () => getSupertonicStatus())
+ipcMain.handle('supertonic:download', () => startSupertonicDownload())
 ipcMain.handle('settings:get-tts-engine', () => loadSettings().ttsEngine || 'piper')
 ipcMain.on('settings:set-tts-engine', (_e, engine) => {
   const s = loadSettings()
-  s.ttsEngine = engine === 'windows' ? 'windows' : 'piper'
+  s.ttsEngine = ['windows', 'supertonic'].includes(engine) ? engine : 'piper'
+  saveSettings(s)
+})
+ipcMain.handle('settings:get-supertonic-voice', () => loadSettings().supertonicVoice || 'F1')
+ipcMain.on('settings:set-supertonic-voice', (_e, voice) => {
+  const ok = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'].includes(voice)
+  const s = loadSettings()
+  s.supertonicVoice = ok ? voice : 'F1'
+  saveSettings(s)
+})
+ipcMain.handle('settings:get-piper-voice', () => {
+  const v = loadSettings().piperVoice
+  return v == null ? 2 : v
+})
+ipcMain.on('settings:set-piper-voice', (_e, voice) => {
+  const s = loadSettings()
+  s.piperVoice = [0, 1, 2].includes(voice) ? voice : 2
+  saveSettings(s)
+})
+ipcMain.handle('settings:get-tts-speed', (_e, engine) => {
+  const v = loadSettings()[engine + 'Speed']
+  return v == null ? 1 : v
+})
+ipcMain.on('settings:set-tts-speed', (_e, { engine, value }) => {
+  if (!['piper', 'windows', 'supertonic'].includes(engine)) return
+  const s = loadSettings()
+  s[engine + 'Speed'] = Math.max(0.5, Math.min(2, Number(value) || 1))
   saveSettings(s)
 })
 // silent text notification (toast near the clock, no voice)
@@ -872,6 +1185,12 @@ ipcMain.handle('update:check', async () => {
 })
 
 // ---- single instance + lifecycle ---------------------------------------
+// allow the app to start audio (TTS) WITHOUT a prior click — the webPreferences
+// autoplayPolicy isn't reliably applied to the Web Audio API, but this Chromium
+// command-line switch is. Must be set before the app is ready. So the говорилка
+// (local TTS server / Telegram / AI) plays immediately, even right after a restart.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
@@ -880,6 +1199,23 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.calendar.app')
+
+    // harden the in-app mail browser <webview>: no node access / no preload, and
+    // keep popups (target=_blank, window.open) inside the viewer instead of spawning
+    // OS windows
+    app.on('will-attach-webview', (_e, webPreferences) => {
+      delete webPreferences.preload
+      webPreferences.nodeIntegration = false
+      webPreferences.contextIsolation = true
+    })
+    app.on('web-contents-created', (_e, contents) => {
+      if (contents.getType() !== 'webview') return
+      contents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:/i.test(url)) contents.loadURL(url)
+        return { action: 'deny' }
+      })
+    })
+
     createWindow()
     createTray()
     initDb()
@@ -901,7 +1237,17 @@ if (!gotLock) {
     scheduleAllAiTasks()
     rescheduleGoogleSync()
     initTts({ getMain: () => mainWindow })
+    initSupertonicDownload({ onState: (s) => mainWindow?.webContents?.send('supertonic:progress', s) })
     setTtsEngine(() => loadSettings().ttsEngine || 'piper')
+    setSupertonicVoice(() => loadSettings().supertonicVoice || 'F1')
+    setPiperVoice(() => {
+      const v = loadSettings().piperVoice
+      return v == null ? 2 : v
+    })
+    setSpeedResolver((engine) => {
+      const v = loadSettings()[engine + 'Speed']
+      return v == null ? 1 : v
+    })
     startTtsServer()
     syncTelegram()
     warmAi(loadSettings().ai || 'agy')

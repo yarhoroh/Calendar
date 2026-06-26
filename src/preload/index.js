@@ -106,8 +106,22 @@ const api = {
   revealAiConfig: () => ipcRenderer.invoke('aiConfig:reveal'),
   setModel: (model, reasoning) => ipcRenderer.invoke('ai:set-model', { model, reasoning }),
   ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
+  ttsSynth: (payload) => ipcRenderer.invoke('tts:synth', payload),
   getTtsEngine: () => ipcRenderer.invoke('settings:get-tts-engine'),
   setTtsEngine: (engine) => ipcRenderer.send('settings:set-tts-engine', engine),
+  supertonicStatus: () => ipcRenderer.invoke('supertonic:status'),
+  supertonicDownload: () => ipcRenderer.invoke('supertonic:download'),
+  getSupertonicVoice: () => ipcRenderer.invoke('settings:get-supertonic-voice'),
+  setSupertonicVoice: (voice) => ipcRenderer.send('settings:set-supertonic-voice', voice),
+  getPiperVoice: () => ipcRenderer.invoke('settings:get-piper-voice'),
+  setPiperVoice: (voice) => ipcRenderer.send('settings:set-piper-voice', voice),
+  getTtsSpeed: (engine) => ipcRenderer.invoke('settings:get-tts-speed', engine),
+  setTtsSpeed: (engine, value) => ipcRenderer.send('settings:set-tts-speed', { engine, value }),
+  onSupertonicProgress: (cb) => {
+    const h = (_e, s) => cb(s)
+    ipcRenderer.on('supertonic:progress', h)
+    return () => ipcRenderer.removeListener('supertonic:progress', h)
+  },
   notify: (text) => ipcRenderer.send('notify:push', text),
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)
@@ -221,6 +235,60 @@ const api = {
     importedStatus: (items) => ipcRenderer.invoke('google:imported-status', items),
     markImported: (p) => ipcRenderer.invoke('google:mark-imported', p),
     unimport: (it) => ipcRenderer.invoke('google:unimport', it)
+  },
+
+  // Mail client (IMAP, app-password — separate from the calendar accounts)
+  mail: {
+    listAccounts: () => ipcRenderer.invoke('mail:list-accounts'),
+    add: (payload) => ipcRenderer.invoke('mail:add', payload),
+    remove: (email) => ipcRenderer.invoke('mail:remove', email),
+    test: (email) => ipcRenderer.invoke('mail:test', email),
+    folders: (email) => ipcRenderer.invoke('mail:folders', email),
+    messages: (account, label, limit) => ipcRenderer.invoke('mail:messages', { account, label, limit }),
+    cached: (account, folder, tab, page, max, filter) => ipcRenderer.invoke('mail:cached', { account, folder, tab, page, max, filter }),
+    load: (account, folder, tab, page, max, filter, token, grouped) => ipcRenderer.invoke('mail:load', { account, folder, tab, page, max, filter, token, grouped }),
+    onLoadPartial: (cb) => {
+      const h = (_e, p) => cb(p)
+      ipcRenderer.on('mail:load-partial', h)
+      return () => ipcRenderer.removeListener('mail:load-partial', h)
+    },
+    recent: (account, folder, tab, filter, limit) => ipcRenderer.invoke('mail:recent', { account, folder, tab, filter, limit }),
+    folderStats: (email, paths) => ipcRenderer.invoke('mail:folder-stats', { email, paths }),
+    categoryStats: (account) => ipcRenderer.invoke('mail:category-stats', account),
+    setImportant: (account, id, important) => ipcRenderer.invoke('mail:set-important', { account, id, important }),
+    thread: (account, threadId, id, folder, token) => ipcRenderer.invoke('mail:thread', { account, threadId, id, folder, token }),
+    onThreadMessage: (cb) => {
+      const h = (_e, p) => cb(p)
+      ipcRenderer.on('mail:thread-message', h)
+      return () => ipcRenderer.removeListener('mail:thread-message', h)
+    },
+    clearCache: () => ipcRenderer.invoke('mail:clear-cache'),
+    setSeen: (account, threadId, id, seen) => ipcRenderer.invoke('mail:set-seen', { account, threadId, id, seen }),
+    inlineImages: (html) => ipcRenderer.invoke('mail:inline-images', { html }),
+    openAttachment: (account, id, part, name, saveAs) => ipcRenderer.invoke('mail:open-attachment', { account, id, part, name, saveAs }),
+    delete: (account, folder, threadId, id) => ipcRenderer.invoke('mail:delete', { account, folder, threadId, id }),
+    markFolderRead: (account, folder) => ipcRenderer.invoke('mail:mark-folder-read', { account, folder }),
+    emptyFolder: (account, folder) => ipcRenderer.invoke('mail:empty-folder', { account, folder }),
+    deleteRead: (account, folder) => ipcRenderer.invoke('mail:delete-read', { account, folder }),
+    bulkDelete: (folder, items) => ipcRenderer.invoke('mail:bulk-delete', { folder, items }),
+    bulkSeen: (folder, items, seen) => ipcRenderer.invoke('mail:bulk-seen', { folder, items, seen }),
+    search: (account, folder, query, token) => ipcRenderer.invoke('mail:search', { account, folder, query, token }),
+    onSearchResult: (cb) => {
+      const h = (_e, p) => cb(p)
+      ipcRenderer.on('mail:search-result', h)
+      return () => ipcRenderer.removeListener('mail:search-result', h)
+    },
+    onMarkProgress: (cb) => {
+      const h = (_e, p) => cb(p)
+      ipcRenderer.on('mail:mark-progress', h)
+      return () => ipcRenderer.removeListener('mail:mark-progress', h)
+    },
+    translate: (segments, lang) => ipcRenderer.invoke('mail:translate', { segments, lang }),
+    webTranslate: (segments, lang) => ipcRenderer.invoke('mail:web-translate', { segments, lang }),
+    readArticle: (payload) => ipcRenderer.invoke('mail:read-article', payload),
+    fileIcon: (ext) => ipcRenderer.invoke('mail:file-icon', ext),
+    savedPath: (account, mid, part) => ipcRenderer.invoke('mail:saved-path', { account, mid, part }),
+    revealSaved: (path) => ipcRenderer.invoke('mail:reveal-saved', path)
   },
 
   // events from main

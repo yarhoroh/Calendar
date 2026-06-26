@@ -87,6 +87,45 @@ export function initDb() {
       day TEXT,
       imported_at TEXT
     );
+
+    -- local mail cache: one row per Gmail message per account. Headers + snippet
+    -- always cached; the full body is fetched on open. Folder = Gmail labels
+    -- (INBOX / SENT / TRASH / UNREAD / …) kept as a JSON array.
+    CREATE TABLE IF NOT EXISTS mail_messages (
+      account TEXT NOT NULL,
+      id TEXT NOT NULL,
+      thread_id TEXT,
+      from_addr TEXT,
+      to_addr TEXT,
+      subject TEXT,
+      snippet TEXT,
+      date INTEGER,
+      labels TEXT,
+      unread INTEGER DEFAULT 0,
+      body_html TEXT,
+      body_text TEXT,
+      fetched_at TEXT,
+      PRIMARY KEY (account, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_mail_account_date ON mail_messages(account, date DESC);
+    CREATE TABLE IF NOT EXISTS mail_saved (
+      account TEXT NOT NULL,
+      mid TEXT NOT NULL,
+      part TEXT NOT NULL,
+      path TEXT,
+      saved_at TEXT,
+      PRIMARY KEY (account, mid, part)
+    );
+    -- locally-deleted keys (message id OR thread id), scoped to the folder they were deleted
+    -- from, so a delete the IMAP server hasn't synced yet stays hidden from THAT folder until
+    -- it catches up (a message moved INBOX→Trash is hidden in INBOX but still shows in Trash)
+    CREATE TABLE IF NOT EXISTS mail_tombstones (
+      account TEXT NOT NULL,
+      mkey TEXT NOT NULL,
+      folder TEXT NOT NULL DEFAULT '',
+      ts INTEGER,
+      PRIMARY KEY (account, mkey, folder)
+    );
   `)
   // migrate older DBs: add columns added after first release
   try {
@@ -152,6 +191,30 @@ export function initDb() {
     db.exec('ALTER TABLE notes ADD COLUMN date_statuses TEXT')
   } catch {
     // column already exists
+  }
+  try {
+    // Gmail category tab a message belongs to (primary/social/promotions/updates/forums)
+    db.exec('ALTER TABLE mail_messages ADD COLUMN category TEXT')
+  } catch {
+    // column already exists
+  }
+  try {
+    // Gmail "important" marker (X-GM-LABELS contains \Important)
+    db.exec('ALTER TABLE mail_messages ADD COLUMN important INTEGER')
+  } catch {
+    // column already exists
+  }
+  try {
+    // attachment metadata (JSON array) parsed from BODYSTRUCTURE during sync
+    db.exec('ALTER TABLE mail_messages ADD COLUMN attachments TEXT')
+  } catch {
+    // column already exists
+  }
+  try {
+    // scope tombstones to the folder they were deleted from (for DBs created before this col)
+    db.exec("ALTER TABLE mail_tombstones ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
+  } catch {
+    // column already exists (fresh DBs create it inline)
   }
   // one-time migration: existing plain-text notes get an html body so html is
   // the single source of truth for content going forward (idempotent — only
@@ -533,4 +596,142 @@ export function removeAttachment(id) {
 }
 export function attachmentById(id) {
   return db.prepare('SELECT id, note_id, name, path FROM attachments WHERE id = ?').get(id)
+}
+
+// ---- mail: local cache of Gmail messages (headers always, body on demand) ---
+const MAIL_COLS = 'account, id, thread_id, from_addr, to_addr, subject, snippet, date, labels, unread, body_html, body_text, category, important, attachments'
+function rowToMail(r) {
+  return {
+    account: r.account,
+    id: r.id,
+    threadId: r.thread_id,
+    from: r.from_addr,
+    to: r.to_addr,
+    subject: r.subject,
+    snippet: r.snippet,
+    date: r.date,
+    labels: r.labels ? JSON.parse(r.labels) : [],
+    unread: !!r.unread,
+    bodyHtml: r.body_html || null,
+    bodyText: r.body_text || null,
+    category: r.category || 'primary',
+    important: !!r.important,
+    attachments: r.attachments ? JSON.parse(r.attachments) : []
+  }
+}
+
+// upsert a batch of message headers (keeps any body already cached for that id)
+export function upsertMailMessages(account, msgs) {
+  if (!account || !Array.isArray(msgs) || !msgs.length) return 0
+  const ins = db.prepare(`
+    INSERT INTO mail_messages (account, id, thread_id, from_addr, to_addr, subject, snippet, date, labels, unread, category, important, attachments, fetched_at)
+    VALUES (@account, @id, @thread_id, @from_addr, @to_addr, @subject, @snippet, @date, @labels, @unread, @category, @important, @attachments, @fetched_at)
+    ON CONFLICT(account, id) DO UPDATE SET
+      thread_id=excluded.thread_id, from_addr=excluded.from_addr, to_addr=excluded.to_addr,
+      subject=excluded.subject, snippet=excluded.snippet, date=excluded.date,
+      labels=excluded.labels, unread=excluded.unread, fetched_at=excluded.fetched_at,
+      category=COALESCE(excluded.category, mail_messages.category),
+      important=excluded.important,
+      attachments=COALESCE(excluded.attachments, mail_messages.attachments)
+  `)
+  const now = new Date().toISOString()
+  const tx = db.transaction((list) => {
+    for (const m of list)
+      ins.run({
+        account,
+        id: m.id,
+        thread_id: m.threadId ?? null,
+        from_addr: m.from ?? null,
+        to_addr: m.to ?? null,
+        subject: m.subject ?? null,
+        snippet: m.snippet ?? null,
+        date: Number(m.date) || 0,
+        labels: JSON.stringify(m.labels || []),
+        unread: m.unread ? 1 : 0,
+        category: m.category ?? null,
+        important: m.important ? 1 : 0,
+        attachments: Array.isArray(m.attachments) ? JSON.stringify(m.attachments) : null,
+        fetched_at: now
+      })
+  })
+  tx(msgs)
+  return msgs.length
+}
+
+// messages in a folder (Gmail label) for one account, or — account 'all' — across
+// every account (the unified inbox/sent views), newest first
+export function setMailMessageImportant(account, id, important) {
+  db.prepare('UPDATE mail_messages SET important = ? WHERE account = ? AND id = ?').run(important ? 1 : 0, account, id)
+}
+
+// wipe the entire local mail cache (rebuilt on the next IMAP sync)
+export function clearMailCache() {
+  return db.prepare('DELETE FROM mail_messages').run().changes
+}
+
+// remember where the user saved an attachment (survives cache re-syncs)
+export function setSavedAttachment(account, mid, part, path) {
+  db.prepare(
+    `INSERT INTO mail_saved (account, mid, part, path, saved_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(account, mid, part) DO UPDATE SET path=excluded.path, saved_at=excluded.saved_at`
+  ).run(account, String(mid), String(part), path, new Date().toISOString())
+}
+export function getSavedAttachment(account, mid, part) {
+  const r = db.prepare('SELECT path FROM mail_saved WHERE account = ? AND mid = ? AND part = ?').get(account, String(mid), String(part))
+  return r?.path || null
+}
+
+// drop a whole conversation (or one message) from the cache after deleting it
+export function deleteCachedMail(account, threadId, id) {
+  if (threadId) db.prepare('DELETE FROM mail_messages WHERE account = ? AND thread_id = ?').run(account, String(threadId))
+  else db.prepare('DELETE FROM mail_messages WHERE account = ? AND id = ?').run(account, id)
+}
+
+// ---- tombstones: locally-deleted keys, hidden from a folder until the server catches up ----
+// `keys` is a mix of message ids and thread ids; we store both so a list can be filtered by
+// either. Scoped to `folder`. `ts` lets us prune stale tombstones once the server has synced.
+export function addMailTombstones(account, keys, folder, ts) {
+  const ins = db.prepare('INSERT OR REPLACE INTO mail_tombstones (account, mkey, folder, ts) VALUES (?, ?, ?, ?)')
+  const f = folder || ''
+  const tx = db.transaction((ks) => {
+    for (const k of ks) if (k != null && k !== '') ins.run(account, String(k), f, ts)
+  })
+  tx(keys || [])
+}
+
+// dead keys for an account; if `folder` is given, only that folder's tombstones (otherwise
+// every folder's — used by All-Mail search, which should hide anything just deleted anywhere)
+export function mailTombstoneSet(account, folder) {
+  const all = !account || account === 'all'
+  let sql = 'SELECT mkey FROM mail_tombstones WHERE 1=1'
+  const args = []
+  if (!all) { sql += ' AND account = ?'; args.push(account) }
+  if (folder != null) { sql += ' AND folder = ?'; args.push(folder) }
+  return new Set(db.prepare(sql).all(...args).map((r) => r.mkey))
+}
+
+// drop tombstones older than `before` (ms epoch) — by then the server has expunged for real
+export function pruneMailTombstones(before) {
+  return db.prepare('DELETE FROM mail_tombstones WHERE ts < ?').run(before).changes
+}
+
+// mark a whole conversation (or one message) read/unread in the cache
+export function setMailThreadSeen(account, threadId, id, seen) {
+  const unread = seen ? 0 : 1
+  if (threadId) db.prepare('UPDATE mail_messages SET unread = ? WHERE account = ? AND thread_id = ?').run(unread, account, String(threadId))
+  else db.prepare('UPDATE mail_messages SET unread = ? WHERE account = ? AND id = ?').run(unread, account, id)
+}
+
+export function listMailMessages(account, label, limit = 50, offset = 0, category = null) {
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 500)
+  const off = Math.max(Number(offset) || 0, 0)
+  const like = `%"${String(label || 'INBOX')}"%`
+  const catSql = category ? ' AND category = ?' : ''
+  const tail = ` ORDER BY date DESC LIMIT ? OFFSET ?`
+  const args = category ? [like, category, lim, off] : [like, lim, off]
+  const rows =
+    account && account !== 'all'
+      ? db.prepare(`SELECT ${MAIL_COLS} FROM mail_messages WHERE account = ? AND labels LIKE ?${catSql}${tail}`).all(account, ...args)
+      : db.prepare(`SELECT ${MAIL_COLS} FROM mail_messages WHERE labels LIKE ?${catSql}${tail}`).all(...args)
+  return rows.map(rowToMail)
 }

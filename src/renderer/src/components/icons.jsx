@@ -85,6 +85,58 @@ export function AppointmentsIcon() {
   )
 }
 
+export function MailIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M22 6l-10 7L2 6" />
+    </svg>
+  )
+}
+
+// --- mail folder icons (16px, stroke) ---
+const folderSvg = (children) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+)
+export const InboxIcon = () => folderSvg(<>
+  <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+  <path d="M5.5 5.5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6L5.5 5.5z" />
+</>)
+export const SentIcon = () => folderSvg(<><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></>)
+export const TrashIcon = () => folderSvg(<><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M10 11v5M14 11v5" /></>)
+export const SpamIcon = () => folderSvg(<><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></>)
+export const DraftIcon = () => folderSvg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></>)
+export const StarIcon = () => folderSvg(<path d="M12 2l3 7 7 .5-5.5 4.5 2 7L12 17l-6.5 4 2-7L2 9.5 9 9z" />)
+// Gmail "important" marker (label_important). filled = important (yellow), outline = not.
+export const ImportantIcon = ({ filled }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3.5 18.99l11 .01c.67 0 1.27-.33 1.63-.84L21 12l-4.37-6.16c-.36-.51-.96-.84-1.63-.84l-11 .01L8 12l-4.5 6.99z" />
+  </svg>
+)
+export const ArchiveIcon = () => folderSvg(<><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" /></>)
+export const LabelIcon = () => folderSvg(<><path d="M20 12l-8 8-9-9V3h8l9 9z" /><circle cx="7" cy="7" r="1.3" /></>)
+export const SearchIcon = () => folderSvg(<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>)
+export const RefreshIcon = () => folderSvg(<><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></>)
+export const ColumnsIcon = () => folderSvg(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /></>)
+export const ReplyIcon = () => folderSvg(<><path d="M9 17l-5-5 5-5" /><path d="M4 12h11a5 5 0 0 1 5 5v1" /></>)
+export const ReplyAllIcon = () => folderSvg(<><path d="M7 17l-5-5 5-5" /><path d="M12 17l-5-5 5-5" /><path d="M7 12h9a5 5 0 0 1 5 5v1" /></>)
+export const ForwardIcon = () => folderSvg(<><path d="M15 17l5-5-5-5" /><path d="M20 12H9a5 5 0 0 0-5 5v1" /></>)
+export const DownloadIcon = () => folderSvg(<><path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M5 21h14" /></>)
+// the colourful Gmail logo (brand colours, not currentColor)
+export function GmailIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
+      <path fill="#4caf50" d="M45,16.2l-5,2.75l-5,4.75L35,40h7c1.657,0,3-1.343,3-3V16.2z" />
+      <path fill="#1e88e5" d="M3,16.2l3.614,1.71L13,23.7V40H6c-1.657,0-3-1.343-3-3V16.2z" />
+      <polygon fill="#e53935" points="35,11.2 24,19.45 13,11.2 12,17 13,23.7 24,31.95 35,23.7 36,17" />
+      <path fill="#c62828" d="M3,12.298V16.2l10,7.5V11.2L9.876,8.859C9.132,8.301,8.228,8,7.298,8C4.924,8,3,9.924,3,12.298z" />
+      <path fill="#fbc02d" d="M45,12.298V16.2l-10,7.5V11.2l3.124-2.341C38.868,8.301,39.772,8,40.702,8C43.076,8,45,9.924,45,12.298z" />
+    </svg>
+  )
+}
+
 export function PaperclipIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -147,6 +199,41 @@ export function StopIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
       <rect x="6" y="6" width="12" height="12" rx="2.5" />
+    </svg>
+  )
+}
+
+export function SpeakerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
+    </svg>
+  )
+}
+
+export function PlayIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  )
+}
+
+export function PauseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="5" width="4" height="14" rx="1.5" />
+      <rect x="14" y="5" width="4" height="14" rx="1.5" />
+    </svg>
+  )
+}
+
+export function NextIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M6 5v14l8.5-7z" />
+      <rect x="16" y="5" width="3" height="14" rx="1.3" />
     </svg>
   )
 }

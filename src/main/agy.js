@@ -223,3 +223,35 @@ function agySendOne(prompt, model) {
     })
   })
 }
+
+// isolated one-shot ask: a FRESH throwaway conversation and NO calendar guard — for
+// utility prompts (e.g. email translation) that must not touch the chat or its format
+export function agyAskRaw(prompt, model) {
+  return new Promise((resolve) => {
+    const conv = randomUUID()
+    const args = ['--dangerously-skip-permissions', '--sandbox', '--conversation', conv, '--print', prompt]
+    if (model) args.push('--model', model)
+    let term
+    try {
+      term = loadPty().spawn(agyExe(), args, { name: 'xterm-256color', cols: 120, rows: 40, cwd: workspaceDir(), env: process.env })
+    } catch (e) {
+      resolve({ ok: false, text: '', error: e?.message || String(e) })
+      return
+    }
+    let buf = ''
+    let done = false
+    const finish = (r) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      try { term.kill() } catch { /* gone */ }
+      resolve(r)
+    }
+    const timer = setTimeout(() => finish({ ok: false, text: '', error: 'agy timed out' }), TIMEOUT)
+    term.onData((d) => { buf += d })
+    term.onExit(() => {
+      const text = clean(buf)
+      finish(text ? { ok: true, text } : { ok: false, text: '', error: 'agy returned no output' })
+    })
+  })
+}

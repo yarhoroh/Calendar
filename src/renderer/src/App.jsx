@@ -5,6 +5,7 @@ import CloseDialog from './components/CloseDialog'
 import ErrorBoundary from './components/ErrorBoundary'
 import CalendarView from './views/CalendarView'
 import AppointmentsView from './views/AppointmentsView'
+import MailView from './views/MailView'
 import SettingsView from './views/SettingsView'
 import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
@@ -24,7 +25,11 @@ import './styles/compact.css'
 // view and the close dialog. Reminder toasts live in a separate window; here we
 // only listen for "open this day" requests coming from a clicked toast.
 export default function App() {
-  const [view, setView] = useState('calendar')
+  // restore the last-open tab across restarts (calendar / appointments / mail / settings)
+  const [view, setView] = useState(() => {
+    const saved = localStorage.getItem('view')
+    return ['calendar', 'appointments', 'mail', 'settings'].includes(saved) ? saved : 'calendar'
+  })
   const [command, setCommand] = useState(null)
   const [showChat, setShowChat] = useState(false)
   const [compact, setCompact] = useState({})
@@ -165,7 +170,10 @@ export default function App() {
       return next
     })
 
-  const selectView = (name) => setView(name)
+  const selectView = (name) => {
+    setView(name)
+    localStorage.setItem('view', name) // reopen on this tab next launch
+  }
 
   return (
     <div className="app">
@@ -184,35 +192,36 @@ export default function App() {
 
       <main className="content">
         <ErrorBoundary>
-          {view === 'settings' ? (
+          {/* calendar + appointments + mail stay mounted (hidden when inactive — INCLUDING
+              while Settings is open) so their scroll position, selection and in-app
+              browser survive switching views; Settings just overlays on top */}
+          <div className="views" style={{ display: view === 'settings' ? 'none' : undefined }}>
+            <div className="view-pane" style={{ display: view === 'calendar' ? undefined : 'none' }}>
+              <CalendarView command={command} />
+            </div>
+            <div className="view-pane" style={{ display: view === 'appointments' ? undefined : 'none' }}>
+              <AppointmentsView
+                onJump={(day) => runCommand(day === 'everyday' ? { kind: 'everyday' } : { kind: 'goto', date: day })}
+              />
+            </div>
+            <div className="view-pane" style={{ display: view === 'mail' ? undefined : 'none' }}>
+              <MailView active={view === 'mail'} onOpenSettings={() => selectView('settings')} />
+            </div>
+          </div>
+          {/* one shared chat under the views (the AI can read/import Google) */}
+          {showChat && view !== 'settings' && (
+            <div className="app-chat" ref={chatElRef}>
+              <ChatPanel messages={chat.messages} busy={chat.busy} onClear={chat.clear} />
+              <PromptBar onSend={chat.send} busy={chat.busy} />
+            </div>
+          )}
+          {view === 'settings' && (
             <SettingsView
               showChat={showChat}
               onToggleChat={toggleChat}
               compact={compact}
               onToggleCompact={toggleCompact}
             />
-          ) : (
-            <>
-              {/* calendar + appointments stay mounted (hidden when inactive) so
-                  their scroll position and state survive switching views */}
-              <div className="views">
-                <div className="view-pane" style={{ display: view === 'calendar' ? undefined : 'none' }}>
-                  <CalendarView command={command} />
-                </div>
-                <div className="view-pane" style={{ display: view === 'appointments' ? undefined : 'none' }}>
-                  <AppointmentsView
-                    onJump={(day) => runCommand(day === 'everyday' ? { kind: 'everyday' } : { kind: 'goto', date: day })}
-                  />
-                </div>
-              </div>
-              {/* one shared chat under both views (the AI can read/import Google) */}
-              {showChat && (
-                <div className="app-chat" ref={chatElRef}>
-                  <ChatPanel messages={chat.messages} busy={chat.busy} onClear={chat.clear} />
-                  <PromptBar onSend={chat.send} busy={chat.busy} />
-                </div>
-              )}
-            </>
           )}
         </ErrorBoundary>
       </main>

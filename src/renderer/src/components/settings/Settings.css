@@ -421,6 +421,19 @@
   flex: 0 0 auto;
 }
 
+/* stacked: title on top, control on its own full-width line below (wide controls) */
+.setting-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.setting-row--stacked .setting-row__control {
+  width: 100%;
+}
+.setting-row--stacked .setting-row__desc {
+  white-space: normal;
+}
+
 .tool-status {
   display: flex;
   align-items: center;

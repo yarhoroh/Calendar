@@ -10,3 +10,6 @@ release/
 
 # runtime-downloaded ASR models (not shipped)
 resources/asr/
+
+# CodeGraph local code index (per-machine, rebuilt on demand)
+.codegraph/

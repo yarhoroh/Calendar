@@ -1,0 +1,250 @@
+/* In-app web viewer: full-cover overlay on top of the whole mail area, so its
+   top bar replaces the head/pagination strip. .mail-list is the positioning ctx. */
+.mail-list {
+  position: relative;
+}
+
+.mail-web {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #0f1117);
+}
+
+.mail-web__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, #232733);
+  background: var(--panel, #161922);
+}
+
+.mail-web__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 12px 0 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text, #e6e8ee);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mail-web__back:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.mail-web__back svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mail-web__div {
+  width: 1px;
+  height: 18px;
+  background: var(--border, #232733);
+}
+
+.mail-web__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #9aa0ad);
+  cursor: pointer;
+}
+.mail-web__nav:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.mail-web__nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.mail-web__nav svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mail-web__addr {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  color: var(--muted, #9aa0ad);
+  font-size: 12.5px;
+}
+.mail-web__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-web__ext {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #9aa0ad);
+  font-size: 16px;
+  cursor: pointer;
+}
+.mail-web__ext:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.mail-web__apply {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent, #10b981);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mail-web__apply:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mail-web__apply .mail-spinner--white {
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+}
+.mail-web__toggle {
+  width: auto;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mail-web__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mail-web__error {
+  padding: 6px 12px;
+  background: color-mix(in srgb, #d33 16%, var(--panel, #161922));
+  color: #ffb4b4;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border, #232733);
+}
+
+.mail-web__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.mail-web__view {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* clean reader panel: AI-translated / condensed article over the live page */
+.mail-web__reader {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: #fff; /* clean white reading surface, regardless of app theme */
+  padding: 28px 24px 48px;
+}
+.mail-web__article {
+  max-width: 760px;
+  margin: 0 auto;
+  color: #1a1a1a; /* dark text on the white page */
+  font-size: 16px;
+  line-height: 1.7;
+  user-select: text; /* the app sets user-select:none globally — re-enable copy here */
+  cursor: text;
+}
+.mail-web__article p {
+  margin: 0 0 14px;
+  white-space: pre-wrap;
+}
+.mail-web__article p:first-child {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 20px;
+}
+
+/* floating read-aloud controls: bottom-right of the reader, above the chat */
+.mail-web__tts {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.mail-web__tts-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent, #10b981) 90%, transparent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.mail-web__tts-btn svg {
+  width: 27px; /* ~2x the default icon size, trimmed 10% */
+  height: 27px;
+}
+.mail-web__tts-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.mail-web__tts-btn:disabled {
+  cursor: default;
+}
+/* state colours */
+.mail-web__tts-btn--prep {
+  background: rgba(245, 180, 0, 0.9); /* preparing — yellow */
+}
+.mail-web__tts-btn--pause {
+  background: rgba(249, 115, 22, 0.9); /* pause — orange */
+}
+.mail-web__tts-btn--stop {
+  background: rgba(220, 38, 38, 0.9); /* stop — red */
+}
+.mail-web__tts-btn .mail-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-color: rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+}

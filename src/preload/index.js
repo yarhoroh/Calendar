@@ -250,6 +250,8 @@ const api = {
   // Mail client (IMAP, app-password — separate from the calendar accounts)
   mail: {
     listAccounts: () => ipcRenderer.invoke('mail:list-accounts'),
+    send: (payload) => ipcRenderer.invoke('mail:send', payload),
+    contacts: () => ipcRenderer.invoke('mail:contacts'),
     add: (payload) => ipcRenderer.invoke('mail:add', payload),
     remove: (email) => ipcRenderer.invoke('mail:remove', email),
     test: (email) => ipcRenderer.invoke('mail:test', email),

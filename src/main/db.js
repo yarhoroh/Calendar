@@ -825,6 +825,12 @@ export function setMailThreadSeen(account, threadId, id, seen) {
   else db.prepare('UPDATE mail_messages SET unread = ? WHERE account = ? AND id = ?').run(unread, account, id)
 }
 
+// every sender/recipient string we've cached — raw "Name <email>" forms, for building the
+// compose autocomplete (contacts you've corresponded with)
+export function allMailAddresses() {
+  return db.prepare('SELECT from_addr, to_addr FROM mail_messages').all()
+}
+
 export function listMailMessages(account, label, limit = 50, offset = 0, category = null) {
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 500)
   const off = Math.max(Number(offset) || 0, 0)

@@ -50,6 +50,21 @@
   margin: 0 3px;
 }
 
+.re-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.re-font {
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12.5px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
 .rich-editor__content {
   display: flex;
   flex-direction: column;
@@ -143,25 +158,25 @@
 /* alignment toolbar above a selected image */
 .ri-img__bar {
   position: absolute;
-  top: -32px;
-  left: 0;
+  top: 4px;
+  left: 4px; /* overlaid on the image's top-left corner → always fits inside the message */
   display: none;
   gap: 2px;
   padding: 2px;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 3;
   line-height: 1;
 }
 .ri-img--selected .ri-img__bar {
   display: flex;
 }
-/* image at the very top: drop the toolbar below it so it isn't clipped */
+/* the toolbar always sits inside the image now, so the "flip below" case is a no-op */
 .ri-img--bar-below .ri-img__bar {
-  top: auto;
-  bottom: -32px;
+  top: 4px;
+  bottom: auto;
 }
 .ri-img__bar button {
   width: 24px;

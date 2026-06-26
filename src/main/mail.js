@@ -2,8 +2,9 @@ import { app, dialog, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { ImapFlow } from 'imapflow'
+import nodemailer from 'nodemailer'
 import { loadAiConfig, saveAiConfig } from './aiConfig'
-import { upsertMailMessages, listMailMessages, setMailMessageImportant, setMailThreadSeen, setSavedAttachment, deleteCachedMail, reconcileMailCache, addMailTombstones, mailTombstoneSet, pruneMailTombstones } from './db'
+import { upsertMailMessages, listMailMessages, allMailAddresses, setMailMessageImportant, setMailThreadSeen, setSavedAttachment, deleteCachedMail, reconcileMailCache, addMailTombstones, mailTombstoneSet, pruneMailTombstones } from './db'
 import { extractAttachments, pickBodyParts } from './mailMime'
 
 // Mail client over IMAP (read) — independent of the Google Calendar OAuth.
@@ -44,6 +45,65 @@ function saveRaw(list) {
 // accounts for the UI — never expose the password
 export function getMailAccounts() {
   return rawAccounts().map((a) => ({ email: a.email, name: a.name || a.email, imapHost: a.imapHost }))
+}
+
+// Contacts for the compose autocomplete: every distinct address from the cached mail
+// (senders + recipients), name + email, most-corresponded-with first. Built from the local
+// cache — no extra network. Excludes the user's own connected accounts.
+function parseAddr(s) {
+  if (!s) return null
+  const m = String(s).match(/^(.*?)\s*<([^>]+)>\s*$/)
+  if (m) return { name: m[1].replace(/^["']|["']$/g, '').trim(), email: m[2].trim().toLowerCase() }
+  const t = String(s).trim()
+  return t.includes('@') ? { name: '', email: t.toLowerCase() } : null
+}
+export function mailContacts() {
+  const mine = new Set(rawAccounts().map((a) => a.email.toLowerCase()))
+  const by = new Map() // email → { email, name, n }
+  for (const row of allMailAddresses()) {
+    for (const raw of [row.from_addr, row.to_addr]) {
+      const a = parseAddr(raw)
+      if (!a || mine.has(a.email)) continue
+      const cur = by.get(a.email)
+      if (cur) {
+        cur.n++
+        if (!cur.name && a.name) cur.name = a.name
+      } else by.set(a.email, { email: a.email, name: a.name, n: 1 })
+    }
+  }
+  return [...by.values()].sort((a, b) => b.n - a.n).slice(0, 800)
+}
+
+// Send a message over the account's SMTP (app password). Gmail auto-files SMTP-sent mail
+// into Sent, so no IMAP APPEND is needed. `to`/`cc` are comma-separated address strings.
+export async function sendMail({ account, to, cc, subject, text, html, attachments }) {
+  const acc = findRaw(account)
+  if (!acc) return { ok: false, error: 'account not found' }
+  if (!String(to || '').trim()) return { ok: false, error: 'a recipient is required' }
+  const port = Number(acc.smtpPort) || 465
+  try {
+    const transport = nodemailer.createTransport({
+      host: acc.smtpHost || 'smtp.gmail.com',
+      port,
+      secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
+      auth: { user: acc.email, pass: decryptSecret(acc.password) }
+    })
+    const files = (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && a.path)
+      .map((a) => ({ filename: a.name || undefined, path: a.path }))
+    const info = await transport.sendMail({
+      from: acc.name && acc.name !== acc.email ? `${acc.name} <${acc.email}>` : acc.email,
+      to: String(to).trim(),
+      cc: String(cc || '').trim() || undefined,
+      subject: String(subject || '').trim() || '(no subject)',
+      text: text || '',
+      html: html || undefined,
+      attachments: files.length ? files : undefined
+    })
+    return { ok: true, id: info.messageId }
+  } catch (e) {
+    return { ok: false, error: imapError(e) }
+  }
 }
 
 function findRaw(email) {

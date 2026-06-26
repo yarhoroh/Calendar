@@ -125,6 +125,11 @@ export const ZoomOutIcon = () => folderSvg(<><circle cx="11" cy="11" r="7" /><pa
 export const LanguageIcon = () => folderSvg(<><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c2.5 2.4 2.5 15.6 0 18" /><path d="M12 3c-2.5 2.4-2.5 15.6 0 18" /></>)
 export const ShortenIcon = () => folderSvg(<><path d="M4 6h16" /><path d="M4 12h10" /><path d="M4 18h6" /></>)
 export const ApplyIcon = () => folderSvg(<path d="M20 6L9 17l-5-5" />)
+// compose / new email — a pencil
+export const ComposeIcon = () => folderSvg(<><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></>)
+export const AlignLeftIcon = () => folderSvg(<><path d="M4 6h16" /><path d="M4 12h10" /><path d="M4 18h13" /></>)
+export const AlignCenterIcon = () => folderSvg(<><path d="M4 6h16" /><path d="M7 12h10" /><path d="M5 18h14" /></>)
+export const AlignRightIcon = () => folderSvg(<><path d="M4 6h16" /><path d="M10 12h10" /><path d="M7 18h13" /></>)
 export const RefreshIcon = () => folderSvg(<><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></>)
 export const ColumnsIcon = () => folderSvg(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /></>)
 export const ReplyIcon = () => folderSvg(<><path d="M9 17l-5-5 5-5" /><path d="M4 12h11a5 5 0 0 1 5 5v1" /></>)

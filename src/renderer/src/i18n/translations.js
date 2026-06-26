@@ -47,6 +47,9 @@ export const translations = {
       loadingMore: 'loading more…',
       zoomIn: 'Zoom in (Ctrl+scroll)', zoomOut: 'Zoom out (Ctrl+scroll)', zoomReset: 'Reset zoom to 100%',
       language: 'Translate',
+      newEmail: 'New email', composeBody: 'Write your message…', sending: 'Sending', attach: 'Attach files',
+      composeNeedTo: 'Add at least one recipient.', composeNeedFrom: 'Pick an account to send from.',
+      composeFailed: 'Could not send the email.',
       prev: 'Previous', next: 'Next'
     },
     appointments: {
@@ -289,6 +292,9 @@ export const translations = {
       loadingMore: 'завантаження…',
       zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', zoomReset: 'Скинути масштаб до 100%',
       language: 'Переклад',
+      newEmail: 'Новий лист', composeBody: 'Напишіть повідомлення…', sending: 'Надсилання', attach: 'Прикріпити файли',
+      composeNeedTo: 'Додайте хоча б одного отримувача.', composeNeedFrom: 'Оберіть акаунт для надсилання.',
+      composeFailed: 'Не вдалося надіслати лист.',
       prev: 'Попередня', next: 'Наступна'
     },
     appointments: {

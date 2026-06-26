@@ -70,7 +70,7 @@ import {
   writableCalendars as googleWritableCalendars,
   accountsSummary as googleAccountsSummary
 } from './google'
-import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail } from './mail'
+import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail, sendMail, mailContacts } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import { initMailWatch, scheduleAllMailTasks, scheduleMailTask, cancelMailTask } from './mailWatch'
 import {
@@ -667,6 +667,8 @@ ipcMain.handle('google:event-writable', (_e, gid) => googleEventWritable(gid))
 
 // ---- Mail (IMAP, app-password) — independent of the calendar OAuth ---------
 ipcMain.handle('mail:list-accounts', () => getMailAccounts())
+ipcMain.handle('mail:send', (_e, payload) => sendMail(payload || {}))
+ipcMain.handle('mail:contacts', () => mailContacts())
 ipcMain.handle('mail:add', (_e, payload) => addMailAccount(payload || {}))
 ipcMain.handle('mail:remove', (_e, email) => removeMailAccount(email))
 ipcMain.handle('mail:test', (_e, email) => testInbox(email))

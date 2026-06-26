@@ -53,6 +53,8 @@ drives the calendar **and your mail**, answers questions about your notes,
 - **In-app web viewer** — open a link from an email in an isolated `<webview>`: **translate the page** in place, or **summarize it into a clean reader** (medium / brief / key points), with its own zoom. Plain click → system browser, Ctrl+click → in-app.
 - **Read aloud & "speak the selection"** — read an article/email aloud through the global TTS queue (survives navigating away), or select any text in the reader / email body / browser and hit a floating ▶ to speak just that fragment.
 - **Folder actions** — right-click a folder to *mark all read*, *delete read*, *empty Trash* or *delete all Spam*; bulk mark/delete from the selection bar.
+- **Compose & send (SMTP)** — a **New email** button (pinned at the bottom of the folder tree) opens a composer: the **From** account defaults to the mailbox you're in and switches via a dropdown; **To/Cc** are Gmail-style chips with **contact autocomplete** (built from everyone you've corresponded with) and ↑/↓ keyboard navigation; the body is the **rich editor** (fonts, sizes, alignment, lists, inline images). **Drag files anywhere onto the email** — or use the paperclip — to attach them. Send hands the message to a **background queue** (the button shows a live count) so you go straight back to the list; Gmail files it into Sent automatically.
+- **AI mail watchers** — see the assistant section: it can watch a mailbox for new mail and ping you, and read / search / translate / summarize / mark / delete mail on command.
 
 ### 🤖 AI assistant (local CLI)
 Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
@@ -88,7 +90,7 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 - Recognition is **fully local** via a small **sherpa-onnx** model **downloaded on first use from inside the app** (not bundled in the installer, so the `.exe` stays light). Enable it and pick the language (🇷🇺 / 🇬🇧) in Settings → Voice input.
 
 ### 🔊 Voice output (TTS)
-- Three engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**), **Supertonic** (neural ONNX, multiple voices, model fetched on first use), or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
+- Three engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; light; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**), **Supertonic** (a much more natural **neural ONNX** voice with several speakers — the model is fetched on first use and keeps **~300 MB** of RAM resident while loaded), or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
 - **Russian stress** — neural engines read with correct word stress (and ё) via bundled dictionaries (`resources/stress`): a base list, an ёfikator and hand-curated overrides, hot-reloaded so a fix applies without a restart.
 - The assistant **decides when to speak** (only when you ask) and in which language.
 - **Playback queue** — phrases don't interrupt each other.

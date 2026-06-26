@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
 import {
   InboxIcon, SentIcon, TrashIcon, SpamIcon, DraftIcon, StarIcon, ArchiveIcon, LabelIcon,
-  ChevronLeftIcon, ChevronRightIcon, GmailIcon
+  ChevronLeftIcon, ChevronRightIcon, GmailIcon, ComposeIcon
 } from '../components/icons'
 import MailList from '../components/mail/MailList'
+import MailCompose from '../components/mail/MailCompose'
 import ContextMenu from '../components/ContextMenu'
 import { useI18n } from '../i18n/I18nContext'
 import { monogram } from '../lib/monogram'
@@ -49,6 +50,18 @@ export default function MailView({ active, onOpenSettings }) {
   const [folderMenu, setFolderMenu] = useState(null) // { x, y, account, folder } folder right-click
   const [markProg, setMarkProg] = useState({}) // "account|folder" -> { done, total, running }
   const [navKey, setNavKey] = useState(0) // bumped on every folder click → list closes the open message
+  const [composing, setComposing] = useState(false) // the "New email" compose overlay
+  const [sending, setSending] = useState(0) // emails currently being sent in the background
+  // background send queue: hand a message to SMTP, track in-flight count for the button badge
+  const queueSend = async (payload) => {
+    setSending((n) => n + 1)
+    try {
+      const r = await api.mail?.send?.(payload)
+      if (!r?.ok) api.notify?.('⚠ ' + (r?.error || 'send failed'))
+    } finally {
+      setSending((n) => Math.max(0, n - 1))
+    }
+  }
   const [stats, setStats] = useState({}) // email -> { path: { total, unread } } from IMAP STATUS
   // restore the last-selected mailbox + folder
   const [sel, setSel] = useState(() => {
@@ -284,11 +297,36 @@ export default function MailView({ active, onOpenSettings }) {
           {accounts.length === 0 && !collapsed && <div className="mail-tree__hint">{t('mail.noMailboxes')}</div>}
         </div>
 
+        {/* pinned to the very bottom of the tree; collapses to just the icon in rail mode */}
+        <button
+          className="mail__compose"
+          title={sending > 0 ? t('mail.sending') + ' (' + sending + ')' : t('mail.newEmail')}
+          disabled={!accounts.length || composing}
+          onClick={() => setComposing(true)}
+        >
+          <ComposeIcon />
+          {!collapsed && <span>{t('mail.newEmail')}</span>}
+          {sending > 0 && (
+            <span className="mail__compose-badge">
+              <span className="mail-spinner mail-spinner--sm mail-spinner--white" />
+              <span className="mail__compose-num">{sending}</span>
+            </span>
+          )}
+        </button>
+
         {!collapsed && <div className="mail__resize" onMouseDown={startResize} title={t('mail.resize')} />}
       </aside>
 
       <main className="mail__center">
         <MailList account={sel.account} folder={sel.folder} navKey={navKey} showRecipient={isSentFolder(sel.account, sel.folder)} />
+        {composing && (
+          <MailCompose
+            accounts={accounts}
+            defaultFrom={sel.account !== 'all' ? sel.account : accounts[0]?.email}
+            onSend={queueSend}
+            onClose={() => setComposing(false)}
+          />
+        )}
       </main>
 
       {menu && (

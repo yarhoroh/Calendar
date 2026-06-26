@@ -1,5 +1,6 @@
 import { buildSystem, buildRefresh } from './prompt'
 import { extractGetNotes, fetchNotes, extractGetGoogleEvents, fetchGoogleEvents } from './notesTool'
+import { extractMailRead, fetchMailRead } from './mailTool'
 
 // Hard backstop only — NOT a functional cap. Real chains need just a few read
 // steps; this guards against a runaway model. The real loop-breaker is the
@@ -23,7 +24,8 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     if (!reply?.ok) return reply
     const req = extractGetNotes(reply.text)
     const gReq = req ? null : extractGetGoogleEvents(reply.text)
-    if (!req && !gReq) {
+    const mReq = req || gReq ? null : extractMailRead(reply.text)
+    if (!req && !gReq && !mReq) {
       // weak models sometimes "agree" in words but forget the action block —
       // if the reply promised something yet emitted no block, force it once
       if (!hasBlock(reply.text) && PROMISES.test(`${userMsg} ${reply.text}`)) {
@@ -38,7 +40,7 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     // duplicate-request guard: if the model re-asks for data it has already been
     // given, stop feeding it and force an answer — this is the real loop-breaker
     // (MAX_STEPS is just a backstop). Distinct ranges still chain freely.
-    const sig = (req ? 'n:' : 'g:') + JSON.stringify(req || gReq)
+    const sig = (req ? 'n:' : gReq ? 'g:' : 'm:') + JSON.stringify(req || gReq || mReq)
     if (seen.has(sig)) {
       return sendOne('You already have that data above. Answer the user now without requesting it again.')
     }
@@ -47,6 +49,11 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       // Google Calendar read tool — feed events back so the model can answer or import
       const gtext = await fetchGoogleEvents(gReq)
       text = `Google Calendar events for ${gReq.from}..${gReq.to}:\n${gtext}\n\nNow answer the user's request, or import what they asked with importGoogleEvents. Do not call listGoogleEvents again for the same range.`
+      pendingImages = null
+    } else if (mReq) {
+      // Mail read tool — feed the search/list/conversation back so the model can act
+      const mtext = await fetchMailRead(mReq)
+      text = `Mail result:\n${mtext}\n\nNow answer the user's request using this — to read ONE message fully use mailOpen with its acct/thread/id; to mark/delete use mailMarkRead/mailDelete. Do not repeat the same mail read.`
       pendingImages = null
     } else {
       // feed the notes back — including any inline images, so the model can SEE

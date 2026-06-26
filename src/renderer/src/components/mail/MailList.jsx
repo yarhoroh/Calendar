@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { onMailChanged, emitMailChanged } from '../../lib/mailBus'
 import api from '../../lib/api'
 import { MailIcon, TrashIcon } from '../icons'
 import { useI18n } from '../../i18n/I18nContext'
@@ -7,7 +8,6 @@ import MailTabs from './MailTabs'
 import MailToolbar from './MailToolbar'
 import MailRow from './MailRow'
 import MailReader from './MailReader'
-import MailPagination from './MailPagination'
 import MailWebView from './MailWebView'
 import ContextMenu from '../ContextMenu'
 import './MailList.css'
@@ -28,7 +28,7 @@ function fmtDate(ms) {
 // The message list. ONE component for both a single account and the unified
 // ("all") views — the only difference is the extra account column, toggled by
 // `account === 'all'`. Loads real mail (cache first, then a fresh IMAP sync).
-export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0, onMutate, showRecipient = false }) {
+export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0, showRecipient = false }) {
   const { t } = useI18n()
   const showAccount = account === 'all'
   // persisted view prefs — restore where the user left off
@@ -48,7 +48,14 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
   const searchTokenRef = useRef(0) // drops stale search batches when the query changes
   const loadTokenRef = useRef(0) // drops stale progressive-load partials when the view changes
   const inSearch = search.trim().length > 0
-  const [page, setPage] = useState(1)
+  // infinite scroll: `limit` is how many newest items are loaded; it grows by PER_PAGE as you
+  // scroll to the bottom. A ref mirrors it so reload() always reads the current window.
+  const [limit, setLimit] = useState(PER_PAGE)
+  const limitRef = useRef(PER_PAGE)
+  limitRef.current = limit
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadingMoreRef = useRef(false)
+  const rowsRef = useRef(null) // the scrollable rows container (for "scroll to top" on refresh)
   const [selected, setSelected] = useState(() => new Set())
   const [stars, setStars] = useState({})
   const [importantOverride, setImportantOverride] = useState({}) // optimistic important toggles
@@ -103,14 +110,15 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
       // already-expunged rows → the flash would show a *different* list than the live load
       // ("strange refresh"). So there we skip the flash and just show the spinner.
       if (groupThreads)
-        Promise.resolve(api.mail?.cached?.(account, folder, backendTab, page, PER_PAGE, filter)).then((c) => alive && setMessages(Array.isArray(c) ? c : []))
+        Promise.resolve(api.mail?.cached?.(account, folder, backendTab, 1, limitRef.current, filter)).then((c) => alive && setMessages(Array.isArray(c) ? c : []))
       else setMessages([])
       setLoading(true)
     }
     // visible loads opt into progressive loading (pass token): a fast approximate page
     // arrives via onLoadPartial, then this resolves with the exact one. Silent refreshes
-    // skip it (no token) — they just patch the final result in quietly.
-    Promise.resolve(api.mail?.load?.(account, folder, backendTab, page, PER_PAGE, filter, silent ? undefined : token, groupThreads)).then((r) => {
+    // skip it (no token) — they just patch the final result in quietly. Always page 1 — the
+    // window size (limit) is what grows for infinite scroll.
+    Promise.resolve(api.mail?.load?.(account, folder, backendTab, 1, limitRef.current, filter, silent ? undefined : token, groupThreads)).then((r) => {
       if (!alive) return
       if (!silent) setLoading(false)
       if (r?.ok) {
@@ -120,6 +128,29 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     })
     return () => { alive = false }
   }
+  const reloadRef = useRef(reload)
+  reloadRef.current = reload // keep the mail-bus handler calling the latest reload
+  // infinite scroll: grow the window by PER_PAGE and silently re-fetch it (existing rows keep
+  // their keys → scroll position stays; new rows append). Guarded against overlapping loads.
+  const loadMore = () => {
+    if (loadingMoreRef.current || inSearch || loading) return
+    if (limitRef.current >= total) return // everything is already loaded
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    const token = ++loadTokenRef.current
+    limitRef.current += PER_PAGE
+    setLimit(limitRef.current)
+    Promise.resolve(api.mail?.load?.(account, folder, backendTab, 1, limitRef.current, filter, undefined, groupThreads)).then((r) => {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+      if (token !== loadTokenRef.current) return // a newer load (view change) superseded this
+      if (r?.ok) { setMessages(r.messages || []); setTotal(r.total || 0) }
+    })
+  }
+  const onRowsScroll = (e) => {
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) loadMore()
+  }
   // the toolbar refresh button: visibly re-fetch the current view (or re-run the search)
   const refresh = () => {
     if (inSearch) {
@@ -128,32 +159,60 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
       setSearching(true)
       api.mail?.search?.(account, folder, search.trim(), token)
     } else {
+      // refresh = back to the newest PER_PAGE, scrolled to the top (collapse the grown window)
+      limitRef.current = PER_PAGE
+      setLimit(PER_PAGE)
+      rowsRef.current?.scrollTo?.({ top: 0 })
       reload(false)
     }
   }
   // reset position when switching mailbox/folder/tab, then (re)load on any change
   const viewKey = account + '|' + folder + '|' + backendTab + '|' + filter
   const prevView = useRef(viewKey)
+  // Clear the old folder's rows DURING RENDER (the React "reset state on prop change"
+  // pattern), not in an effect — an effect runs after paint, so the previous list flashes
+  // for a frame and confuses you. Doing it here means the old list never paints; the load
+  // effect below then fills in the new folder's cache/live data.
+  if (prevView.current !== viewKey && !inSearch) {
+    prevView.current = viewKey
+    setMessages([])
+    setTotal(0)
+    setOpenMsg(null)
+    setSelected(new Set())
+    limitRef.current = PER_PAGE // collapse the infinite-scroll window back to the first page
+    setLimit(PER_PAGE)
+  }
   useEffect(() => {
     if (inSearch) return // search mode streams its own results
-    if (prevView.current !== viewKey) {
-      prevView.current = viewKey
-      setOpenMsg(null)
-      setSelected(new Set())
-      // drop the previous folder's rows IMMEDIATELY — otherwise the async cache flash below
-      // leaves the old list on screen until the new folder's data arrives ("old mail, then it
-      // swaps"). Clear now → spinner → new folder's cache/live fills in.
-      setMessages([])
-      setTotal(0)
-      if (page !== 1) { setPage(1); return } // the page change re-runs this effect → load
-    }
-    return reload(false)
+    return reload(false) // the view was already cleared above → straight to cache/live load
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, page, inSearch])
+  }, [viewKey, inSearch])
+  // AI mail actions update an open list INSTANTLY (mirrors a manual delete/mark): the AI
+  // mutates straight through the backend, so without this its delete/mark wouldn't show here
+  // until the next reload — the row would just linger.
+  useEffect(() => {
+    return onMailChanged((e) => {
+      if (e.type === 'delete') {
+        const hit = (x) => (e.threadId && x.threadId === e.threadId) || (e.id && x.id === e.id)
+        setMessages((ms) => ms.filter((x) => !hit(x)))
+        setSearchResults((ms) => ms.filter((x) => !hit(x)))
+        setOpenMsg((o) => (o && hit(o) ? null : o))
+      } else if (e.type === 'seen') {
+        const key = e.threadId || e.id
+        const add = (s) => new Set(s).add(key)
+        const drop = (s) => { const n = new Set(s); n.delete(key); return n }
+        if (e.seen) { setReadKeys(add); setUnreadKeys(drop) }
+        else { setUnreadKeys(add); setReadKeys(drop) }
+      } else if (e.type === 'reload') {
+        reloadRef.current?.(true)
+      }
+      // other event types (e.g. 'stats') are for the folder badges only — the list ignores them
+    })
+  }, [])
   // background sync: a cheap incremental poll every 20s checks just the newest few messages
   // and merges any arrivals into the list (delta by row key), instead of re-scanning the
-  // whole folder. A full silent refresh every 2 min corrects totals/read-state. The poll
-  // only runs on page 1 (new mail lands at the top); deeper pages rely on the full refresh.
+  // whole folder. A full silent refresh every 2 min corrects totals/read-state. New mail
+  // always lands at the top, so this runs regardless of how far you've scrolled.
   useEffect(() => {
     if (inSearch) return
     const mergeRecent = () => {
@@ -167,16 +226,20 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
           // shown just re-sorts it to the top, it isn't a new row in the count)
           const curThreads = new Set(cur.map((m) => m.threadId || m.id))
           const newThreads = new Set(fresh.map((m) => m.threadId || m.id).filter((tid) => !curThreads.has(tid)))
-          if (newThreads.size) setTotal((t) => t + newThreads.size)
+          if (newThreads.size) {
+            setTotal((t) => t + newThreads.size)
+            // new mail arrived → tell the folder badges to re-pull their counts
+            emitMailChanged({ type: 'stats', account, folder })
+          }
           return [...fresh, ...cur].sort((a, b) => (b.date || 0) - (a.date || 0))
         })
       })
     }
-    const poll = setInterval(() => { if (page === 1) mergeRecent() }, 20000)
+    const poll = setInterval(mergeRecent, 20000)
     const full = setInterval(() => reload(true), 120000)
     return () => { clearInterval(poll); clearInterval(full) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, page, inSearch])
+  }, [viewKey, inSearch])
 
   // progressive load: apply the fast approximate page 1 as soon as it lands, so the list
   // fills in immediately while the exact full-scan page (and its precise pagination) is
@@ -353,9 +416,7 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
   // 'starred' tab and search are local/streamed → their count is what's visible here,
   // not the whole-folder server total
   const effTotal = effTab === 'starred' || inSearch ? visible.length : total
-  const pageCount = inSearch ? 1 : Math.max(1, Math.ceil(effTotal / PER_PAGE)) // search streams all, no pages
-  const safePage = Math.min(page, pageCount)
-  const pageItems = visible // the server already returns just this page
+  const pageItems = visible // the loaded window (grows via infinite scroll)
 
   const toggleSelect = (id) =>
     setSelected((s) => {
@@ -382,7 +443,8 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     setMessages((ms) => ms.filter((x) => (x.threadId || x.id) !== key))
     if (openMsg && (openMsg.threadId || openMsg.id) === key) setOpenMsg(null)
     await api.mail?.delete?.(m.account, folder, m.threadId, m.id)
-    onMutate?.()
+    // announce it on the bus → the folder badges (and any other subscriber) react
+    emitMailChanged({ type: 'delete', account: m.account, folder, threadId: m.threadId, id: m.id })
   }
   // "mark unread" from the reader: re-flag \Seen off, restore the bold row, close
   const markUnread = async (m) => {
@@ -391,7 +453,7 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     setUnreadKeys((s) => new Set(s).add(key)) // optimistic: show unread now, until the server confirms
     setOpenMsg(null)
     await api.mail?.setSeen?.(m.account, m.threadId, m.id, false)
-    onMutate?.()
+    emitMailChanged({ type: 'seen', account: m.account, folder, threadId: m.threadId, id: m.id, seen: false })
   }
 
   // bulk actions on the checkbox-selected rows (always the CURRENT view's loaded page,
@@ -411,7 +473,7 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     setSelected(new Set())
     await api.mail?.bulkSeen?.(folder, itemsOf(ms), true)
     if (!inSearch) reload(true)
-    onMutate?.()
+    emitMailChanged({ type: 'stats', folder }) // bulk already updated the list; just refresh the badges
   }
   const markSelectedUnread = async () => {
     const ms = selectedMsgs()
@@ -422,7 +484,7 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     setSelected(new Set())
     await api.mail?.bulkSeen?.(folder, itemsOf(ms), false)
     if (!inSearch) reload(true)
-    onMutate?.()
+    emitMailChanged({ type: 'stats', folder }) // bulk already updated the list; just refresh the badges
   }
   const deleteSelected = async () => {
     const ms = selectedMsgs()
@@ -433,8 +495,10 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     if (openMsg && keys.has(openMsg.threadId || openMsg.id)) setOpenMsg(null)
     setSelected(new Set())
     await api.mail?.bulkDelete?.(folder, itemsOf(ms))
+    emitMailChanged({ type: 'stats', folder }) // refresh the folder badges
+    // silently re-fetch the current window — the deleted rows drop out and the server tops it
+    // back up toward the loaded count (no pages to jump between any more)
     if (!inSearch) reload(true)
-    onMutate?.()
   }
   const allChecked = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
   const someChecked = pageItems.some((m) => selected.has(m.id))
@@ -446,14 +510,13 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
       return n
     })
 
-  const from = effTotal ? (safePage - 1) * PER_PAGE + 1 : 0
-  const to = inSearch ? effTotal : Math.min(safePage * PER_PAGE, effTotal)
-  const rangeLabel = `${from.toLocaleString()}–${to.toLocaleString()} of ${effTotal.toLocaleString()}`
+  // infinite scroll: show how many of the total are loaded
+  const rangeLabel = inSearch
+    ? `${effTotal.toLocaleString()}`
+    : `${pageItems.length.toLocaleString()} / ${effTotal.toLocaleString()}`
   const head = (
     <MailListHead
       rangeLabel={rangeLabel}
-      onPrev={() => setPage((p) => Math.max(1, p - 1))}
-      onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
       paneMode={paneMode}
       onTogglePane={() => setPaneMode((m) => (m === 'split' ? 'full' : 'split'))}
     />
@@ -523,7 +586,7 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
       )}
       <div className="mail-list__split">
         <div className="mail-list__listcol" style={paneMode === 'split' ? { flex: `0 1 ${rowsW}px` } : undefined}>
-          <div className="mail-list__rows">
+          <div className="mail-list__rows" ref={rowsRef} onScroll={onRowsScroll}>
             {pageItems.map((m) => (
               <MailRow
                 key={m.id}
@@ -554,8 +617,14 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
                 <span className="mail-list__loading-text">{t('mail.searching')}</span>
               </div>
             )}
+            {/* infinite scroll: spinner while the next window loads in */}
+            {loadingMore && (
+              <div className="mail-list__loading mail-list__loading--more">
+                <span className="mail-spinner mail-spinner--sm" />
+                <span className="mail-list__loading-text">{t('mail.loadingMore')}</span>
+              </div>
+            )}
           </div>
-          {!inSearch && <MailPagination page={safePage} pageCount={pageCount} onPage={setPage} />}
         </div>
         {paneMode === 'split' && (
           <>

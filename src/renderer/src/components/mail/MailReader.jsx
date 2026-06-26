@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
-import { ChevronLeftIcon, CloseIcon, ArchiveIcon, TrashIcon, MailIcon, ReplyIcon, ReplyAllIcon, ForwardIcon, StarIcon } from '../icons'
+import { ChevronLeftIcon, CloseIcon, ArchiveIcon, TrashIcon, MailIcon, ReplyIcon, ReplyAllIcon, ForwardIcon, StarIcon, ZoomInIcon, ZoomOutIcon } from '../icons'
 import MailThreadMessage from './MailThreadMessage'
 import MailAttachBadge from './MailAttachBadge'
 import { monogram } from '../../lib/monogram'
@@ -23,6 +23,28 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
   const [loading, setLoading] = useState(false)
   const [subjectTr, setSubjectTr] = useState(null) // translated subject (the title lives here, outside the iframe)
   const threadTokenRef = useRef(0) // drops stale streamed messages when a new thread opens
+  // reader zoom (% — scales the whole conversation). NOT persisted: it's per-open-message and
+  // resets to 100% whenever a different message opens. Changed by the +/- buttons or Ctrl+wheel
+  // (over the headers here, or inside a message body via MailThreadMessage).
+  const [zoom, setZoom] = useState(100)
+  const changeZoom = (delta) => setZoom((z) => Math.min(250, Math.max(50, z + delta)))
+  const resetZoom = () => setZoom(100)
+  const scrollRef = useRef(null)
+  // Ctrl+wheel over the reader (outside the iframes) zooms. Native non-passive listener so
+  // preventDefault actually stops Chromium from page-zooming the whole app. Over a message
+  // BODY (iframe) the wheel is caught inside the iframe (MailThreadMessage) and routed here.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const delta = e.deltaY < 0 ? 5 : -5 // wheel forward (up) = in, toward you (down) = out
+      setZoom((z) => Math.min(250, Math.max(50, z + delta)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   // translate the subject alongside the body when a message picks a language (same
   // Google endpoint); 'original' reverts to the real subject
@@ -61,6 +83,7 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
     setThread([])
     setThreadTotal(0)
     setSubjectTr(null)
+    setZoom(100) // each opened message starts at 100% (zoom isn't remembered)
     Promise.resolve(api.mail?.thread?.(msg.account, msg.threadId, msg.id, folder, token)).then((r) => {
       if (!alive || token !== threadTokenRef.current) return
       setLoading(false)
@@ -83,9 +106,14 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
         <button className="mail-reader__iconbtn" title={t('mail.archive')}><ArchiveIcon /></button>
         <button className="mail-reader__iconbtn" title={t('mail.delete')} onClick={() => onDelete?.(msg)}><TrashIcon /></button>
         <button className="mail-reader__iconbtn" title={t('mail.markUnread')} onClick={() => onMarkUnread?.(msg)}><MailIcon /></button>
+        <div className="mail-reader__zoom">
+          <button className="mail-reader__iconbtn" title={t('mail.zoomOut')} onClick={() => changeZoom(-5)}><ZoomOutIcon /></button>
+          <button className="mail-reader__zoomval" title={t('mail.zoomReset')} onClick={resetZoom}>{zoom}%</button>
+          <button className="mail-reader__iconbtn" title={t('mail.zoomIn')} onClick={() => changeZoom(5)}><ZoomInIcon /></button>
+        </div>
       </div>
 
-      <div className="mail-reader__scroll">
+      <div className="mail-reader__scroll" ref={scrollRef}>
         <div className="mail-reader__subject">
           {subjectTr ?? msg.subject}
           {thread.length > 1 && <span className="mail-reader__count">{thread.length} {t('mail.messagesInThread')}</span>}
@@ -134,6 +162,8 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
                 onOpenInternal={onOpenInternal}
                 onLinkMenu={onLinkMenu}
                 onPickLang={handlePickLang}
+                onZoom={changeZoom}
+                zoom={zoom}
               />
             ))}
             {thread.length > 0 && threadTotal > thread.length && (

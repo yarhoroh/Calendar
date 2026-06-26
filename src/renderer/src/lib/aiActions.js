@@ -6,6 +6,7 @@ import { pushChat, hasChat } from './chatBridge'
 import { openAsk, closeAsk } from './askBridge'
 import { importGoogleEvent, importGoogleEventEveryday } from './importGoogle'
 import { startOfToday, dateKey } from './dates'
+import { emitMailChanged } from './mailBus'
 
 // plain text from an HTML string (for the searchable/AI `text` field)
 const stripHtml = (html) => {
@@ -351,8 +352,72 @@ export async function execAction(a, onCommand, channel) {
         api.saveItems?.(a.date, kept)
         return { ok: true }
       }
+      case 'mailMarkRead': {
+        // mark ONE conversation read/unread (seen defaults to true)
+        if (!a.account || !(a.id || a.threadId)) return { ok: false, error: 'mailMarkRead needs account and id (or threadId)' }
+        await api.mail?.setSeen?.(a.account, a.threadId || null, a.id || null, a.seen !== false)
+        // tell an open list to reflect it instantly (like a manual mark)
+        emitMailChanged({ type: 'seen', account: a.account, folder: a.folder || 'INBOX', threadId: a.threadId, id: a.id, seen: a.seen !== false })
+        return { ok: true }
+      }
+      case 'mailDelete': {
+        // move ONE conversation to Trash (folder = where it currently lives; default INBOX)
+        if (!a.account || !(a.id || a.threadId)) return { ok: false, error: 'mailDelete needs account and id (or threadId)' }
+        const r = await api.mail?.delete?.(a.account, a.folder || 'INBOX', a.threadId || null, a.id || null)
+        if (r?.ok === false) return { ok: false, error: r?.error || 'delete failed' }
+        // drop it from an open list immediately, exactly as a manual delete would
+        emitMailChanged({ type: 'delete', account: a.account, folder: a.folder || 'INBOX', threadId: a.threadId, id: a.id })
+        return { ok: true }
+      }
+      case 'mailMarkFolderRead': {
+        // mark every unread message in a folder as read (default INBOX)
+        if (!a.account) return { ok: false, error: 'mailMarkFolderRead needs account' }
+        await api.mail?.markFolderRead?.(a.account, a.folder || 'INBOX')
+        emitMailChanged({ type: 'reload', account: a.account, folder: a.folder || 'INBOX' })
+        return { ok: true }
+      }
+      case 'addMailWatcher':
+      case 'addMailTask': {
+        // create a background watcher: check ONLY new mail on a mailbox every N min and,
+        // on arrival, pinch the AI with this prompt to judge + signal the user
+        const prompt = a.prompt || a.text
+        if (!prompt) return { ok: false, error: 'addMailWatcher needs a prompt (what to watch for and how to signal)' }
+        const r = await api.addMailTask?.({
+          account: a.account || 'all',
+          folder: a.folder || 'INBOX',
+          every: a.every,
+          from: a.from,
+          to: a.to,
+          prompt
+        })
+        return r ? { ok: true, result: { id: r.id } } : { ok: false, error: 'mail watcher was not created' }
+      }
+      case 'updateMailWatcher':
+      case 'updateMailTask': {
+        // edit an existing watcher in place — only the fields given change; the rest are
+        // kept from the current watcher (partial update, so "change to every 10 min" works)
+        if (!a.id) return { ok: false, error: 'updateMailWatcher needs id' }
+        const cur = ((await api.getMailTasks?.()) || []).find((t) => t.id === a.id)
+        if (!cur) return { ok: false, error: 'mail watcher not found (check the id in MAIL WATCHERS)' }
+        const r = await api.updateMailTask?.(a.id, {
+          account: a.account ?? cur.account,
+          folder: a.folder ?? cur.folder,
+          every: a.every ?? cur.every,
+          from: a.from ?? cur.winfrom,
+          to: a.to ?? cur.winto,
+          prompt: a.prompt ?? a.text ?? cur.prompt,
+          enabled: a.enabled ?? (cur.enabled !== 0)
+        })
+        return r ? { ok: true } : { ok: false, error: 'update failed' }
+      }
+      case 'deleteMailWatcher':
+      case 'deleteMailTask': {
+        if (!a.id) return { ok: false, error: 'deleteMailWatcher needs id' }
+        await api.deleteMailTask?.(a.id)
+        return { ok: true }
+      }
       default:
-        return { ok: true } // getNotes etc. are handled elsewhere
+        return { ok: true } // getNotes / mailSearch / mailList / mailOpen are handled elsewhere
     }
   } catch (e) {
     return { ok: false, error: e?.message || String(e) }

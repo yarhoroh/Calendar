@@ -1,9 +1,9 @@
-# 🗓️ Calendar — desktop calendar with notes and a voice AI assistant
+# 🗓️ Calendar — desktop calendar + email with a voice AI assistant
 
 A Windows desktop app built on Electron: an infinite calendar, notes with
-reminders, and a built-in **local AI assistant** that drives the calendar,
-answers questions about your notes, **listens to your voice** and **speaks out
-loud** — all running locally, no cloud.
+reminders, a built-in **IMAP email client**, and a **local AI assistant** that
+drives the calendar **and your mail**, answers questions about your notes,
+**listens to your voice** and **speaks out loud** — all running locally, no cloud.
 
 ---
 
@@ -43,6 +43,17 @@ loud** — all running locally, no cloud.
 - **Auto-update** — the installed app checks GitHub on launch, downloads new versions in the background and offers to **restart now / later** (installs on quit); you can also **check manually** in Settings.
 - **Dark/light theme**, UI in **🇺🇦 Ukrainian / 🇬🇧 English**, frameless window, minimize to tray.
 
+### 📧 Email client (IMAP)
+- **Multiple IMAP accounts** — add Gmail (or any IMAP) mailboxes with an app password in Settings → *Email*; the password is encrypted with the OS keychain (`safeStorage`). A **unified "All inboxes" / "All sent"** view spans every account, plus a per-account folder tree (Inbox / Sent / Trash / Spam / labels), resolved by **special-use** so Gmail's localized folder names (`Sent Mail` → `Надіслані`, etc.) work across accounts.
+- **Conversation threading** — messages group into Gmail-style threads (one row per conversation, with the full message count). The reader **streams** the thread in newest-first, showing the first message instantly and a "loading more" indicator while the rest arrive.
+- **Infinite scroll** — the list loads the newest 50 and pulls in more as you scroll (no page buttons); after a delete it tops the window back up. A 20s incremental poll merges genuinely-new mail in **at the top** without reloading.
+- **Fast, optimistic UI** — instant cache flash from a local SQLite mirror, switching folders clears the list immediately (no stale flash), optimistic delete / mark-read with tombstones until the server confirms, and the cache is reconciled with the server so mail you deleted in Gmail stops "ghosting". Folder unread badges refresh in the background across all accounts.
+- **Full-mailbox search** — searches every folder (incl. Trash/Spam, by sender name, substring) and streams matches in; hits are faintly highlighted.
+- **Reader** — sender/recipient/time/star skeleton from the list metadata (no flicker), selectable headers, per-message translate (Google) and a **zoom** control (buttons + Ctrl+scroll, body only). **Sent** folders show the **recipient**, and group into threads like the inbox.
+- **In-app web viewer** — open a link from an email in an isolated `<webview>`: **translate the page** in place, or **summarize it into a clean reader** (medium / brief / key points), with its own zoom. Plain click → system browser, Ctrl+click → in-app.
+- **Read aloud & "speak the selection"** — read an article/email aloud through the global TTS queue (survives navigating away), or select any text in the reader / email body / browser and hit a floating ▶ to speak just that fragment.
+- **Folder actions** — right-click a folder to *mark all read*, *delete read*, *empty Trash* or *delete all Spam*; bulk mark/delete from the selection bar.
+
 ### 🤖 AI assistant (local CLI)
 Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
 - **Runs on your own login** — Antigravity (Google's `agy` CLI) answers per message via its `--print` mode using your existing Antigravity subscription; Claude runs as a live streaming session; Codex resumes its session. For Antigravity the full chat history is sent every turn, so it always remembers the conversation.
@@ -55,6 +66,8 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 - **Multi-step actions with feedback** — after it acts, the app sends the result back (the new id of anything created, or a failure reason), so it can chain dependent steps (e.g. *create a folder → file a note into it*) and report honestly instead of claiming success when something failed.
 - **Four ways to respond** — a normal text reply, **speak** out loud, a **silent toast** near the clock, or a reply back to the **messenger** it was contacted from.
 - **Knows the current date/time** and a 2-week date table — resolves "in a minute", "next Friday" correctly.
+- **Controls your email too** — search, list and **open** mail (it reads the conversation back), then translate / summarize / read it aloud, and **mark read or delete** — e.g. *"open the last email from Medium, translate it and tell me the news in Russian"*. Email content is treated as **untrusted input**: the assistant is told (and a hard allow-list enforces) that it must never obey instructions embedded inside a message.
+- **Mail watchers** — ask it to **watch a mailbox** ("follow this inbox; if something important arrives, ping me on Telegram and a toast"). It creates a watcher (also editable in Settings → *Mail watchers*) that, on its interval, fetches **only new mail** (a per-mailbox UID high-water mark — never re-scanning the whole box) and wakes the assistant to judge each arrival against your standing instruction and signal you.
 
 ### 💬 Telegram & images
 - **Telegram bridge** — connect a bot token in Settings and chat with the assistant from Telegram (long-polling, works behind NAT, no public webhook). Replies — and reminders it scheduled from Telegram — go back to that chat; a **Disconnect** button clears the token.
@@ -75,7 +88,8 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 - Recognition is **fully local** via a small **sherpa-onnx** model **downloaded on first use from inside the app** (not bundled in the installer, so the `.exe` stays light). Enable it and pick the language (🇷🇺 / 🇬🇧) in Settings → Voice input.
 
 ### 🔊 Voice output (TTS)
-- Two engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**) or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
+- Three engines, switchable in Settings → Voice: **Piper** (bundled, offline, no Python; voices for **🇺🇦 / 🇷🇺 / 🇬🇧**), **Supertonic** (neural ONNX, multiple voices, model fetched on first use), or the **system Windows** voices (SAPI). Windows TTS picks a voice by language (falling back to the Russian voice for Ukrainian if none is installed).
+- **Russian stress** — neural engines read with correct word stress (and ё) via bundled dictionaries (`resources/stress`): a base list, an ёfikator and hand-curated overrides, hot-reloaded so a fix applies without a restart.
 - The assistant **decides when to speak** (only when you ask) and in which language.
 - **Playback queue** — phrases don't interrupt each other.
 - **Audio server** on `127.0.0.1:51273` — any local process/agent can send text to be spoken:
@@ -99,8 +113,9 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 | UI | React 19 (plain JavaScript, **no TypeScript**) |
 | Note editor | Tiptap (rich text → HTML, inline base64 images) |
 | Storage | better-sqlite3 |
+| Email | imapflow (IMAP), cached in SQLite |
 | AI | local Antigravity (`agy --print`) / Claude (stream-json) / Codex CLI |
-| Voice out | Piper (standalone, bundled in `resources/tts`) |
+| Voice out | Piper (bundled) / Supertonic (ONNX, onnxruntime) / Windows SAPI |
 | Voice in | sherpa-onnx (offline STT, model downloaded at runtime) |
 | Packaging | electron-builder (Windows NSIS) |
 
@@ -134,12 +149,14 @@ If no CLI is found / signed in, the calendar and notes still work — the chat j
 src/
   main/        # Electron main: window, tray, DB, reminders,
                #   AI engines (agy.js / claudeAgent.js / codex.js / chatLoop.js / prompt.js),
-               #   TTS (tts.js / ttsServer.js), STT (asr.js),
-               #   assistant task scheduler (aiTasks.js)
+               #   email (mail.js / mailTool.js / mailWatch.js),
+               #   TTS (tts.js / ttsServer.js / stress.js), STT (asr.js),
+               #   task schedulers (aiTasks.js / mailWatch.js)
   preload/     # IPC bridge (window.api)
   renderer/    # React app (UI)
 resources/
   tts/         # bundled Piper engine + voices (uk / ru / en)
+  stress/      # Russian/Ukrainian word-stress dictionaries
   icon.png
 ```
 

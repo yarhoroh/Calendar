@@ -92,6 +92,32 @@
   white-space: nowrap;
 }
 
+/* language / shorten icons light up when a non-default value is active */
+.mail-web__nav.is-on {
+  color: var(--accent, #10b981);
+}
+.mail-web__zoom {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mail-web__zoomval {
+  min-width: 42px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #9aa0ad);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mail-web__zoomval:hover {
+  background: var(--hover, rgba(255, 255, 255, 0.08));
+  color: var(--text, #e6e8ef);
+}
 .mail-web__ext {
   flex: 0 0 auto;
   width: 28px;
@@ -113,15 +139,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 64px;
+  width: 28px;
+  min-width: 28px;
   height: 28px;
-  padding: 0 12px;
+  padding: 0;
   border: none;
   border-radius: 7px;
   background: var(--accent, #10b981);
   color: #fff;
-  font-size: 12.5px;
-  font-weight: 600;
   cursor: pointer;
 }
 .mail-web__apply:disabled {

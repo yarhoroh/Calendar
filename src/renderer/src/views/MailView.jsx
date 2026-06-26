@@ -8,6 +8,7 @@ import MailList from '../components/mail/MailList'
 import ContextMenu from '../components/ContextMenu'
 import { useI18n } from '../i18n/I18nContext'
 import { monogram } from '../lib/monogram'
+import { emitMailChanged, onMailChanged } from '../lib/mailBus'
 import './MailView.css'
 
 // the three folders shown at the top level; everything else folds into "More"
@@ -114,6 +115,28 @@ export default function MailView({ active, onOpenSettings }) {
   useEffect(() => {
     if (active) loadStats()
   }, [active, accounts, folders]) // eslint-disable-line react-hooks/exhaustive-deps
+  // keep EVERY account's unread badge fresh in the background (cheap IMAP STATUS, all
+  // accounts), not just the one you're viewing — so new mail in another mailbox shows up
+  // in the tree on its own, without having to open that account first
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => loadStatsRef.current(), 30000)
+    return () => clearInterval(id)
+  }, [active])
+
+  // the folder badges subscribe to the mail bus: ANY mutation (a delete/mark/empty from
+  // the list, the AI, or a folder menu) re-pulls the unread/total counts. This is the
+  // event-driven path — the badge reacts on its own, no caller has to remember to refresh it.
+  // Debounced so a burst of events (e.g. the AI marking several messages) coalesces into one
+  // STATUS pull instead of hammering IMAP.
+  useEffect(() => {
+    let t
+    const off = onMailChanged(() => {
+      clearTimeout(t)
+      t = setTimeout(() => loadStatsRef.current(), 400)
+    })
+    return () => { clearTimeout(t); off() }
+  }, [])
 
   // live progress of a "mark folder read" run; refresh the (N) badges when it finishes
   useEffect(() => {
@@ -163,13 +186,16 @@ export default function MailView({ active, onOpenSettings }) {
     if (account === 'all') return accounts.reduce((s, a) => s + (stats[a.email]?.[path]?.unread || 0), 0)
     return stats[account]?.[path]?.unread || 0
   }
-  // is the selected folder a Sent box? (the list shows the RECIPIENT there, not the sender)
+  // is the selected folder a Sent box? (the list shows the RECIPIENT there, not the sender).
+  // Prefer the flag we stored on click (reliable); fall back to a folder-list lookup for a
+  // selection restored from a previous session (which predates the flag).
   const isSentFolder = (account, folder) => {
+    if (sel.sent) return true
     if (folder === 'SENT') return true // unified "All sent"
     const data = folders[account]
     return !!data && [...(data.main || []), ...(data.extras || [])].some((f) => f.path === folder && f.specialUse === '\\Sent')
   }
-  const Row = ({ account, folder, label, Icon, trash = false }) => {
+  const Row = ({ account, folder, label, Icon, trash = false, spam = false, sent = false }) => {
     const count = unreadFor(account, folder)
     const prog = markProg[account + '|' + folder]
     const pct = prog?.total ? Math.round((prog.done / prog.total) * 100) : 0
@@ -178,12 +204,14 @@ export default function MailView({ active, onOpenSettings }) {
         className={'mail-tree__row' + (isActive(account, folder) ? ' mail-tree__row--active' : '')}
         title={collapsed ? label : undefined}
         onClick={() => {
-          setSel({ account, folder })
+          // remember whether this is a Sent box (by its special-use), so the list reliably
+          // shows the RECIPIENT — no fragile re-lookup of the folder list
+          setSel({ account, folder, sent })
           setNavKey((k) => k + 1) // clicking a folder (even the same one) returns to the list
         }}
         onContextMenu={(e) => {
           e.preventDefault()
-          setFolderMenu({ x: e.clientX, y: e.clientY, account, folder, trash })
+          setFolderMenu({ x: e.clientX, y: e.clientY, account, folder, trash, spam })
         }}
       >
         <Icon />
@@ -214,7 +242,7 @@ export default function MailView({ active, onOpenSettings }) {
           <div className="mail-tree__group">
             {!collapsed && <div className="mail-tree__group-title">{t('mail.unified')}</div>}
             <Row account="all" folder="INBOX" label={t('mail.allInboxes')} Icon={InboxIcon} />
-            <Row account="all" folder="SENT" label={t('mail.allSent')} Icon={SentIcon} />
+            <Row account="all" folder="SENT" label={t('mail.allSent')} Icon={SentIcon} sent />
           </div>
 
           {accounts.map((acc) => {
@@ -235,7 +263,7 @@ export default function MailView({ active, onOpenSettings }) {
                 {data.error && !collapsed && <div className="mail-tree__hint">⚠ {data.error}</div>}
 
                 {data.main.map((f) => (
-                  <Row key={f.path} account={acc.email} folder={f.path} label={labelFor(f)} Icon={iconFor(f)} trash={f.specialUse === '\\Trash'} />
+                  <Row key={f.path} account={acc.email} folder={f.path} label={labelFor(f)} Icon={iconFor(f)} trash={f.specialUse === '\\Trash'} spam={f.specialUse === '\\Junk'} sent={f.specialUse === '\\Sent'} />
                 ))}
 
                 {!collapsed && data.extras.length > 0 && (
@@ -245,7 +273,7 @@ export default function MailView({ active, onOpenSettings }) {
                     </button>
                     {openMore[acc.email] &&
                       data.extras.map((f) => (
-                        <Row key={f.path} account={acc.email} folder={f.path} label={labelFor(f)} Icon={iconFor(f)} trash={f.specialUse === '\\Trash'} />
+                        <Row key={f.path} account={acc.email} folder={f.path} label={labelFor(f)} Icon={iconFor(f)} trash={f.specialUse === '\\Trash'} spam={f.specialUse === '\\Junk'} sent={f.specialUse === '\\Sent'} />
                       ))}
                   </>
                 )}
@@ -260,7 +288,7 @@ export default function MailView({ active, onOpenSettings }) {
       </aside>
 
       <main className="mail__center">
-        <MailList account={sel.account} folder={sel.folder} navKey={navKey} onMutate={() => loadStatsRef.current()} showRecipient={isSentFolder(sel.account, sel.folder)} />
+        <MailList account={sel.account} folder={sel.folder} navKey={navKey} showRecipient={isSentFolder(sel.account, sel.folder)} />
       </main>
 
       {menu && (
@@ -280,7 +308,13 @@ export default function MailView({ active, onOpenSettings }) {
           x={folderMenu.x}
           y={folderMenu.y}
           items={[
-            { label: t('mail.markAllRead'), onClick: () => api.mail?.markFolderRead?.(folderMenu.account, folderMenu.folder) },
+            {
+              label: t('mail.markAllRead'),
+              onClick: async () => {
+                await api.mail?.markFolderRead?.(folderMenu.account, folderMenu.folder)
+                emitMailChanged({ type: 'reload', account: folderMenu.account, folder: folderMenu.folder }) // refresh the open list's read state
+              }
+            },
             // move all already-read messages to Trash (in Trash itself → permanent)
             {
               label: t('mail.deleteRead'),
@@ -288,7 +322,7 @@ export default function MailView({ active, onOpenSettings }) {
                 if (!window.confirm(t('mail.deleteReadConfirm'))) return
                 await api.mail?.deleteRead?.(folderMenu.account, folderMenu.folder)
                 loadStatsRef.current()
-                setNavKey((k) => k + 1) // reload the list without the removed messages
+                emitMailChanged({ type: 'reload', account: folderMenu.account, folder: folderMenu.folder }) // reload the open list without the removed messages
               }
             },
             // permanent "empty Trash" — only for the Trash folder, with a confirm
@@ -300,7 +334,21 @@ export default function MailView({ active, onOpenSettings }) {
                       if (!window.confirm(t('mail.emptyTrashConfirm'))) return
                       await api.mail?.emptyFolder?.(folderMenu.account, folderMenu.folder)
                       loadStatsRef.current()
-                      setNavKey((k) => k + 1) // reload the (now empty) list if Trash is open
+                      emitMailChanged({ type: 'reload', account: folderMenu.account, folder: folderMenu.folder }) // reload the (now empty) list if Trash is open
+                    }
+                  }
+                ]
+              : []),
+            // permanent "delete all spam" — only for the Spam/Junk folder, with a confirm
+            ...(folderMenu.spam
+              ? [
+                  {
+                    label: t('mail.emptySpam'),
+                    onClick: async () => {
+                      if (!window.confirm(t('mail.emptySpamConfirm'))) return
+                      await api.mail?.emptyFolder?.(folderMenu.account, folderMenu.folder)
+                      loadStatsRef.current()
+                      emitMailChanged({ type: 'reload', account: folderMenu.account, folder: folderMenu.folder }) // reload the (now empty) list if Spam is open
                     }
                   }
                 ]

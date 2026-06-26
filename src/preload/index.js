@@ -147,6 +147,16 @@ const api = {
     ipcRenderer.on('aiTask:fire', h)
     return () => ipcRenderer.removeListener('aiTask:fire', h)
   },
+  // mail watcher tasks (separate from calendar AI tasks)
+  getMailTasks: () => ipcRenderer.invoke('mailTask:get'),
+  addMailTask: (payload) => ipcRenderer.invoke('mailTask:add', payload),
+  updateMailTask: (id, payload) => ipcRenderer.invoke('mailTask:update', { id, payload }),
+  deleteMailTask: (id) => ipcRenderer.invoke('mailTask:delete', id),
+  onMailTaskFire: (cb) => {
+    const h = (_e, p) => cb(p)
+    ipcRenderer.on('mailTask:fire', h)
+    return () => ipcRenderer.removeListener('mailTask:fire', h)
+  },
 
   // attachments (files linked to notes)
   listAttachments: (noteId) => ipcRenderer.invoke('attach:list', noteId),

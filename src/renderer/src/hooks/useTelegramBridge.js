@@ -22,10 +22,15 @@ export function useTelegramBridge({ onCommand }) {
       }
       const { text: clean, actions } = extractActions(res.text)
       const channel = `telegram:${chatId}`
-      api.telegramReply?.(chatId, clean || '✓')
-      pushChat(clean || '✓', 'assistant')
-      // no voice for a Telegram request; report any action failure back to chat
-      const acts = actions.filter((a) => a.action !== 'speak')
+      // a clarifying question (ask) must NOT pop the desktop dialog for a Telegram chat — the
+      // user isn't at the computer. Deliver the question AS the Telegram reply (use the ask
+      // text if the model put it only there), and the user's next Telegram message is the answer.
+      const askText = actions.find((a) => a.action === 'ask')?.text
+      const reply = clean || askText || '✓'
+      api.telegramReply?.(chatId, reply)
+      pushChat(reply, 'assistant')
+      // no voice for a Telegram request, and no desktop ask/closeAsk popups; report failures back
+      const acts = actions.filter((a) => a.action !== 'speak' && a.action !== 'ask' && a.action !== 'closeAsk')
       const fb = await runActions(acts, onCommand, channel)
       if (fb) api.telegramReply?.(chatId, fb)
     })

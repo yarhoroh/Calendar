@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import api from '../../lib/api'
-import { ChevronLeftIcon, ChevronRightIcon, SpeakerIcon, PlayIcon, PauseIcon, StopIcon, NextIcon } from '../icons'
+import { ChevronLeftIcon, ChevronRightIcon, SpeakerIcon, PlayIcon, PauseIcon, StopIcon, NextIcon, ZoomInIcon, ZoomOutIcon, LanguageIcon, ShortenIcon, ApplyIcon } from '../icons'
+import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { speakArticle, ttsAction, subscribeTts, getTtsState } from '../../lib/ttsBridge'
 import { splitForTts, speakSelection } from '../../lib/selectionSpeak'
@@ -129,6 +130,18 @@ const READ_SELECTION = `(function(){
   return { text: t, x: r.left + r.width/2, y: r.top };
 })()`
 
+// injected into the guest: Ctrl+wheel reports a zoom step out via console.log (the only
+// channel out of the isolated webview) so the host adjusts the native zoom factor.
+const ZOOM_HOOK = `(function(){
+  if (window.__zoomHooked) return;
+  window.__zoomHooked = true;
+  document.addEventListener('wheel', function(e){
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    console.log('__ZOOM__' + (e.deltaY < 0 ? 'in' : 'out'));
+  }, { passive: false });
+})()`
+
 // In-app web viewer that overlays the whole mail area (its top bar replaces the
 // head/pagination strip). A link from an email loads in an isolated <webview>; the
 // email underneath stays untouched — "Back" closes the overlay.
@@ -161,6 +174,13 @@ export default function MailWebView({ url, onClose, initialLang }) {
   const articleRef = useRef(null) // the rendered reader text — lets read-aloud honor a selection
   const [selBtn, setSelBtn] = useState(null) // { x, y, text } floating ▶ over a reader selection
   const [wvSel, setWvSel] = useState(null) // same, for a selection inside the internal browser
+  // browser zoom (% — scales the guest page via the webview's native zoom factor)
+  const [zoom, setZoom] = useState(100)
+  const zoomRef = useRef(100)
+  const changeZoom = (d) => setZoom((z) => Math.min(250, Math.max(50, z + d)))
+  const resetZoom = () => setZoom(100)
+  const [langMenu, setLangMenu] = useState(null) // { x, y } — language dropdown (icon → menu)
+  const [levelMenu, setLevelMenu] = useState(null) // { x, y } — shorten-level dropdown
   // read-aloud feeds the GLOBAL queue (ttsBridge) so it survives navigating away from the
   // reader; the floating control just reflects/drives the shared playback state.
   const ttsState = useSyncExternalStore(subscribeTts, getTtsState)
@@ -206,12 +226,30 @@ export default function MailWebView({ url, onClose, initialLang }) {
       e.preventDefault?.()
       if (e.url) wv.loadURL(e.url)
     }
+    // re-inject the Ctrl+wheel zoom hook on every document, and re-apply our zoom factor
+    // (navigation can reset it)
+    const onDomReady = () => {
+      try {
+        wv.executeJavaScript(ZOOM_HOOK, true)
+        wv.setZoomFactor(zoomRef.current / 100)
+      } catch {
+        /* webview gone */
+      }
+    }
+    // the guest reports Ctrl+wheel zoom steps here
+    const onConsole = (e) => {
+      const m = e.message || ''
+      if (m === '__ZOOM__in') setZoom((z) => Math.min(250, Math.max(50, z + 5)))
+      else if (m === '__ZOOM__out') setZoom((z) => Math.min(250, Math.max(50, z - 5)))
+    }
     wv.addEventListener('did-start-loading', onStart)
     wv.addEventListener('did-stop-loading', onStop)
     wv.addEventListener('page-title-updated', onTitle)
     wv.addEventListener('did-navigate', onNav)
     wv.addEventListener('did-navigate-in-page', onNavInPage)
     wv.addEventListener('new-window', onNewWin)
+    wv.addEventListener('dom-ready', onDomReady)
+    wv.addEventListener('console-message', onConsole)
     return () => {
       wv.removeEventListener('did-start-loading', onStart)
       wv.removeEventListener('did-stop-loading', onStop)
@@ -219,9 +257,21 @@ export default function MailWebView({ url, onClose, initialLang }) {
       wv.removeEventListener('did-navigate', onNav)
       wv.removeEventListener('did-navigate-in-page', onNavInPage)
       wv.removeEventListener('new-window', onNewWin)
+      wv.removeEventListener('dom-ready', onDomReady)
+      wv.removeEventListener('console-message', onConsole)
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [])
+
+  // apply the zoom to the webview whenever it changes
+  useEffect(() => {
+    zoomRef.current = zoom
+    try {
+      wvRef.current?.setZoomFactor?.(zoom / 100)
+    } catch {
+      /* webview not ready */
+    }
+  }, [zoom])
 
   // floating ▶ for a selection INSIDE the browser. Mouse events don't escape the isolated
   // webview and it has no preload, so we poll its selection while the page is shown (cheap:
@@ -472,27 +522,44 @@ export default function MailWebView({ url, onClose, initialLang }) {
           <span className="mail-web__title">{title || addr}</span>
         </div>
 
-        <select className="mail-msg__lang" value={lang} onChange={(e) => pickLang(e.target.value)} disabled={busy || summarizing}>
-          <option value="original">{t('mail.showOriginal')}</option>
-          {LANGS.map((l) => (
-            <option key={l} value={l}>{l}</option>
-          ))}
-        </select>
-        <select className="mail-msg__lang" value={level} onChange={(e) => setLevel(e.target.value)} disabled={busy || summarizing}>
-          <option value="none">{t('mail.shorten')}</option>
-          {LEVELS.map((l) => (
-            <option key={l} value={l}>{t('mail.level.' + l)}</option>
-          ))}
-        </select>
+        {/* compact toolbar: language + shorten are icons that open a dropdown on click */}
+        <button
+          className={'mail-web__nav' + (lang !== 'original' ? ' is-on' : '')}
+          title={t('mail.language')}
+          disabled={busy || summarizing}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            setLangMenu({ x: r.left, y: r.bottom + 4 })
+          }}
+        >
+          <LanguageIcon />
+        </button>
+        <button
+          className={'mail-web__nav' + (level !== 'none' ? ' is-on' : '')}
+          title={t('mail.shorten')}
+          disabled={busy || summarizing}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            setLevelMenu({ x: r.left, y: r.bottom + 4 })
+          }}
+        >
+          <ShortenIcon />
+        </button>
         {/* Apply reacts ONLY to summarizing (LLM) — changing the language must not touch it */}
-        <button className="mail-web__apply" onClick={apply} disabled={summarizing || level === 'none'}>
-          {summarizing ? <span className="mail-spinner mail-spinner--sm mail-spinner--white" /> : t('mail.apply')}
+        <button className="mail-web__nav mail-web__apply" onClick={apply} disabled={summarizing || level === 'none'} title={t('mail.apply')}>
+          {summarizing ? <span className="mail-spinner mail-spinner--sm mail-spinner--white" /> : <ApplyIcon />}
         </button>
         {article != null && (
           <button className="mail-web__nav mail-web__toggle" onClick={() => setView((v) => (v === 'article' ? 'page' : 'article'))}>
             {view === 'article' ? t('mail.viewPage') : t('mail.viewReader')}
           </button>
         )}
+
+        <div className="mail-web__zoom">
+          <button className="mail-web__nav" title={t('mail.zoomOut')} onClick={() => changeZoom(-5)}><ZoomOutIcon /></button>
+          <button className="mail-web__zoomval" title={t('mail.zoomReset')} onClick={resetZoom}>{zoom}%</button>
+          <button className="mail-web__nav" title={t('mail.zoomIn')} onClick={() => changeZoom(5)}><ZoomInIcon /></button>
+        </div>
 
         <button className="mail-web__ext" onClick={() => api.openExternal?.(addr)} title={t('mail.openExternal')}>
           ↗
@@ -514,7 +581,7 @@ export default function MailWebView({ url, onClose, initialLang }) {
                 <span className="mail-spinner" />
               </div>
             ) : (
-              <article className="mail-web__article" ref={articleRef}>
+              <article className="mail-web__article" ref={articleRef} style={{ zoom: zoom / 100 }}>
                 {article.split('\n').map((line, i) => (line.trim() ? <p key={i}>{line}</p> : <br key={i} />))}
               </article>
             )}
@@ -565,6 +632,28 @@ export default function MailWebView({ url, onClose, initialLang }) {
           </div>
         )}
       </div>
+      {langMenu && (
+        <ContextMenu
+          x={langMenu.x}
+          y={langMenu.y}
+          items={[
+            { label: (lang === 'original' ? '✓ ' : '') + t('mail.showOriginal'), onClick: () => { pickLang('original'); setLangMenu(null) } },
+            ...LANGS.map((l) => ({ label: (lang === l ? '✓ ' : '') + l, onClick: () => { pickLang(l); setLangMenu(null) } }))
+          ]}
+          onClose={() => setLangMenu(null)}
+        />
+      )}
+      {levelMenu && (
+        <ContextMenu
+          x={levelMenu.x}
+          y={levelMenu.y}
+          items={[
+            { label: (level === 'none' ? '✓ ' : '') + t('mail.shorten'), onClick: () => { setLevel('none'); setLevelMenu(null) } },
+            ...LEVELS.map((l) => ({ label: (level === l ? '✓ ' : '') + t('mail.level.' + l), onClick: () => { setLevel(l); setLevelMenu(null) } }))
+          ]}
+          onClose={() => setLevelMenu(null)}
+        />
+      )}
     </div>
   )
 }

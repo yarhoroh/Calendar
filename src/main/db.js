@@ -69,6 +69,26 @@ export function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_ai_tasks_at ON ai_tasks(at);
 
+    CREATE TABLE IF NOT EXISTS mail_tasks (
+      id TEXT PRIMARY KEY,
+      account TEXT,
+      folder TEXT,
+      every INTEGER,
+      winfrom TEXT,
+      winto TEXT,
+      prompt TEXT NOT NULL,
+      enabled INTEGER DEFAULT 1,
+      created TEXT
+    );
+    -- per (account, folder) high-water mark so the watcher fetches ONLY new mail
+    CREATE TABLE IF NOT EXISTS mail_watch (
+      account TEXT NOT NULL,
+      folder TEXT NOT NULL,
+      last_uid INTEGER DEFAULT 0,
+      uid_validity INTEGER DEFAULT 0,
+      PRIMARY KEY (account, folder)
+    );
+
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
       note_id TEXT NOT NULL,
@@ -473,6 +493,66 @@ export function markAiTaskDone(id) {
   db.prepare('UPDATE ai_tasks SET done = 1 WHERE id = ?').run(id)
 }
 
+// ---- mail watcher tasks: periodic "watch this mailbox, tell me what matters" --
+// Each task watches one account+folder on an interval; the scheduler fetches only
+// NEW mail (via the mail_watch high-water mark) and pinches the AI with `prompt`.
+const MAIL_TASK_COLS = 'id, account, folder, every, winfrom, winto, prompt, enabled, created'
+export function allMailTasks() {
+  return db.prepare(`SELECT ${MAIL_TASK_COLS} FROM mail_tasks ORDER BY created`).all()
+}
+export function enabledMailTasks() {
+  return db.prepare(`SELECT ${MAIL_TASK_COLS} FROM mail_tasks WHERE enabled = 1 ORDER BY created`).all()
+}
+export function addMailTask({ account, folder, every, from, to, prompt, enabled }) {
+  const row = {
+    id: randomUUID(),
+    account: String(account || 'all').trim() || 'all',
+    folder: String(folder || 'INBOX').trim() || 'INBOX',
+    every: Number(every) > 0 ? Math.round(Number(every)) : 10, // minutes between checks
+    winfrom: String(from || '').trim() || null,
+    winto: String(to || '').trim() || null,
+    prompt: String(prompt || '').trim(),
+    enabled: enabled === false ? 0 : 1,
+    created: new Date().toISOString()
+  }
+  if (!row.prompt) return null
+  db.prepare(
+    'INSERT INTO mail_tasks (id, account, folder, every, winfrom, winto, prompt, enabled, created) VALUES (@id, @account, @folder, @every, @winfrom, @winto, @prompt, @enabled, @created)'
+  ).run(row)
+  return row
+}
+export function updateMailTask(id, { account, folder, every, from, to, prompt, enabled }) {
+  const patch = {
+    id,
+    account: String(account || 'all').trim() || 'all',
+    folder: String(folder || 'INBOX').trim() || 'INBOX',
+    every: Number(every) > 0 ? Math.round(Number(every)) : 10,
+    winfrom: String(from || '').trim() || null,
+    winto: String(to || '').trim() || null,
+    prompt: String(prompt || '').trim(),
+    enabled: enabled === false ? 0 : 1
+  }
+  if (!patch.prompt) return null
+  db.prepare(
+    'UPDATE mail_tasks SET account=@account, folder=@folder, every=@every, winfrom=@winfrom, winto=@winto, prompt=@prompt, enabled=@enabled WHERE id=@id'
+  ).run(patch)
+  return db.prepare(`SELECT ${MAIL_TASK_COLS} FROM mail_tasks WHERE id = ?`).get(id) || null
+}
+export function deleteMailTask(id) {
+  db.prepare('DELETE FROM mail_tasks WHERE id = ?').run(id)
+}
+
+// high-water mark per mailbox: the last UID the watcher has already seen
+export function getMailWatermark(account, folder) {
+  return db.prepare('SELECT last_uid, uid_validity FROM mail_watch WHERE account = ? AND folder = ?').get(account, folder) || null
+}
+export function setMailWatermark(account, folder, lastUid, uidValidity) {
+  db.prepare(
+    'INSERT INTO mail_watch (account, folder, last_uid, uid_validity) VALUES (@account, @folder, @lastUid, @uidValidity) ' +
+      'ON CONFLICT(account, folder) DO UPDATE SET last_uid = @lastUid, uid_validity = @uidValidity'
+  ).run({ account, folder, lastUid: Number(lastUid) || 0, uidValidity: Number(uidValidity) || 0 })
+}
+
 // ---- folders: per-board tree to group/filter notes ------------------------
 // board = 'today' | 'everyday' | 'general'; parent_id null = top level (under
 // the implicit "General" root). A note's folder_id points at one of these.
@@ -679,6 +759,29 @@ export function setSavedAttachment(account, mid, part, path) {
 export function getSavedAttachment(account, mid, part) {
   const r = db.prepare('SELECT path FROM mail_saved WHERE account = ? AND mid = ? AND part = ?').get(account, String(mid), String(part))
   return r?.path || null
+}
+
+// Reconcile the cache for one view with an authoritative live page: drop cached rows
+// that the server no longer has (e.g. mail deleted in Gmail) so the instant flash never
+// shows ghosts. Only rows newer than `minDate` are considered (the loaded window) unless
+// minDate is 0 (the whole view was loaded → prune everything stale). A row survives if its
+// id OR its conversation is still present live. Scoped to account+label[+category].
+export function reconcileMailCache(account, label, category, liveIds, liveThreadIds, minDate) {
+  if (!account || account === 'all') return 0
+  const like = `%"${String(label || 'INBOX')}"%`
+  const catSql = category ? ' AND category = ?' : ''
+  const args = category ? [account, like, category, Number(minDate) || 0] : [account, like, Number(minDate) || 0]
+  const rows = db.prepare(`SELECT id, thread_id FROM mail_messages WHERE account = ? AND labels LIKE ?${catSql} AND date >= ?`).all(...args)
+  if (!rows.length) return 0
+  const idSet = new Set(liveIds || [])
+  const thSet = new Set((liveThreadIds || []).map(String))
+  const dead = rows.filter((r) => !idSet.has(r.id) && !(r.thread_id && thSet.has(String(r.thread_id))))
+  if (!dead.length) return 0
+  const del = db.prepare('DELETE FROM mail_messages WHERE account = ? AND id = ?')
+  db.transaction((list) => {
+    for (const r of list) del.run(account, r.id)
+  })(dead)
+  return dead.length
 }
 
 // drop a whole conversation (or one message) from the cache after deleting it

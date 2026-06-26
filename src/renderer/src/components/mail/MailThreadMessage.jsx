@@ -62,7 +62,7 @@ const HEAD =
 // One real message inside a conversation. Collapsed shows a preview; expanded shows
 // the body (HTML in a sandboxed iframe, else text), an expandable Details block and
 // per-message actions. Inline images load with their own spinner placeholders.
-export default function MailThreadMessage({ m, defaultOpen, account, starred, onToggleStar, onOpenInternal, onLinkMenu, onPickLang }) {
+export default function MailThreadMessage({ m, defaultOpen, account, starred, onToggleStar, onOpenInternal, onLinkMenu, onPickLang, onZoom, zoom }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(!!defaultOpen)
   const [hasOpened, setHasOpened] = useState(!!defaultOpen) // mount the body once, then keep it
@@ -218,6 +218,17 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
     }
     doc.addEventListener('mouseup', () => requestAnimationFrame(showSel))
     doc.addEventListener('mousedown', () => setSelBtn(null))
+    // Ctrl+wheel inside the body zooms the reader (events don't escape the iframe, so we
+    // catch them here and tell the parent). passive:false so preventDefault stops page-zoom.
+    doc.addEventListener(
+      'wheel',
+      (ev) => {
+        if (!ev.ctrlKey) return
+        ev.preventDefault()
+        onZoom?.(ev.deltaY < 0 ? 5 : -5)
+      },
+      { passive: false }
+    )
     // deferred external images (src was moved to data-osrc) → spinner, then the
     // backend downloads them and we swap the data: URL in place
     const ext = [...doc.querySelectorAll('img[data-osrc]')]
@@ -325,11 +336,15 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
               {m.signedBy && <div><span>{t('mail.signedBy')}</span> {m.signedBy}</div>}
             </div>
           )}
-          {html ? (
-            <iframe ref={iframeRef} className="mail-msg__html" sandbox="allow-same-origin" srcDoc={HEAD + html} title="message" onLoad={onLoad} />
-          ) : (
-            <div className="mail-msg__body">{m.text}</div>
-          )}
+          {/* zoom wraps ONLY the body (iframe + its content, or the plain-text body) — the
+              header, toolbar and actions stay at their normal size */}
+          <div className="mail-msg__bodyzoom" style={{ zoom: (zoom || 100) / 100 }}>
+            {html ? (
+              <iframe ref={iframeRef} className="mail-msg__html" sandbox="allow-same-origin" srcDoc={HEAD + html} title="message" onLoad={onLoad} />
+            ) : (
+              <div className="mail-msg__body">{m.text}</div>
+            )}
+          </div>
           {m.attachments?.length > 0 && (
             <div className="mail-msg__attachments">
               {m.attachments.map((a, i) => (

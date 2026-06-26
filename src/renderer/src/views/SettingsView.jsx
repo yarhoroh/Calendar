@@ -19,6 +19,8 @@ import WorkingDaysSetting from '../components/settings/WorkingDaysSetting'
 import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
 import AiTaskAdd from '../components/settings/AiTaskAdd'
+import MailTasksPanel from '../components/settings/MailTasksPanel'
+import MailTaskAdd from '../components/settings/MailTaskAdd'
 import StatusesPanel from '../components/settings/StatusesPanel'
 import FocusBlurSetting from '../components/settings/FocusBlurSetting'
 import GeneralUnsortedSetting from '../components/settings/GeneralUnsortedSetting'
@@ -97,6 +99,9 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             </SettingsSection>
             <SettingsSection title={t('settings.aiTasks')} footer={<AiTaskAdd />}>
               <AiTasksPanel />
+            </SettingsSection>
+            <SettingsSection title={t('settings.mailTasks')} footer={<MailTaskAdd />}>
+              <MailTasksPanel />
             </SettingsSection>
           </>
         )}

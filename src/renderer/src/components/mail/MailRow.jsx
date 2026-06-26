@@ -59,7 +59,11 @@ export default function MailRow({ msg, query, selected, showAccount, showRecipie
         <ImportantIcon filled={msg.important} />
       </button>
 
-      {showAccount && <span className="mail-row__avatar" title={msg.account}>{monogram(msg.account)}</span>}
+      {showAccount && (
+        <span className="mail-row__avatar" title={msg.account}>
+          {monogram(showRecipient ? msg.to || msg.account : msg.account)}
+        </span>
+      )}
 
       {/* in Sent, the meaningful name is the recipient, not me (the sender) */}
       <span className="mail-row__from">{highlight(showRecipient ? msg.to || msg.from : msg.from, query)}</span>

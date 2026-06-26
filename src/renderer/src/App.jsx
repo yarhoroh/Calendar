@@ -11,6 +11,7 @@ import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
 import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
+import { useMailTaskRunner } from './hooks/useMailTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
 import ChatPanel from './components/ChatPanel'
@@ -72,6 +73,7 @@ export default function App() {
   const chat = useChat({ onCommand: runCommand })
 
   useAiTaskRunner({ onCommand: runCommand })
+  useMailTaskRunner({ onCommand: runCommand })
   useTelegramBridge({ onCommand: runCommand })
 
   // Google → local auto-sync: driven by the main-process timer tick (interval is

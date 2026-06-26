@@ -37,6 +37,10 @@ import {
   addAiTask,
   updateAiTask,
   deleteAiTask,
+  allMailTasks,
+  addMailTask,
+  updateMailTask,
+  deleteMailTask,
   attachmentsFor,
   allAttachments,
   addAttachment,
@@ -68,6 +72,7 @@ import {
 } from './google'
 import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
+import { initMailWatch, scheduleAllMailTasks, scheduleMailTask, cancelMailTask } from './mailWatch'
 import {
   initNotify,
   setReminder,
@@ -532,6 +537,8 @@ function aiContext() {
     statuses: listStatuses(),
     configPath: aiConfigPath(),
     googleAccounts: googleAccountsSummary(), // emails + selected calendar names only (no tokens)
+    mailAccounts: getMailAccounts(), // IMAP mailboxes the AI can search/read/act on (no passwords)
+    mailTasks: allMailTasks(), // mail watchers the AI can create/list/delete
     // "everyday" notes are projected onto calendar days when this is on; getNotes
     // surfaces them on the requested dates so the AI sees what the user sees
     everydayInCal: !!(loadSettings().calendar?.everydayInCal),
@@ -1009,6 +1016,27 @@ ipcMain.handle('aiTask:delete', (_e, id) => {
   broadcastAiData()
 })
 
+// ---- mail watcher tasks (viewable/editable in Settings) -----------------
+ipcMain.handle('mailTask:get', () => allMailTasks())
+ipcMain.handle('mailTask:add', (_e, payload) => {
+  const row = addMailTask(payload)
+  if (row) scheduleMailTask(row)
+  broadcastAiData()
+  return row
+})
+ipcMain.handle('mailTask:update', (_e, { id, payload }) => {
+  const row = updateMailTask(id, payload || {})
+  cancelMailTask(id) // drop the old timer, then re-arm (or leave off if now disabled)
+  if (row) scheduleMailTask(row)
+  broadcastAiData()
+  return row
+})
+ipcMain.handle('mailTask:delete', (_e, id) => {
+  cancelMailTask(id)
+  deleteMailTask(id)
+  broadcastAiData()
+})
+
 // ---- attachments: files linked to notes ---------------------------------
 function broadcastAttach(noteId) {
   mainWindow?.webContents?.send('attach:changed', { noteId })
@@ -1235,6 +1263,25 @@ if (!gotLock) {
         mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel, notify: task.notify })
     })
     scheduleAllAiTasks()
+    // mail watcher: new mail (only) → pinch the AI with the task prompt + the new messages
+    initMailWatch({
+      onFire: (task, messages) =>
+        mainWindow?.webContents?.send('mailTask:fire', {
+          prompt: task.prompt,
+          account: task.account,
+          folder: task.folder,
+          messages: messages.map((m) => ({
+            account: m.account,
+            threadId: m.threadId,
+            id: m.id,
+            from: m.from,
+            subject: m.subject,
+            date: m.date,
+            unread: m.unread
+          }))
+        })
+    })
+    scheduleAllMailTasks()
     rescheduleGoogleSync()
     initTts({ getMain: () => mainWindow })
     initSupertonicDownload({ onState: (s) => mainWindow?.webContents?.send('supertonic:progress', s) })

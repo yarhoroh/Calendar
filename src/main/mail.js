@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { ImapFlow } from 'imapflow'
 import { loadAiConfig, saveAiConfig } from './aiConfig'
-import { upsertMailMessages, listMailMessages, setMailMessageImportant, setMailThreadSeen, setSavedAttachment, deleteCachedMail, addMailTombstones, mailTombstoneSet, pruneMailTombstones } from './db'
+import { upsertMailMessages, listMailMessages, setMailMessageImportant, setMailThreadSeen, setSavedAttachment, deleteCachedMail, reconcileMailCache, addMailTombstones, mailTombstoneSet, pruneMailTombstones } from './db'
 import { extractAttachments, pickBodyParts } from './mailMime'
 
 // Mail client over IMAP (read) — independent of the Google Calendar OAuth.
@@ -173,6 +173,24 @@ export async function testInbox(email, { max = 20 } = {}) {
 const FOLDER_ALIAS = { INBOX: 'INBOX', SENT: '[Gmail]/Sent Mail', TRASH: '[Gmail]/Trash' }
 const normPath = (folder) => FOLDER_ALIAS[folder] || folder
 
+// Gmail localizes [Gmail]/* folder names per the account's language, so the English alias
+// (used by the unified "all" Sent/Trash views) doesn't exist on a non-English account and the
+// open fails — leaving only the English account's mail. Resolve those by SPECIAL-USE per
+// account instead. INBOX and a real per-account path are universal, so they lock directly.
+const ALIAS_USE = { '[Gmail]/Sent Mail': '\\Sent', '[Gmail]/Trash': '\\Trash' }
+async function lockResolved(client, path) {
+  const use = ALIAS_USE[path]
+  if (use) {
+    try {
+      const b = ((await client.list()) || []).find((mb) => mb.specialUse === use)
+      if (b?.path && b.path !== path) return client.getMailboxLock(b.path)
+    } catch {
+      /* fall through to the literal path */
+    }
+  }
+  return client.getMailboxLock(path)
+}
+
 // fetch one page (offset newest-first) of a folder's headers into the cache,
 // labelled by its path. Returns the folder's TOTAL message count (EXISTS), so the
 // pager can span the whole mailbox even though we only pull `max` at a time.
@@ -181,7 +199,7 @@ async function syncFolder(acc, path, max, offset = 0) {
   try {
     client = clientFor(acc)
     await client.connect()
-    const lock = await client.getMailboxLock(path)
+    const lock = await lockResolved(client, path)
     const metas = []
     let total = 0
     try {
@@ -247,7 +265,7 @@ async function syncView(acc, path, gmraw, catKey, max, offset) {
   try {
     client = clientFor(acc)
     await client.connect()
-    const lock = await client.getMailboxLock(path)
+    const lock = await lockResolved(client, path)
     const metas = []
     let total = 0
     try {
@@ -642,7 +660,7 @@ export async function deleteMail({ account, folder = 'INBOX', threadId, id }) {
     } catch {
       /* fall back to the default path */
     }
-    const lock = await client.getMailboxLock(path)
+    const lock = await lockResolved(client, path)
     try {
       const inTrash = client.mailbox?.specialUse === '\\Trash' || path === trashPath
       const uids = threadId
@@ -763,7 +781,7 @@ async function loadThreadPage(acc, path, gmraw, max, offset, cat, scanWindow) {
   const client = clientFor(acc)
   try {
     await client.connect()
-    const lock = await client.getMailboxLock(path)
+    const lock = await lockResolved(client, path)
     let result = { total: 0, messages: [] }
     try {
       let uids = gmraw
@@ -833,7 +851,16 @@ async function loadThreadPage(acc, path, gmraw, max, offset, cat, scanWindow) {
     }
     // only the exact pass (no scanWindow) enriches counts — phase 1 stays instant with the
     // folder-scoped approximation, then this exact return corrects the badge to the full size
-    if (!scanWindow && result.messages.length) await enrichFullCounts(client, acc, result.messages)
+    if (!scanWindow && result.messages.length) {
+      await enrichFullCounts(client, acc, result.messages)
+      // reconcile the cache with this authoritative page so mail deleted on the server
+      // (e.g. in Gmail) stops flashing from the local cache (the "ghost" message)
+      const liveIds = result.messages.map((m) => m.id)
+      const liveThreads = result.messages.map((m) => m.threadId).filter(Boolean)
+      const complete = result.messages.length < offset + max // loaded the whole view → prune all stale
+      const minDate = complete ? 0 : Math.min(...result.messages.map((m) => m.date || 0))
+      reconcileMailCache(acc.email, path, cat, liveIds, liveThreads, minDate)
+    }
     await client.logout()
     return result
   } catch (err) {
@@ -852,7 +879,7 @@ async function loadFlatPage(acc, path, gmraw, max, offset) {
   const client = clientFor(acc)
   try {
     await client.connect()
-    const lock = await client.getMailboxLock(path)
+    const lock = await lockResolved(client, path)
     let result = { total: 0, messages: [] }
     try {
       let uids = gmraw
@@ -957,7 +984,7 @@ export async function recentMessages({ account, folder = 'INBOX', tab = 'all', f
     const client = clientFor(acc)
     try {
       await client.connect()
-      const lock = await client.getMailboxLock(path)
+      const lock = await lockResolved(client, path)
       const metas = []
       try {
         let uids = gmraw
@@ -1008,6 +1035,62 @@ export async function recentMessages({ account, folder = 'INBOX', tab = 'all', f
   return { ok: true, messages }
 }
 
+// Incremental "only NEW mail since last time" for the watcher. Uses the IMAP UID
+// high-water mark: search UID `${lastUid+1}:*` returns just messages newer than what
+// we've seen (IMAP returns the highest UID even when none are truly new, so we filter).
+// First run (lastUid 0) or a uidvalidity change just records the baseline and returns
+// nothing — so the watcher never replays the whole mailbox. Returns { ok, lastUid (new
+// high to persist), uidValidity, messages: new metas oldest-first }.
+export async function newMessagesSince({ account, folder = 'INBOX', lastUid = 0, uidValidity = 0 }) {
+  const acc = findRaw(account)
+  if (!acc) return { ok: false, error: 'account not found' }
+  const path = normPath(folder)
+  const client = clientFor(acc)
+  try {
+    await client.connect()
+    const lock = await lockResolved(client, path)
+    try {
+      const curValidity = Number(client.mailbox?.uidValidity) || 0
+      const uidNext = Number(client.mailbox?.uidNext) || 0
+      const baseHigh = Math.max(0, uidNext - 1)
+      // mailbox rebuilt (uidvalidity changed) OR first ever run → record baseline, no replay
+      if (!lastUid || (uidValidity && curValidity && curValidity !== uidValidity)) {
+        return { ok: true, baseline: true, uidValidity: curValidity, lastUid: baseHigh, messages: [] }
+      }
+      const since = lastUid + 1
+      const uids = ((await client.search({ uid: `${since}:*` }, { uid: true })) || []).filter((u) => u >= since)
+      if (!uids.length) return { ok: true, uidValidity: curValidity, lastUid, messages: [] }
+      const metas = []
+      let high = lastUid
+      for await (const m of client.fetch(uids, { uid: true, envelope: true, flags: true, internalDate: true, threadId: true }, { uid: true })) {
+        if (m.uid > high) high = m.uid
+        const env = m.envelope || {}
+        metas.push({
+          uid: m.uid,
+          account: acc.email,
+          id: env.messageId || `uid-${path}-${m.uid}`,
+          threadId: m.threadId != null ? String(m.threadId) : null,
+          from: env.from?.[0]?.name || env.from?.[0]?.address || '',
+          fromEmail: env.from?.[0]?.address || '',
+          to: fmtAddr(env.to?.[0]),
+          subject: env.subject || '',
+          date: (m.internalDate || env.date || new Date(0)).getTime(),
+          unread: !(m.flags && m.flags.has('\\Seen'))
+        })
+      }
+      metas.sort((a, b) => a.date - b.date) // oldest first → notifications read in arrival order
+      return { ok: true, uidValidity: curValidity, lastUid: high, messages: metas }
+    } finally {
+      lock.release()
+    }
+  } catch (e) {
+    try { await client.close() } catch { /* ignore */ }
+    return { ok: false, error: e?.message || 'error' }
+  } finally {
+    try { await client.logout() } catch { /* already closed */ }
+  }
+}
+
 // Mark every unread message in a folder as read (\Seen), in batches, reporting
 // progress via onProgress(done, total). Handles the unified 'all' account by looping
 // over every connected mailbox. Runs in the background; the UI shows a live spinner.
@@ -1021,7 +1104,7 @@ export async function markFolderRead({ account, folder }, onProgress) {
     try {
       client = clientFor(acc)
       await client.connect()
-      const lock = await client.getMailboxLock(path)
+      const lock = await lockResolved(client, path)
       try {
         const uids = (await client.search({ seen: false }, { uid: true })) || []
         total += uids.length
@@ -1060,11 +1143,12 @@ export async function emptyFolder({ account, folder }, onProgress) {
   try {
     client = clientFor(acc)
     await client.connect()
-    const lock = await client.getMailboxLock(path)
-    let notTrash = false
+    const lock = await lockResolved(client, path)
+    const su = client.mailbox?.specialUse
+    let notPurgeable = false
     try {
-      if (client.mailbox?.specialUse !== '\\Trash') {
-        notTrash = true // safety: only ever empty the real Trash, never another folder
+      if (su !== '\\Trash' && su !== '\\Junk') {
+        notPurgeable = true // safety: only ever bulk-purge Trash or Spam, never another folder
       } else {
         const uids = (await client.search({ all: true }, { uid: true })) || []
         const total = uids.length
@@ -1080,7 +1164,7 @@ export async function emptyFolder({ account, folder }, onProgress) {
       lock.release()
     }
     await client.logout()
-    if (notTrash) return { ok: false, error: 'not a trash folder' }
+    if (notPurgeable) return { ok: false, error: 'not a trash or spam folder' }
     return { ok: true, deleted: done }
   } catch (e) {
     try { await client?.close?.() } catch { /* ignore */ }
@@ -1109,7 +1193,7 @@ export async function deleteReadInFolder({ account, folder }, onProgress) {
       } catch {
         /* default */
       }
-      const lock = await client.getMailboxLock(path)
+      const lock = await lockResolved(client, path)
       try {
         const inTrash = client.mailbox?.specialUse === '\\Trash' || path === trashPath
         const uids = (await client.search({ seen: true }, { uid: true })) || []
@@ -1174,7 +1258,7 @@ export async function bulkDeleteMail({ folder = 'INBOX', items = [] }) {
       } catch {
         /* default */
       }
-      const lock = await client.getMailboxLock(path)
+      const lock = await lockResolved(client, path)
       try {
         const inTrash = client.mailbox?.specialUse === '\\Trash' || path === trashPath
         const all = []
@@ -1228,7 +1312,7 @@ export async function bulkSeenMail({ folder = 'INBOX', items = [], seen = true }
     try {
       client = clientFor(acc)
       await client.connect()
-      const lock = await client.getMailboxLock(path)
+      const lock = await lockResolved(client, path)
       try {
         const all = []
         for (const it of list) {
@@ -1289,7 +1373,7 @@ async function searchOneAccount(acc, q, onBatch) {
     for (const path of boxes) {
       let lock
       try {
-        lock = await client.getMailboxLock(path)
+        lock = await lockResolved(client, path)
       } catch {
         continue // box vanished between LIST and SELECT → skip it
       }

@@ -26,21 +26,34 @@ function ensureWindow() {
     webPreferences: { preload: opts.preload, sandbox: false }
   })
   win.setAlwaysOnTop(true, 'screen-saver')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) // show even over fullscreen apps
   if (opts.rendererUrl) win.loadURL(`${opts.rendererUrl}#toast`)
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'toast' })
   return win
 }
 
+// Force the toast to the very top every time it shows: showInactive() alone won't
+// raise it above windows that became topmost AFTER it was created, so we re-assert
+// the always-on-top level and moveTop() to push it to the front of the z-order.
+function raise(w) {
+  w.setAlwaysOnTop(true, 'screen-saver')
+  w.moveTop()
+}
+
 function placement(height) {
   const wa = screen.getPrimaryDisplay().workArea
   const width = 340
-  const h = Math.min(Math.max(height, 1), wa.height - 24)
-  return { width, height: h, x: wa.x + wa.width - width - 12, y: wa.y + wa.height - h - 12 }
+  // sit further up from the work-area bottom so the lowest toast (and its drop shadow,
+  // which isn't counted in the reported content height) never tucks under the taskbar
+  const bottomGap = 28
+  const h = Math.min(Math.max(height, 1), wa.height - bottomGap - 12)
+  return { width, height: h, x: wa.x + wa.width - width - 12, y: wa.y + wa.height - h - bottomGap }
 }
 
 function send(payload) {
   const w = ensureWindow()
   w.showInactive()
+  raise(w)
   w.webContents.send('reminder:fire', payload)
   if (opts.getSound?.() !== false) shell.beep()
 }
@@ -76,7 +89,13 @@ function scheduleDaily(payload, hh, mm) {
   const tick = () => {
     const wd = payload.days && payload.days.length ? payload.days : opts.getWorkingDays?.()
     if (!wd || wd.includes(new Date().getDay())) send(payload)
-    timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
+    // reschedule for the NEXT occurrence, skipping any slot within the next minute — a timer
+    // that fires a hair early (Windows/Electron jitter) must NOT immediately re-fire today,
+    // which produced two popups for one daily reminder.
+    const next = new Date()
+    next.setHours(hh, mm, 0, 0)
+    while (next.getTime() - Date.now() < 60000) next.setDate(next.getDate() + 1)
+    timers.set(payload.id, setTimeout(tick, next.getTime() - Date.now()))
   }
   timers.set(payload.id, setTimeout(tick, Math.max(1000, nextDaily(hh, mm) - Date.now())))
 }
@@ -130,6 +149,7 @@ export function resizeToContent(height) {
   }
   win.setBounds(placement(height))
   if (!win.isVisible()) win.showInactive()
+  raise(win) // re-assert top after every resize/show, so it never slips under a window
 }
 
 // a toast was clicked → bring up the main window on that day

@@ -118,6 +118,13 @@ export const ImportantIcon = ({ filled }) => (
 export const ArchiveIcon = () => folderSvg(<><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" /></>)
 export const LabelIcon = () => folderSvg(<><path d="M20 12l-8 8-9-9V3h8l9 9z" /><circle cx="7" cy="7" r="1.3" /></>)
 export const SearchIcon = () => folderSvg(<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>)
+export const ZoomInIcon = () => folderSvg(<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></>)
+export const ZoomOutIcon = () => folderSvg(<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /><path d="M8 11h6" /></>)
+// translate/language (globe), shorten (decreasing lines) and apply (check) — for the
+// internal browser's compact toolbar (icon → dropdown / action)
+export const LanguageIcon = () => folderSvg(<><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c2.5 2.4 2.5 15.6 0 18" /><path d="M12 3c-2.5 2.4-2.5 15.6 0 18" /></>)
+export const ShortenIcon = () => folderSvg(<><path d="M4 6h16" /><path d="M4 12h10" /><path d="M4 18h6" /></>)
+export const ApplyIcon = () => folderSvg(<path d="M20 6L9 17l-5-5" />)
 export const RefreshIcon = () => folderSvg(<><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></>)
 export const ColumnsIcon = () => folderSvg(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /></>)
 export const ReplyIcon = () => folderSvg(<><path d="M9 17l-5-5 5-5" /><path d="M4 12h11a5 5 0 0 1 5 5v1" /></>)

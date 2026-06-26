@@ -517,6 +517,13 @@
   font-size: 13px;
   color: var(--muted);
 }
+/* infinite-scroll "loading more" row — a small strip under the list, not full-height */
+.mail-list__loading--more {
+  min-height: auto;
+  flex-direction: row;
+  gap: 8px;
+  padding: 12px;
+}
 
 /* ---- header bar above the tabs (matches the left menu header height) ---- */
 .mail-list__head {
@@ -626,6 +633,33 @@
 .mail-reader__iconbtn:hover {
   background: var(--hover);
   color: var(--text);
+}
+/* zoom controls — pinned to the right end of the reader bar */
+.mail-reader__zoom {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mail-reader__zoomval {
+  min-width: 44px;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mail-reader__zoomval:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* only the message body scales — zoom isolates so the iframe's fitted height scales with it */
+.mail-msg__bodyzoom {
+  min-width: 0;
 }
 .mail-reader__scroll {
   flex: 1;

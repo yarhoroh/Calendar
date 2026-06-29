@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import Database from 'better-sqlite3'
 import { readFileSync, existsSync, statSync } from 'fs'
 import { join } from 'path'
 
@@ -67,6 +68,47 @@ function load(lang) {
   return m
 }
 
+// optional "big" dictionary (millions of forms), downloaded on demand into a SQLite file in
+// userData and enabled per language from settings. It is NOT loaded into memory — only the
+// words in the current utterance are looked up (one indexed query each), so RAM stays flat.
+// It is the LOWEST priority: only consulted when the bundled curated dicts miss a word.
+let bigEnabled = () => false
+export function setBigDict(fn) {
+  if (typeof fn === 'function') bigEnabled = fn
+}
+const bigDbPath = (lang) => join(app.getPath('userData'), 'stress-big', lang + '-big.db')
+
+const bigDbs = {} // lang → { get, mtime } | { mtime } (absent) — reopened when the file changes
+function bigStmt(lang) {
+  let mtime = 0
+  try {
+    mtime = statSync(bigDbPath(lang)).mtimeMs
+  } catch {
+    /* not downloaded */
+  }
+  const cached = bigDbs[lang]
+  if (cached && cached.mtime === mtime) return cached.get || null
+  try {
+    cached?.db?.close()
+  } catch {
+    /* ignore */
+  }
+  if (!mtime) {
+    bigDbs[lang] = { mtime: 0 }
+    return null
+  }
+  try {
+    const db = new Database(bigDbPath(lang), { readonly: true, fileMustExist: true })
+    const get = db.prepare('SELECT over FROM dict WHERE word = ?')
+    bigDbs[lang] = { db, get, mtime }
+    return get
+  } catch (e) {
+    console.log(`[stress] big dict ${lang} unavailable: ${e.message}`)
+    bigDbs[lang] = { mtime }
+    return null
+  }
+}
+
 // re-apply the original word's casing to the dictionary's stressed (lowercase) form
 function restoreCase(orig, stressedLower) {
   let out = ''
@@ -88,10 +130,16 @@ function applyCase(orig, repl) {
 export function accentuate(text, lang) {
   if ((lang !== 'ru' && lang !== 'uk') || !text) return text
   const m = load(lang)
-  if (!m.size) return text
+  const get = bigEnabled(lang) ? bigStmt(lang) : null
+  if (!m.size && !get) return text
   return text.replace(/[А-Яа-яЁёІіЇїЄєҐґ'’]+/g, (w) => {
-    const e = m.get(w.toLowerCase())
-    if (!e) return w
-    return e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over)
+    const lw = w.toLowerCase()
+    const e = m.get(lw) // curated dicts win
+    if (e) return e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over)
+    if (get) {
+      const row = get.get(lw) // big dict fills the gap (indexed SQLite lookup)
+      if (row) return restoreCase(w, row.over)
+    }
+    return w
   })
 }

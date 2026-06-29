@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import api from '../../lib/api'
-import { StarIcon, ReplyIcon, ForwardIcon } from '../icons'
+import { StarIcon } from '../icons'
 import { monogram } from '../../lib/monogram'
 import { useI18n } from '../../i18n/I18nContext'
 import MailAttachBadge from './MailAttachBadge'
@@ -352,10 +352,6 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
               ))}
             </div>
           )}
-          <div className="mail-msg__actions">
-            <button className="btn btn--ghost"><ReplyIcon /> {t('mail.reply')}</button>
-            <button className="btn btn--ghost"><ForwardIcon /> {t('mail.forward')}</button>
-          </div>
         </div>
       )}
     </div>

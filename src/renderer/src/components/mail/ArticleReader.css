@@ -1,0 +1,93 @@
+/* Standalone reader overlay opened by the AI's showReader action. Covers the whole app. */
+.art-reader {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #fff);
+}
+
+.art-reader__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.art-reader__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 7px;
+}
+.art-reader__back:hover {
+  background: var(--hover);
+}
+.art-reader__title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--text);
+}
+.art-reader__tts {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.art-reader__btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent, #10b981);
+  color: #fff;
+  cursor: pointer;
+}
+.art-reader__btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.art-reader__btn--stop {
+  background: #e5484d;
+}
+.art-reader__btn--prep {
+  opacity: 0.8;
+}
+
+.art-reader__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+}
+.art-reader__article {
+  max-width: 720px;
+  width: 100%;
+  color: var(--text);
+  line-height: 1.65;
+  font-size: 16px;
+}
+.art-reader__article h1 {
+  font-size: 26px;
+  line-height: 1.25;
+  margin: 0 0 18px;
+}
+.art-reader__article p {
+  margin: 0 0 14px;
+}

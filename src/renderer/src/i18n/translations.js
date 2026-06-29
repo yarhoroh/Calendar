@@ -20,7 +20,24 @@ export const translations = {
       themeLight: 'Light theme',
       themeDark: 'Dark theme'
     },
-    nav: { calendar: 'Calendar', appointments: 'Appointments', mail: 'Mail', settings: 'Settings' },
+    nav: { calendar: 'Calendar', appointments: 'Appointments', mail: 'Mail', pdf: 'Files', settings: 'Settings' },
+    pdf: {
+      newFolder: 'New folder', linkFolder: 'Link folder', linkFile: 'Link file', open: 'Open', reveal: 'Show in folder',
+      close: 'Close', addTab: 'Open a PDF', scrollLeft: 'Scroll left', scrollRight: 'Scroll right', findInTree: 'Find in tree',
+      closeUnsaved: 'This tab has unsaved changes. Close it anyway?',
+      rename: 'Rename', remove: 'Remove', modeFlat: 'Show all PDFs (flat)', modeTree: 'Show real folders',
+      flat: 'flat', tree: 'tree', empty: 'Empty. Add a folder, or link a real folder / PDF.',
+      search: 'Filter files…', clear: 'Clear', noMatch: 'Nothing matches.',
+      collapse: 'Collapse', expand: 'Expand', resize: 'Drag to resize',
+      placeholderTitle: 'PDF editor', placeholderSub: 'Pick a PDF on the left. The editor lands here.'
+    },
+    pdfed: {
+      save: 'Save', saveCurrent: 'Save current (Ctrl+S)', saveAsNew: 'Save as new…', fileName: 'File name', create: 'Create',
+      editText: 'Edit text (E)', addText: 'Add text (T)', image: 'Add image', shape: 'Add box (R)',
+      zoomIn: 'Zoom in (Ctrl+wheel)', zoomOut: 'Zoom out (Ctrl+wheel)', loading: 'Loading…', error: 'Error',
+      page: 'Page', pages: 'pages', hintEdit: 'Click text or a shape to select; double-click text to edit',
+      hintText: 'Click where to type', hintShape: 'Click where to add a box', hintIdle: 'Click text to select; double-click to edit'
+    },
     tts: { pause: 'Pause', resume: 'Resume', stop: 'Stop', next: 'Next' },
     mail: {
       unified: 'Unified', allInboxes: 'All inboxes', allSent: 'All sent', more: 'More',
@@ -37,7 +54,7 @@ export const translations = {
       filter: { all: 'All', unread: 'Unread', starred: 'Starred', attachments: 'Has attachment' },
       newer: 'Newer', older: 'Older', paneRight: 'Reading pane: right of the list', paneFull: 'Reading pane: full (replaces the list)',
       selectToRead: 'Select a message to read', back: 'Back', close: 'Close', star: 'Star', important: 'Important', notImportant: 'Not important', loadingImages: 'Loading images…',
-      reply: 'Reply', replyAll: 'Reply all', forward: 'Forward', archive: 'Archive', delete: 'Delete', markUnread: 'Mark unread',
+      reply: 'Reply', replyAll: 'Reply all', forward: 'Forward', wrote: 'wrote', forwarded: 'Forwarded message', archive: 'Archive', delete: 'Delete', markUnread: 'Mark unread',
       details: 'Details', from: 'From', to: 'to', cc: 'cc', date: 'Date', replyTo: 'Reply-to', subject: 'Subject', mailedBy: 'Mailed-by', signedBy: 'Signed-by', translate: 'Translate', showOriginal: 'Show original', replyPlaceholder: 'Write a reply…', send: 'Send',
       openInternal: 'Open in app', openExternal: 'Open in browser', backToEmail: 'Back to email', navBack: 'Back', navForward: 'Forward',
       apply: 'Apply', viewPage: 'Page', viewReader: 'Reader', shorten: 'Shorten…', articleFailed: 'Could not process the article',
@@ -46,8 +63,12 @@ export const translations = {
       messagesInThread: 'messages', empty: 'No messages', searching: 'Searching…', noResults: 'Nothing found',
       loadingMore: 'loading more…',
       zoomIn: 'Zoom in (Ctrl+scroll)', zoomOut: 'Zoom out (Ctrl+scroll)', zoomReset: 'Reset zoom to 100%',
+      scrollTop: 'Scroll to top', scrollBottom: 'Scroll to bottom',
       language: 'Translate',
       newEmail: 'New email', composeBody: 'Write your message…', sending: 'Sending', attach: 'Attach files',
+      recipientHint: 'Ctrl+Space — all contacts',
+      leaveTitle: 'Unsent email', leaveText: 'You have an email open in the composer. Save it as a draft before leaving?',
+      leaveCancel: 'Cancel', leaveDiscard: "Don't save", leaveSaveDraft: 'Save draft', draftLoading: 'Loading draft…',
       composeNeedTo: 'Add at least one recipient.', composeNeedFrom: 'Pick an account to send from.',
       composeFailed: 'Could not send the email.',
       prev: 'Previous', next: 'Next'
@@ -153,6 +174,11 @@ export const translations = {
       voiceDownloading: 'Downloading model…',
       voiceReady: 'Model ready',
       voicePreset: 'Voice',
+      bigDict: 'Big pronunciation dictionary',
+      bigDictDesc:
+        'Full stress coverage (millions of word forms). Downloaded on demand and stored on disk as an indexed database — looked up per word, so it barely uses any memory.',
+      bigDictReady: 'On',
+      bigDictBuilding: 'Building…',
       voiceSpeed: 'Speed',
       voiceUkOnly: 'Ukrainian voices (RU/EN have one built-in voice)',
       workingDays: 'Working days',
@@ -265,7 +291,24 @@ export const translations = {
       themeLight: 'Світла тема',
       themeDark: 'Темна тема'
     },
-    nav: { calendar: 'Календар', appointments: 'Зустрічі', mail: 'Пошта', settings: 'Налаштування' },
+    nav: { calendar: 'Календар', appointments: 'Зустрічі', mail: 'Пошта', pdf: 'Файли', settings: 'Налаштування' },
+    pdf: {
+      newFolder: 'Нова папка', linkFolder: 'Підключити папку', linkFile: 'Підключити файл', open: 'Відкрити', reveal: 'Показати в папці',
+      close: 'Закрити', addTab: 'Відкрити PDF', scrollLeft: 'Прокрутити вліво', scrollRight: 'Прокрутити вправо', findInTree: 'Знайти в дереві',
+      closeUnsaved: 'У цій вкладці є незбережені зміни. Все одно закрити?',
+      rename: 'Перейменувати', remove: 'Прибрати', modeFlat: 'Усі PDF (списком)', modeTree: 'Реальні папки',
+      flat: 'плоско', tree: 'дерево', empty: 'Порожньо. Додай папку або підключи реальну папку / PDF.',
+      search: 'Фільтр файлів…', clear: 'Очистити', noMatch: 'Нічого не знайдено.',
+      collapse: 'Згорнути', expand: 'Розгорнути', resize: 'Потягни, щоб змінити ширину',
+      placeholderTitle: 'Редактор PDF', placeholderSub: 'Обери PDF зліва. Редактор зʼявиться тут.'
+    },
+    pdfed: {
+      save: 'Зберегти', saveCurrent: 'Зберегти поточний (Ctrl+S)', saveAsNew: 'Зберегти як новий…', fileName: 'Імʼя файлу', create: 'Створити',
+      editText: 'Редагувати текст (E)', addText: 'Додати текст (T)', image: 'Додати зображення', shape: 'Додати рамку (R)',
+      zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', loading: 'Завантаження…', error: 'Помилка',
+      page: 'Сторінка', pages: 'стор.', hintEdit: 'Клікни по тексту або фігурі, щоб виділити; подвійний клік — редагувати',
+      hintText: 'Клікни, де вписати текст', hintShape: 'Клікни, куди вставити рамку', hintIdle: 'Клікни по тексту, щоб виділити; подвійний клік — редагувати'
+    },
     tts: { pause: 'Пауза', resume: 'Продовжити', stop: 'Стоп', next: 'Далі' },
     mail: {
       unified: 'Спільні', allInboxes: 'Усі вхідні', allSent: 'Усі надіслані', more: 'Більше',
@@ -282,7 +325,7 @@ export const translations = {
       filter: { all: 'Усі', unread: 'Непрочитані', starred: 'Із зірочкою', attachments: 'З вкладенням' },
       newer: 'Новіші', older: 'Старіші', paneRight: 'Панель читання: праворуч від списку', paneFull: 'Панель читання: на весь екран (замість списку)',
       selectToRead: 'Виберіть лист для перегляду', back: 'Назад', close: 'Закрити', star: 'Зірочка', important: 'Важливе', notImportant: 'Неважливе', loadingImages: 'Завантаження зображень…',
-      reply: 'Відповісти', replyAll: 'Відповісти всім', forward: 'Переслати', archive: 'Архівувати', delete: 'Видалити', markUnread: 'Позначити непрочитаним',
+      reply: 'Відповісти', replyAll: 'Відповісти всім', forward: 'Переслати', wrote: 'написав(ла)', forwarded: 'Пересланий лист', archive: 'Архівувати', delete: 'Видалити', markUnread: 'Позначити непрочитаним',
       details: 'Деталі', from: 'Від', to: 'кому', cc: 'копія', date: 'Дата', replyTo: 'Відповісти', subject: 'Тема', mailedBy: 'Надіслано через', signedBy: 'Підписано', translate: 'Перекласти', showOriginal: 'Оригінал', replyPlaceholder: 'Напишіть відповідь…', send: 'Надіслати',
       openInternal: 'Відкрити в застосунку', openExternal: 'Відкрити в браузері', backToEmail: 'Назад до листа', navBack: 'Назад', navForward: 'Вперед',
       apply: 'Застосувати', viewPage: 'Сторінка', viewReader: 'Читалка', shorten: 'Скоротити…', articleFailed: 'Не вдалося обробити статтю',
@@ -291,8 +334,12 @@ export const translations = {
       messagesInThread: 'листів', empty: 'Немає листів', searching: 'Пошук…', noResults: 'Нічого не знайдено',
       loadingMore: 'завантаження…',
       zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', zoomReset: 'Скинути масштаб до 100%',
+      scrollTop: 'Прокрутити вгору', scrollBottom: 'Прокрутити вниз',
       language: 'Переклад',
       newEmail: 'Новий лист', composeBody: 'Напишіть повідомлення…', sending: 'Надсилання', attach: 'Прикріпити файли',
+      recipientHint: 'Ctrl+Space — усі контакти',
+      leaveTitle: 'Незавершений лист', leaveText: 'У редакторі відкритий лист. Зберегти його як чернетку перед переходом?',
+      leaveCancel: 'Скасувати', leaveDiscard: 'Не зберігати', leaveSaveDraft: 'Зберегти чернетку', draftLoading: 'Завантаження чернетки…',
       composeNeedTo: 'Додайте хоча б одного отримувача.', composeNeedFrom: 'Оберіть акаунт для надсилання.',
       composeFailed: 'Не вдалося надіслати лист.',
       prev: 'Попередня', next: 'Наступна'
@@ -398,6 +445,11 @@ export const translations = {
       voiceDownloading: 'Завантаження моделі…',
       voiceReady: 'Модель готова',
       voicePreset: 'Голос',
+      bigDict: 'Великий словник вимови',
+      bigDictDesc:
+        'Повне покриття наголосів (мільйони словоформ). Завантажується за потреби й зберігається на диску як індексована база — пошук іде по словах, тож пам’яті майже не займає.',
+      bigDictReady: 'Увімкнено',
+      bigDictBuilding: 'Збирання…',
       voiceSpeed: 'Швидкість',
       voiceUkOnly: 'Українські голоси (RU/EN — один вбудований голос)',
       workingDays: 'Робочі дні',

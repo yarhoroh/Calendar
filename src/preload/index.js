@@ -122,7 +122,37 @@ const api = {
     ipcRenderer.on('supertonic:progress', h)
     return () => ipcRenderer.removeListener('supertonic:progress', h)
   },
+  // big pronunciation dictionaries (downloaded on demand, per language)
+  bigDictLangs: () => ipcRenderer.invoke('stressBig:langs'),
+  bigDictStatus: (lang) => ipcRenderer.invoke('stressBig:status', lang),
+  bigDictDownload: (lang) => ipcRenderer.invoke('stressBig:download', lang),
+  bigDictRemove: (lang) => ipcRenderer.invoke('stressBig:remove', lang),
+  getBigDict: () => ipcRenderer.invoke('settings:get-big-dict'),
+  setBigDict: (lang, on) => ipcRenderer.send('settings:set-big-dict', { lang, on }),
+  onBigDictProgress: (cb) => {
+    const h = (_e, s) => cb(s)
+    ipcRenderer.on('stressBig:progress', h)
+    return () => ipcRenderer.removeListener('stressBig:progress', h)
+  },
   notify: (text) => ipcRenderer.send('notify:push', text),
+  pdf: {
+    getTree: () => ipcRenderer.invoke('pdf:get-tree'),
+    setTree: (t) => ipcRenderer.invoke('pdf:set-tree', t),
+    pickFolder: () => ipcRenderer.invoke('pdf:pick-folder'),
+    pickFile: () => ipcRenderer.invoke('pdf:pick-file'),
+    scan: (path, mode) => ipcRenderer.invoke('pdf:scan', { path, mode }),
+    stat: (path) => ipcRenderer.invoke('pdf:stat', path),
+    open: (path) => ipcRenderer.invoke('pdf:open', path),
+    reveal: (path) => ipcRenderer.invoke('pdf:reveal', path),
+    read: (path) => ipcRenderer.invoke('pdf:read', path),
+    write: (path, bytes) => ipcRenderer.invoke('pdf:write', { path, bytes }),
+    watch: (paths) => ipcRenderer.invoke('pdf:watch', paths),
+    onTreeChanged: (cb) => {
+      const h = () => cb()
+      ipcRenderer.on('pdf:tree-changed', h)
+      return () => ipcRenderer.removeListener('pdf:tree-changed', h)
+    }
+  },
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)
     ipcRenderer.on('tts:play', h)
@@ -251,6 +281,7 @@ const api = {
   mail: {
     listAccounts: () => ipcRenderer.invoke('mail:list-accounts'),
     send: (payload) => ipcRenderer.invoke('mail:send', payload),
+    saveDraft: (payload) => ipcRenderer.invoke('mail:save-draft', payload),
     contacts: () => ipcRenderer.invoke('mail:contacts'),
     add: (payload) => ipcRenderer.invoke('mail:add', payload),
     remove: (email) => ipcRenderer.invoke('mail:remove', email),
@@ -277,7 +308,9 @@ const api = {
     clearCache: () => ipcRenderer.invoke('mail:clear-cache'),
     setSeen: (account, threadId, id, seen) => ipcRenderer.invoke('mail:set-seen', { account, threadId, id, seen }),
     inlineImages: (html) => ipcRenderer.invoke('mail:inline-images', { html }),
+    inlineHtml: (payload) => ipcRenderer.invoke('mail:inline-html', payload),
     openAttachment: (account, id, part, name, saveAs) => ipcRenderer.invoke('mail:open-attachment', { account, id, part, name, saveAs }),
+    saveAttachmentTemp: (account, id, part, name) => ipcRenderer.invoke('mail:save-attachment-temp', { account, id, part, name }),
     delete: (account, folder, threadId, id) => ipcRenderer.invoke('mail:delete', { account, folder, threadId, id }),
     markFolderRead: (account, folder) => ipcRenderer.invoke('mail:mark-folder-read', { account, folder }),
     emptyFolder: (account, folder) => ipcRenderer.invoke('mail:empty-folder', { account, folder }),

@@ -290,3 +290,55 @@
 .mail__placeholder-sub {
   font-size: 13px;
 }
+
+/* "leave the composer" confirm — discard / save draft / cancel */
+.mail-leave {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+.mail-leave__box {
+  width: 360px;
+  max-width: 82vw;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+}
+.mail-leave__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.mail-leave__text {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.mail-leave__btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mail-leave__save {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  background: var(--accent, #10b981);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mail-leave__save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

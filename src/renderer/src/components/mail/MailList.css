@@ -513,6 +513,11 @@
     transform: rotate(360deg);
   }
 }
+/* white variant — for spinners that sit on a coloured (accent) button, so they're visible */
+.mail-spinner--white {
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+}
 .mail-list__loading-text {
   font-size: 13px;
   color: var(--muted);
@@ -597,11 +602,47 @@
 
 /* ---- reader (conversation) ---- */
 .mail-reader {
+  position: relative; /* anchors the floating top/bottom jump buttons */
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* jump-to-top/bottom buttons, revealed on hover over the reader (incl. the message body iframe) */
+.mail-reader__jump {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 6;
+}
+.mail-reader:hover .mail-reader__jump {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mail-reader__jumpbtn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.mail-reader__jumpbtn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 .mail-reader--empty {
   align-items: center;
@@ -1171,6 +1212,58 @@
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
+.mail-compose__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mail-compose__draftbtn {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.mail-compose__draftbtn:hover {
+  background: var(--hover);
+}
+/* "draft is loading" overlay over the whole composer */
+.mail-compose__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  color: var(--muted);
+  font-size: 13px;
+}
+/* reply/forward: the original shown as a faithful HTML quote (iframe) below the editor */
+.mail-compose__quote {
+  margin: 10px 0 60px; /* bottom gap clears the absolute footer */
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.mail-compose__quote-head {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.mail-compose__quote-frame {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
 .mail-compose__attachbtn {
   display: inline-flex;
   align-items: center;
@@ -1190,24 +1283,44 @@
   width: 17px;
   height: 17px;
 }
+/* the body GROWS with the typed text (flex-grow to fill an empty new email, but shrink:0 +
+   basis:auto so it never collapses — it expands with content and the form scrolls). Without
+   this a reply's tall quote squeezes the editor down to its min and the text scrolls inside. */
 .mail-compose__editor {
-  flex: 1;
-  min-height: 160px;
+  position: relative; /* anchors the manual resize grip */
+  flex: 1 0 auto;
+  min-height: 200px;
   display: flex;
   flex-direction: column;
 }
+/* drag the bottom-right grip to set the editor's floor height (it still auto-grows above) */
+.mail-compose__editresize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 16px;
+  height: 16px;
+  z-index: 3;
+  cursor: ns-resize;
+  opacity: 0.45;
+  background:
+    linear-gradient(135deg, transparent 44%, var(--muted) 44%, var(--muted) 56%, transparent 56%),
+    linear-gradient(135deg, transparent 68%, var(--muted) 68%, var(--muted) 80%, transparent 80%);
+}
+.mail-compose__editresize:hover {
+  opacity: 0.9;
+}
 .mail-compose__editor .rich-editor {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 0;
 }
-/* the email body fills the whole height (the note editor caps at 340px — not here) */
 .mail-compose__editor .rich-editor__content {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 0;
 }
 .mail-compose__editor .rich-editor .ProseMirror {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: 160px; /* comfortable starting area; grows with content, no cap */
   max-height: none;
 }
 .mail-compose__attach {
@@ -1348,6 +1461,7 @@
   padding: 3px 0;
 }
 .rcpt__chip {
+  position: relative; /* anchors the email tooltip */
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1357,6 +1471,24 @@
   color: var(--text);
   font-size: 12.5px;
   white-space: nowrap;
+}
+/* a name chip shows the actual email on hover (immediate, unlike the native title) */
+.rcpt__chip[data-email]:hover::after {
+  content: attr(data-email);
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 30;
+  pointer-events: none;
 }
 .rcpt__x {
   border: none;
@@ -1401,6 +1533,9 @@
   color: var(--text);
   cursor: pointer;
   text-align: left;
+}
+.rcpt__opt:not(:last-child) {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.22); /* clearer than --border, visible in both themes */
 }
 .rcpt__opt:hover,
 .rcpt__opt.is-active {

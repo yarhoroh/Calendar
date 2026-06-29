@@ -1,0 +1,188 @@
+.pdfed {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* toolbar */
+.pdfed__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+}
+.pdfed__btn {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pdfed__btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.pdfed__btn.is-active {
+  background: var(--active);
+  color: var(--accent);
+}
+.pdfed__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdfed__sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.pdfed__zoom {
+  flex: 0 0 auto;
+  min-width: 46px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.pdfed__spacer {
+  flex: 1 1 auto;
+}
+.pdfed__status {
+  flex: 0 1 auto;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* style/properties row (vendored panels live here) */
+.pdfed__subbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+}
+.pdfed__hint {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* page viewport */
+.pdfed__viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  background: var(--bg);
+}
+.pdfed__pages {
+  margin: auto; /* centres pages that fit, collapses to 0 when bigger (keeps top-left reachable) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+.pdfed__page {
+  position: relative;
+  flex: 0 0 auto;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  background: #fff;
+}
+.pdfed__pageimg {
+  display: block;
+  user-select: none;
+}
+.pdfed__placeholder {
+  margin: auto;
+  color: var(--muted);
+  font-size: 14px;
+}
+.pdfed__marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: rgba(16, 185, 129, 0.12);
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* "save as new" name prompt (drops under the toolbar) */
+.pdfed__saveas {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.pdfed__saveas-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pdfed__saveas-input {
+  width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+.pdfed__saveas-input:focus {
+  border-color: var(--accent);
+}
+.pdfed__saveas-ok {
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.pdfed__saveas-cancel {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pdfed__saveas-cancel:hover {
+  background: var(--hover);
+  color: var(--text);
+}

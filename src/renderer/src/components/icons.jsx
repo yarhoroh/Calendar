@@ -64,6 +64,15 @@ export function CalendarIcon() {
   )
 }
 
+export function PdfIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  )
+}
+
 export function GoogleIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 48 48">
@@ -136,6 +145,10 @@ export const ReplyIcon = () => folderSvg(<><path d="M9 17l-5-5 5-5" /><path d="M
 export const ReplyAllIcon = () => folderSvg(<><path d="M7 17l-5-5 5-5" /><path d="M12 17l-5-5 5-5" /><path d="M7 12h9a5 5 0 0 1 5 5v1" /></>)
 export const ForwardIcon = () => folderSvg(<><path d="M15 17l5-5-5-5" /><path d="M20 12H9a5 5 0 0 0-5 5v1" /></>)
 export const DownloadIcon = () => folderSvg(<><path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M5 21h14" /></>)
+export const SaveIcon = () => folderSvg(<><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8" /><path d="M7 3v5h8" /></>)
+export const ImageIcon = () => folderSvg(<><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.8" /><path d="M21 15l-5-5L5 21" /></>)
+export const ShapeIcon = () => folderSvg(<rect x="4" y="6" width="16" height="12" rx="1.5" />)
+export const TextBoxIcon = () => folderSvg(<><path d="M4 7V5h16v2" /><path d="M12 5v14" /><path d="M9 19h6" /></>)
 // the colourful Gmail logo (brand colours, not currentColor)
 export function GmailIcon() {
   return (
@@ -186,6 +199,22 @@ export function ChevronRightIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 5l7 7-7 7" />
+    </svg>
+  )
+}
+
+export function ChevronUpIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 15l7-7 7 7" />
+    </svg>
+  )
+}
+
+export function ChevronDownIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 9l7 7 7-7" />
     </svg>
   )
 }

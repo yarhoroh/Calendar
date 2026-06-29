@@ -15,6 +15,7 @@ import ReminderSoundSetting from '../components/settings/ReminderSoundSetting'
 import AutostartSetting from '../components/settings/AutostartSetting'
 import ShowChatSetting from '../components/settings/ShowChatSetting'
 import VoiceSetting from '../components/settings/VoiceSetting'
+import BigDictSetting from '../components/settings/BigDictSetting'
 import WorkingDaysSetting from '../components/settings/WorkingDaysSetting'
 import MemoryPanel from '../components/settings/MemoryPanel'
 import AiTasksPanel from '../components/settings/AiTasksPanel'
@@ -60,6 +61,7 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <ReminderSoundSetting />
               <WorkingDaysSetting />
               <VoiceSetting />
+              <BigDictSetting />
               <VoiceInputSetting />
               <AutostartSetting />
             </SettingsSection>

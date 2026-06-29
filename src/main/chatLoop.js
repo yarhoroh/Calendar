@@ -1,6 +1,7 @@
 import { buildSystem, buildRefresh } from './prompt'
 import { extractGetNotes, fetchNotes, extractGetGoogleEvents, fetchGoogleEvents } from './notesTool'
 import { extractMailRead, fetchMailRead } from './mailTool'
+import { extractReadUrl, fetchReadUrl } from './urlTool'
 
 // Hard backstop only — NOT a functional cap. Real chains need just a few read
 // steps; this guards against a runaway model. The real loop-breaker is the
@@ -25,7 +26,8 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     const req = extractGetNotes(reply.text)
     const gReq = req ? null : extractGetGoogleEvents(reply.text)
     const mReq = req || gReq ? null : extractMailRead(reply.text)
-    if (!req && !gReq && !mReq) {
+    const uReq = req || gReq || mReq ? null : extractReadUrl(reply.text)
+    if (!req && !gReq && !mReq && !uReq) {
       // weak models sometimes "agree" in words but forget the action block —
       // if the reply promised something yet emitted no block, force it once
       if (!hasBlock(reply.text) && PROMISES.test(`${userMsg} ${reply.text}`)) {
@@ -40,7 +42,7 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     // duplicate-request guard: if the model re-asks for data it has already been
     // given, stop feeding it and force an answer — this is the real loop-breaker
     // (MAX_STEPS is just a backstop). Distinct ranges still chain freely.
-    const sig = (req ? 'n:' : gReq ? 'g:' : 'm:') + JSON.stringify(req || gReq || mReq)
+    const sig = (req ? 'n:' : gReq ? 'g:' : mReq ? 'm:' : 'u:') + JSON.stringify(req || gReq || mReq || uReq)
     if (seen.has(sig)) {
       return sendOne('You already have that data above. Answer the user now without requesting it again.')
     }
@@ -54,6 +56,11 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       // Mail read tool — feed the search/list/conversation back so the model can act
       const mtext = await fetchMailRead(mReq)
       text = `Mail result:\n${mtext}\n\nNow answer the user's request using this — to read ONE message fully use mailOpen with its acct/thread/id; to mark/delete use mailMarkRead/mailDelete. Do not repeat the same mail read.`
+      pendingImages = null
+    } else if (uReq) {
+      // readUrl tool — fetch the page's clean text (logged-in session) and feed it back
+      const utext = await fetchReadUrl(uReq)
+      text = `${utext}\n\nNow do what the user asked with this text: translate / summarize it as requested, then deliver it with showReader (and/or read it aloud with speak). Do not call readUrl again for the same URL.`
       pendingImages = null
     } else {
       // feed the notes back — including any inline images, so the model can SEE

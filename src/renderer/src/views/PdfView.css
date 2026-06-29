@@ -1,0 +1,453 @@
+.pdf {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+/* left tree */
+.pdf__tree {
+  position: relative; /* anchors the resize handle */
+  flex: 0 0 auto; /* width is set inline (drag-resizable) */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+.pdf__tree-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+/* name filter — same pill design as the mail toolbar search */
+.pdf__search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+.pdf__search:focus-within {
+  border-color: var(--accent);
+}
+.pdf__search svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.pdf__search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.pdf__search-clear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pdf__search-clear:hover {
+  background: var(--accent);
+  color: #fff;
+}
+/* reopen tab shown when the panel is collapsed (mirrors the calendar rail) */
+.pdf__open {
+  flex: 0 0 auto;
+  width: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pdf__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.pdf__collapse {
+  margin-left: auto; /* sits at the right edge of the head */
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pdf__collapse:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* drag the right edge to resize the panel */
+.pdf__resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.pdf__act {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.pdf__act:hover {
+  background: var(--hover);
+}
+.pdf__tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 4px;
+}
+.pdf__empty {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 10px;
+  line-height: 1.5;
+}
+
+.pdf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 0;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pdf-row:hover {
+  background: var(--hover);
+}
+.pdf-row.is-selected {
+  background: var(--active);
+  color: var(--accent);
+}
+.pdf-row.is-drop {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--active);
+}
+.pdf-row__caret {
+  flex: 0 0 14px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--muted);
+}
+.pdf-caret {
+  transition: transform 0.12s;
+}
+.pdf-caret.is-open {
+  transform: rotate(90deg);
+}
+.pdf-row__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--muted);
+}
+.pdf-row.is-selected .pdf-row__icon {
+  color: var(--accent);
+}
+.pdf-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdf-row__edit {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg, #fff);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 1px 5px;
+}
+/* per-folder switch: on = show subfolders, off = flatten all PDFs into one list */
+.pdf-row__toggle {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s;
+}
+.pdf-row__toggle.is-on {
+  background: var(--accent);
+}
+.pdf-row__toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.pdf-row__toggle.is-on .pdf-row__toggle-knob {
+  transform: translateX(10px);
+}
+.pdf-row__mode {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0 4px;
+  text-transform: uppercase;
+}
+.pdf-row__loading {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+/* center placeholder (the editor lands here later) */
+.pdf__center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr); /* don't let the tab strip stretch the pane past the screen */
+  place-items: center;
+  background: var(--bg);
+}
+.pdf__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+/* tabbed editor area: one open PDF per tab */
+.pdf__tabs-wrap {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pdf__tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 48px; /* match the tree panel's header height */
+  padding: 0;
+}
+.pdf-tabs__nav {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pdf-tabs__nav:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.pdf__tabs-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none; /* the arrows handle overflow */
+  /* green underline painted INSIDE the strip's content so the active tab can paint over it
+     (a border on the parent bar sits below this overflow box and would get clipped) */
+  background: linear-gradient(var(--accent), var(--accent)) left bottom / 100% 1px no-repeat;
+}
+.pdf__tabs-strip::-webkit-scrollbar {
+  display: none;
+}
+/* real-tab look: rounded top, side + top border, open at the bottom (no bottom border) */
+.pdf-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  margin-top: 7px; /* a touch shorter than the bar, like a real tab */
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid transparent; /* keep every border 1px so the top corners round evenly */
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pdf-tab:hover {
+  color: var(--text);
+}
+.pdf-tab.is-active {
+  border-color: var(--accent);
+  border-bottom-color: var(--bg); /* sits on the green underline row and paints over it → no line under the active tab */
+  color: var(--accent);
+}
+.pdf-tab.is-active .pdf-tab__name {
+  text-shadow: 0 0 0.5px currentColor; /* reads as bold without widening the tab */
+}
+.pdf-tab__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdf-tab__close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pdf-tab__close:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.pdf-tab__add {
+  flex: 0 0 auto;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+.pdf-tab__add:hover {
+  background: var(--hover);
+}
+.pdf__tab-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative; /* the per-tab editor panes fill it absolutely */
+  overflow: hidden;
+}
+.pdf__tab-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.pdf__tab-pane > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.pdf-editor__msg {
+  margin: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* selected-file info card (until the in-app editor lands) */
+.pdf__file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 460px;
+  padding: 24px;
+  text-align: center;
+}
+.pdf__file svg {
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+}
+.pdf__file-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+.pdf__file-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  word-break: break-all;
+}
+.pdf__file-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pdf__placeholder svg {
+  width: 30px;
+  height: 30px;
+  opacity: 0.5;
+}
+.pdf__placeholder-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pdf__placeholder-sub {
+  font-size: 13px;
+}

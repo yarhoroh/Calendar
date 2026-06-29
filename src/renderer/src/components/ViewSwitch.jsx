@@ -1,11 +1,12 @@
 import { useI18n } from '../i18n/I18nContext'
-import { CalendarIcon, AppointmentsIcon, MailIcon, SettingsIcon } from './icons'
+import { CalendarIcon, AppointmentsIcon, MailIcon, PdfIcon, SettingsIcon } from './icons'
 
 // Switches between the top-level views. Highlights the active one.
 const VIEWS = [
   ['calendar', CalendarIcon, 'nav.calendar'],
   ['appointments', AppointmentsIcon, 'nav.appointments'],
   ['mail', MailIcon, 'nav.mail'],
+  ['pdf', PdfIcon, 'nav.pdf'],
   ['settings', SettingsIcon, 'nav.settings']
 ]
 

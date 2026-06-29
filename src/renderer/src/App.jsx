@@ -6,7 +6,10 @@ import ErrorBoundary from './components/ErrorBoundary'
 import CalendarView from './views/CalendarView'
 import AppointmentsView from './views/AppointmentsView'
 import MailView from './views/MailView'
+import PdfView from './views/PdfView'
 import SettingsView from './views/SettingsView'
+import ArticleReader from './components/mail/ArticleReader'
+import MailWebView from './components/mail/MailWebView'
 import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
 import { useTtsPlayer } from './hooks/useTtsPlayer'
@@ -16,7 +19,7 @@ import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
 import ChatPanel from './components/ChatPanel'
 import PromptBar from './components/PromptBar'
-import { registerUi, updateUiState, subscribeUi, getUiState } from './lib/uiBridge'
+import { registerUi, updateUiState, subscribeUi, getUiState, ui } from './lib/uiBridge'
 import { runGoogleAutoSync } from './lib/autoSyncGoogle'
 import { setAnswerHandler, subscribeAsk } from './lib/askBridge'
 import AskPopup from './components/AskPopup'
@@ -29,9 +32,11 @@ export default function App() {
   // restore the last-open tab across restarts (calendar / appointments / mail / settings)
   const [view, setView] = useState(() => {
     const saved = localStorage.getItem('view')
-    return ['calendar', 'appointments', 'mail', 'settings'].includes(saved) ? saved : 'calendar'
+    return ['calendar', 'appointments', 'mail', 'pdf', 'settings'].includes(saved) ? saved : 'calendar'
   })
   const [command, setCommand] = useState(null)
+  const [reader, setReader] = useState(null) // AI showReader: { title, text, lang, speak }
+  const [browseUrl, setBrowseUrl] = useState(null) // AI openUrl: a page shown in the internal browser
   const [showChat, setShowChat] = useState(false)
   const [compact, setCompact] = useState({})
   const { theme, toggleTheme, applyTheme } = useTheme()
@@ -49,6 +54,12 @@ export default function App() {
   useEffect(() => {
     updateUiState({ theme, showChat })
   }, [theme, showChat])
+  // publish the active tab so the AI knows the user is on mail/settings/etc (not just the
+  // calendar board). The mail list owns `openMail` (the message being read); we only read
+  // it for the AI when the user is actually on the mail tab.
+  useEffect(() => {
+    updateUiState({ view })
+  }, [view])
   useEffect(
     () =>
       registerUi((name, arg) => {
@@ -64,9 +75,24 @@ export default function App() {
 
   // calendar/UI commands from reminders or the AI chat
   const runCommand = (cmd) => {
+    // web/reader commands open their own overlay — they must NOT yank the user to calendar
+    if (cmd.kind === 'showReader') return setReader({ title: cmd.title, text: cmd.text, lang: cmd.lang, speak: cmd.speak })
+    if (cmd.kind === 'openUrl') return setBrowseUrl(cmd.url)
+    if (cmd.kind === 'composeMail') {
+      // show mail and open (or, if already open, edit) the composer with the AI's prefill
+      setView('mail')
+      localStorage.setItem('view', 'mail')
+      ui('composeMail', { from: cmd.from, to: cmd.to, cc: cmd.cc, subject: cmd.subject, html: cmd.html })
+      return
+    }
     setView('calendar')
     setCommand({ ...cmd, n: Date.now() })
   }
+
+  // tell the AI when the internal browser is open (and where) so it knows the user is in it
+  useEffect(() => {
+    updateUiState({ browserOpen: !!browseUrl, browserUrl: browseUrl || null })
+  }, [browseUrl])
 
   // chat lives here (not in CalendarView) so its history survives switching to
   // Settings and back — it only clears when the user clears it
@@ -209,6 +235,9 @@ export default function App() {
             <div className="view-pane" style={{ display: view === 'mail' ? undefined : 'none' }}>
               <MailView active={view === 'mail'} onOpenSettings={() => selectView('settings')} />
             </div>
+            <div className="view-pane" style={{ display: view === 'pdf' ? undefined : 'none' }}>
+              <PdfView />
+            </div>
           </div>
           {/* one shared chat under the views (the AI can read/import Google) */}
           {showChat && view !== 'settings' && (
@@ -233,6 +262,14 @@ export default function App() {
       )}
 
       <AskPopup />
+
+      {/* AI-opened overlays — the reader (showReader) and the internal browser (openUrl) */}
+      {reader && <ArticleReader title={reader.title} text={reader.text} lang={reader.lang} speak={reader.speak} onClose={() => setReader(null)} />}
+      {browseUrl && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex' }}>
+          <MailWebView url={browseUrl} onClose={() => setBrowseUrl(null)} />
+        </div>
+      )}
     </div>
   )
 }

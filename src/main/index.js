@@ -11,6 +11,9 @@ import { startTelegram, stopTelegram, sendTelegram } from './telegram'
 import electronUpdater from 'electron-updater'
 import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperVoice, setSpeedResolver } from './tts'
 import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
+import { setBigDict } from './stress'
+import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
+import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -70,7 +73,7 @@ import {
   writableCalendars as googleWritableCalendars,
   accountsSummary as googleAccountsSummary
 } from './google'
-import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail, sendMail, mailContacts } from './mail'
+import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, inlineHtmlImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail, sendMail, saveDraft, mailContacts } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
 import { initMailWatch, scheduleAllMailTasks, scheduleMailTask, cancelMailTask } from './mailWatch'
 import {
@@ -668,6 +671,7 @@ ipcMain.handle('google:event-writable', (_e, gid) => googleEventWritable(gid))
 // ---- Mail (IMAP, app-password) — independent of the calendar OAuth ---------
 ipcMain.handle('mail:list-accounts', () => getMailAccounts())
 ipcMain.handle('mail:send', (_e, payload) => sendMail(payload || {}))
+ipcMain.handle('mail:save-draft', (_e, payload) => saveDraft(payload || {}))
 ipcMain.handle('mail:contacts', () => mailContacts())
 ipcMain.handle('mail:add', (_e, payload) => addMailAccount(payload || {}))
 ipcMain.handle('mail:remove', (_e, email) => removeMailAccount(email))
@@ -696,7 +700,9 @@ ipcMain.handle('mail:thread', (_e, p) => {
 ipcMain.handle('mail:clear-cache', () => ({ ok: true, removed: clearMailCache() }))
 ipcMain.handle('mail:set-seen', (_e, p) => setMailSeen(p || {}))
 ipcMain.handle('mail:inline-images', (_e, { html }) => inlineMailImages({ html }))
+ipcMain.handle('mail:inline-html', (_e, p) => inlineHtmlImages(p || {}))
 ipcMain.handle('mail:open-attachment', (_e, p) => openMailAttachment(p || {}))
+ipcMain.handle('mail:save-attachment-temp', (_e, p) => openMailAttachment({ ...(p || {}), open: false }))
 ipcMain.handle('mail:delete', (_e, p) => deleteMail(p || {}))
 ipcMain.handle('mail:bulk-delete', (_e, p) => bulkDeleteMail(p || {}))
 ipcMain.handle('mail:bulk-seen', (_e, p) => bulkSeenMail(p || {}))
@@ -1158,6 +1164,38 @@ ipcMain.on('settings:set-tts-speed', (_e, { engine, value }) => {
   s[engine + 'Speed'] = Math.max(0.5, Math.min(2, Number(value) || 1))
   saveSettings(s)
 })
+// ---- big pronunciation dictionaries (downloaded on demand, per language) ----
+ipcMain.handle('stressBig:langs', () => BIG_LANGS)
+ipcMain.handle('stressBig:status', (_e, lang) => getBigStatus(lang))
+ipcMain.handle('stressBig:download', (_e, lang) => startBigDownload(lang))
+ipcMain.handle('stressBig:remove', (_e, lang) => {
+  const s = loadSettings()
+  if (s.bigDict) delete s.bigDict[lang]
+  saveSettings(s)
+  return removeBig(lang)
+})
+ipcMain.handle('settings:get-big-dict', () => loadSettings().bigDict || {})
+ipcMain.on('settings:set-big-dict', (_e, { lang, on }) => {
+  if (!BIG_LANGS.includes(lang)) return
+  const s = loadSettings()
+  s.bigDict = { ...(s.bigDict || {}), [lang]: on === true }
+  saveSettings(s)
+  if (on) startBigDownload(lang) // fetch+build now if not present yet
+})
+
+// ---- PDF section: the left tree (virtual folders + links to real folders/files) ----
+ipcMain.handle('pdf:get-tree', () => getPdfTree())
+ipcMain.handle('pdf:set-tree', (_e, t) => setPdfTree(t))
+ipcMain.handle('pdf:pick-folder', () => pickPdfFolder())
+ipcMain.handle('pdf:pick-file', () => pickPdfFile())
+ipcMain.handle('pdf:scan', (_e, { path, mode } = {}) => (mode === 'flat' ? scanFolderFlat(path) : scanFolder(path)))
+ipcMain.handle('pdf:stat', (_e, path) => statPath(path))
+ipcMain.handle('pdf:open', (_e, path) => openPdfPath(path))
+ipcMain.handle('pdf:reveal', (_e, path) => revealPdfPath(path))
+ipcMain.handle('pdf:read', (_e, path) => readPdfBytes(path))
+ipcMain.handle('pdf:write', (_e, { path, bytes } = {}) => writePdfBytes(path, bytes))
+ipcMain.handle('pdf:watch', (e, paths) => watchPdfFolders(paths, () => e.sender.send('pdf:tree-changed')))
+
 // silent text notification (toast near the clock, no voice)
 ipcMain.on('notify:push', (_e, text) => pushMessage({ title: 'Calendar', body: String(text || '') }))
 
@@ -1182,7 +1220,10 @@ function initAutoUpdate() {
       title: t.title,
       message: t.msg
     })
-    if (response === 0) autoUpdater.quitAndInstall()
+    if (response === 0) {
+      isQuitting = true // updating must fully quit — bypass the close-to-tray / confirm-close prompt
+      autoUpdater.quitAndInstall()
+    }
   })
   autoUpdater.on('error', () => {}) // never let an update hiccup crash the app
   autoUpdater.checkForUpdates().catch(() => {})
@@ -1287,6 +1328,8 @@ if (!gotLock) {
     rescheduleGoogleSync()
     initTts({ getMain: () => mainWindow })
     initSupertonicDownload({ onState: (s) => mainWindow?.webContents?.send('supertonic:progress', s) })
+    initStressBigDownload({ onState: (s) => mainWindow?.webContents?.send('stressBig:progress', s) })
+    setBigDict((lang) => loadSettings().bigDict?.[lang] === true)
     setTtsEngine(() => loadSettings().ttsEngine || 'piper')
     setSupertonicVoice(() => loadSettings().supertonicVoice || 'F1')
     setPiperVoice(() => {

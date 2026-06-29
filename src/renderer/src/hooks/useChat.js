@@ -3,7 +3,7 @@ import api from '../lib/api'
 import { startOfToday, dateKey } from '../lib/dates'
 import { extractActions, runActions } from '../lib/aiActions'
 import { activeContext } from '../lib/activeEditor'
-import { getUiState } from '../lib/uiBridge'
+import { getUiState, ui } from '../lib/uiBridge'
 import { registerChatSink } from '../lib/chatBridge'
 
 // Tell the AI where the user is (tab / fullscreen / editing / selected folder)
@@ -13,14 +13,36 @@ function withEditorContext(t) {
   const st = getUiState()
   const s = st.settings || {}
   const onoff = (v) => (v ? 'on' : 'off')
+  // which top-level tab the user is actually on (calendar / appointments / mail / settings)
+  const view = st.view || 'calendar'
+  const om = st.openMail
+  // when the user is in mail, tell the AI the mailbox and (if open) the exact message it can
+  // act on — so "this email" / "the article in this email" needs no search or asking
+  const mailState =
+    view === 'mail'
+      ? `; mailbox=${om?.account || st.mailAccount || 'all'}/${st.mailFolder || 'INBOX'}` +
+        (om
+          ? `; OPEN MAIL (the email the user is reading right now — use these ids directly for mailOpen): from="${om.from || ''}" subject="${om.subject || ''}" acct:${om.account} thread:${om.threadId || ''} id:${om.id || ''}`
+          : '; OPEN MAIL: none (list/search to pick one)')
+      : ''
   let ctx =
-    `[APP STATE: tab=${st.board}; fullscreen=${st.fullscreen ? 'yes' : 'no'}; ` +
+    `[APP STATE: view=${view}; tab=${st.board}; fullscreen=${st.fullscreen ? 'yes' : 'no'}; ` +
     `editing=${st.editing ? 'yes' : 'no'}; selected folder=${st.folder || 'General (all)'}; ` +
     `side panel=${onoff(s.panelOpen)}; theme=${st.theme || '?'}; language=${st.language || '?'}; ` +
     `chat=${onoff(st.showChat)}; everyday-in-calendar=${onoff(s.everydayInCal)}; ` +
     `day-expanded=${onoff(s.expanded)}; focus-blur=${onoff(s.focusBlur)}` +
+    mailState +
     (st.ask?.open ? `; OPEN QUESTION awaiting answer: "${st.ask.question}"` : '') +
     `]`
+  // if the New-email composer is open, give the AI its live content so it can fill/fix it
+  // ("write the subject", "translate the body") and act on "this email I'm composing"
+  const comp = ui('getCompose')
+  if (comp?.open) {
+    ctx +=
+      `\n[COMPOSE OPEN — the user is writing a new email RIGHT NOW. from=${comp.from || '?'}; to=${comp.to || '(empty)'}; ` +
+      `subject="${comp.subject || ''}". Current body text:\n${comp.text || '(empty)'}\n` +
+      `Fill or edit it with composeMail (set "to" by looking a contact up with mailContacts, "subject", and "html" for the body — only the fields you pass change).]`
+  }
   const ed = activeContext()
   if (ed) {
     ctx +=
@@ -69,7 +91,15 @@ export function useChat({ onCommand }) {
     const { text: clean, actions } = extractActions(res.text)
     console.warn('[ai-actions]', actions.length, JSON.stringify(actions))
     setMessages((m) => [...m, { role: 'assistant', content: clean || '✓' }])
-    const fb = await runActions(actions, onCommand)
+    // drop a chat/message action that just repeats the reply we already posted (some models
+    // confirm twice — once as text, once as a chat action) so the user doesn't see a duplicate
+    const replyLc = (clean || '').trim().toLowerCase()
+    const acts = actions.filter((a) => {
+      if (!['chat', 'message'].includes(a.action) || !a.text) return true
+      const tl = a.text.trim().toLowerCase()
+      return !(replyLc && (replyLc.includes(tl) || tl.includes(replyLc)))
+    })
+    const fb = await runActions(acts, onCommand)
     if (fb) setMessages((m) => [...m, { role: 'assistant', content: fb }])
   }
 

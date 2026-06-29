@@ -97,11 +97,56 @@ export async function sendMail({ account, to, cc, subject, text, html, attachmen
       cc: String(cc || '').trim() || undefined,
       subject: String(subject || '').trim() || '(no subject)',
       text: text || '',
-      html: html || undefined,
+      html: html ? await inlineRemoteImages(html) : undefined,
+      // pasted/inline data: images are blocked by most mail clients — turn them into proper
+      // embedded (CID) attachments so they actually show up for the recipient
+      attachDataUrls: true,
       attachments: files.length ? files : undefined
     })
     return { ok: true, id: info.messageId }
   } catch (e) {
+    return { ok: false, error: imapError(e) }
+  }
+}
+
+// Save an unsent message as a DRAFT: build the RFC822 MIME and IMAP-APPEND it to the
+// account's Drafts folder (resolved by \Drafts special-use). Used when the user leaves an
+// open composer and chooses "save draft".
+export async function saveDraft({ account, to, cc, subject, text, html, attachments }) {
+  const acc = findRaw(account)
+  if (!acc) return { ok: false, error: 'account not found' }
+  let client
+  try {
+    const files = (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && a.path)
+      .map((a) => ({ filename: a.name || undefined, path: a.path }))
+    // build the raw RFC822 message without sending: nodemailer's stream transport returns it
+    const builder = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: '\r\n' })
+    const built = await builder.sendMail({
+      from: acc.name && acc.name !== acc.email ? `${acc.name} <${acc.email}>` : acc.email,
+      to: String(to || '').trim() || undefined,
+      cc: String(cc || '').trim() || undefined,
+      subject: String(subject || '').trim() || '(no subject)',
+      text: text || '',
+      html: html ? await inlineRemoteImages(html) : undefined,
+      attachDataUrls: true, // data: images → CID attachments (so they survive the draft round-trip)
+      attachments: files.length ? files : undefined
+    })
+    const raw = built.message // Buffer (buffer:true)
+    client = clientFor(acc)
+    await client.connect()
+    const list = (await client.list()) || []
+    const drafts =
+      list.find((mb) => mb.specialUse === '\\Drafts')?.path || list.find((mb) => /draft/i.test(mb.name || ''))?.path || 'Drafts'
+    await client.append(drafts, raw, ['\\Draft'])
+    await client.logout()
+    return { ok: true }
+  } catch (e) {
+    try {
+      await client?.close?.()
+    } catch {
+      /* ignore */
+    }
     return { ok: false, error: imapError(e) }
   }
 }
@@ -481,6 +526,28 @@ export async function inlineMailImages({ html }) {
   return { ok: true, map: await remoteImageMap(html || '') }
 }
 
+// Embed remote <img> as data: URLs so an OUTGOING message is self-contained (its images
+// survive even if the source goes away / is blocked). Done at send/save time so the composer
+// stays fast. CID images are already inlined when the original was loaded (getMailThread).
+async function inlineRemoteImages(html) {
+  if (!html || !/<img\b[^>]*src\s*=\s*["']?https?:/i.test(html)) return html
+  const map = await remoteImageMap(html)
+  let out = html
+  for (const [url, dataUrl] of Object.entries(map || {})) {
+    if (!dataUrl) continue
+    out = out.split(url).join(dataUrl)
+    const enc = url.replace(/&/g, '&amp;') // the html may store the URL HTML-encoded
+    if (enc !== url) out = out.split(enc).join(dataUrl)
+  }
+  return out
+}
+
+// renderer-facing: turn remote <img> into data: URLs (CID images are already data: from
+// getMailThread) so a reply/forward QUOTE shows every image inside a strict-CSP iframe.
+export async function inlineHtmlImages({ html }) {
+  return { ok: true, html: await inlineRemoteImages(html || '') }
+}
+
 // fetch a whole conversation (all messages sharing the X-GM-THRID) with parsed
 // bodies + attachments, newest first. Falls back to the single message by
 // Message-ID when there's no thread id. Reads from All Mail so replies in Sent etc.
@@ -644,7 +711,7 @@ export async function setMailSeen({ account, threadId, id, seen }) {
 
 // lazily download one attachment (BODY.PEEK[part]) by the message's Message-ID,
 // save it to a temp folder and open it in the OS default app (Windows preview etc.)
-export async function openMailAttachment({ account, id, part, name, saveAs }) {
+export async function openMailAttachment({ account, id, part, name, saveAs, open = true }) {
   const acc = findRaw(account)
   if (!acc) return { ok: false, error: 'account not found' }
   if (!part) return { ok: false, error: 'missing part' }
@@ -688,7 +755,7 @@ export async function openMailAttachment({ account, id, part, name, saveAs }) {
     const safe = (name || 'attachment').replace(/[\\/:*?"<>|]/g, '_')
     const file = join(dir, safe)
     writeFileSync(file, buf)
-    await shell.openPath(file)
+    if (open !== false) await shell.openPath(file) // forwarding just needs the temp path, not the OS app
     return { ok: true, path: file }
   } catch (err) {
     try { await client?.close?.() } catch { /* ignore */ }

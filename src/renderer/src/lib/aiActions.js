@@ -7,6 +7,33 @@ import { openAsk, closeAsk } from './askBridge'
 import { importGoogleEvent, importGoogleEventEveryday } from './importGoogle'
 import { startOfToday, dateKey } from './dates'
 import { emitMailChanged } from './mailBus'
+import { norm } from './translit'
+
+// Resolve composeMail recipients: pass-through anything with "@", but look a NAME up in the
+// user's contacts (transliterated) so the AI can write "to": "Ирина Дудина" in ONE step —
+// no separate mailContacts round. Unmatched names are kept verbatim so the user notices.
+let contactsCache = null
+// → { value: "a@x, b@y", unresolved: ["names with no contact match"] } so composeMail can
+// tell the model when an address wasn't found (it then searches / asks instead of guessing).
+async function resolveRecipients(input) {
+  const raw = String(input || '').trim()
+  if (!raw) return { value: '', unresolved: [] }
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const out = []
+  const unresolved = []
+  for (const p of parts) {
+    if (p.includes('@')) {
+      out.push(p)
+      continue
+    }
+    if (!contactsCache) contactsCache = (await api.mail?.contacts?.()) || []
+    const qt = norm(p).split(' ').filter(Boolean)
+    const hit = qt.length && contactsCache.find((c) => qt.every((tk) => norm(`${c.name || ''} ${c.email || ''}`).includes(tk)))
+    if (hit) out.push(hit.email)
+    else unresolved.push(p) // NOT an email and no contact → never put raw text in the To field
+  }
+  return { value: out.join(', '), unresolved }
+}
 
 // plain text from an HTML string (for the searchable/AI `text` field)
 const stripHtml = (html) => {
@@ -57,6 +84,30 @@ export async function execAction(a, onCommand, channel) {
       case 'expand':
         onCommand?.({ kind: 'expand', date: a.date })
         return { ok: true }
+      case 'openUrl':
+        if (!a.url) return { ok: false, error: 'openUrl needs a url' }
+        onCommand?.({ kind: 'openUrl', url: String(a.url) })
+        return { ok: true }
+      case 'showReader':
+        // open the in-app reader with the AI's finished (translated/summarized) text;
+        // the reader chunks long text for read-aloud itself, so we pass it whole
+        if (!a.text) return { ok: false, error: 'showReader needs text' }
+        onCommand?.({ kind: 'showReader', title: a.title || '', text: String(a.text), lang: a.lang, speak: a.speak === true })
+        return { ok: true }
+      case 'composeMail': {
+        // open the New-email composer (or edit the one already open) with a prefill. To/Cc may
+        // be emails OR names (resolved against contacts here, so no separate lookup round).
+        const toR = a.to != null ? await resolveRecipients(a.to) : { value: undefined, unresolved: [] }
+        const ccR = a.cc != null ? await resolveRecipients(a.cc) : { value: undefined, unresolved: [] }
+        onCommand?.({ kind: 'composeMail', from: a.from, to: toR.value, cc: ccR.value, subject: a.subject, html: a.html || a.body })
+        const missing = [...toR.unresolved, ...ccR.unresolved]
+        if (missing.length)
+          return {
+            ok: false,
+            error: `composer opened, but no contact matched: ${missing.join(', ')}. Find the address with mailSearch (search that person's name) or ask the user for it, then call composeMail again with the EMAIL in "to" (not the name).`
+          }
+        return { ok: true }
+      }
       case 'speak':
         if (a.text) await api.ttsSpeak?.({ text: a.text, lang: a.lang || 'uk' })
         return { ok: true }

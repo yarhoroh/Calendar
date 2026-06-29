@@ -10,6 +10,7 @@ import ContextMenu from '../components/ContextMenu'
 import { useI18n } from '../i18n/I18nContext'
 import { monogram } from '../lib/monogram'
 import { emitMailChanged, onMailChanged } from '../lib/mailBus'
+import { registerUi, ui } from '../lib/uiBridge'
 import './MailView.css'
 
 // the three folders shown at the top level; everything else folds into "More"
@@ -51,13 +52,87 @@ export default function MailView({ active, onOpenSettings }) {
   const [markProg, setMarkProg] = useState({}) // "account|folder" -> { done, total, running }
   const [navKey, setNavKey] = useState(0) // bumped on every folder click → list closes the open message
   const [composing, setComposing] = useState(false) // the "New email" compose overlay
+  const [composeDraft, setComposeDraft] = useState(null) // AI prefill for a fresh compose
+  const composingRef = useRef(false)
+  composingRef.current = composing
+  // AI "compose a new email": open the composer with a prefill. If one is ALREADY open, decline
+  // here so the open MailCompose handles it (it edits its own fields in place).
+  useEffect(
+    () =>
+      registerUi((name, arg) => {
+        if (name !== 'composeMail') return undefined
+        if (composingRef.current) return undefined
+        setComposeDraft(arg || {})
+        setComposing(true)
+        return true
+      }),
+    []
+  )
+  // leaving an OPEN composer (clicking another folder) → ask: discard / save to Drafts / cancel
+  const [navConfirm, setNavConfirm] = useState(null) // the folder we want to switch to
+  const [savingDrafts, setSavingDrafts] = useState(0) // draft saves running in the background
+  const applyFolder = (next) => {
+    setSel({ account: next.account, folder: next.folder, sent: next.sent })
+    setNavKey((k) => k + 1) // clicking a folder (even the same one) returns to the list
+  }
+  const goFolder = (next) => {
+    if (composing) setNavConfirm(next) // any folder click (even the active one) → confirm first
+    else applyFolder(next)
+  }
+  const leaveDiscard = () => {
+    setComposing(false)
+    setComposeDraft(null)
+    if (navConfirm) applyFolder(navConfirm)
+    setNavConfirm(null)
+  }
+  // save a composer's content to Drafts; if it was opened FROM a draft, remove the old copy so
+  // it's an UPDATE, not a duplicate. Used by both the leave-confirm and the Save Draft button.
+  const persistDraft = async (d) => {
+    if (!d) return
+    const account = d.account || d.from
+    const r = await api.mail?.saveDraft?.({ account, to: d.to, cc: d.cc, subject: d.subject, text: d.text, html: d.html, attachments: d.attachments })
+    if (r && r.ok === false) {
+      api.notify?.('⚠ ' + (r.error || 'draft save failed'))
+      return
+    }
+    if (d.draft?.id) await api.mail?.delete?.(d.draft.account, d.draft.folder, d.draft.threadId, d.draft.id)
+    // refresh whatever folder the user is viewing (when editing a draft that's the Drafts list,
+    // so it shows the updated copy) — plus the draft's own folder for badge counts
+    emitMailChanged({ type: 'reload', account, folder: sel.folder })
+    if (d.draft?.folder && d.draft.folder !== sel.folder) emitMailChanged({ type: 'stats', account, folder: d.draft.folder })
+  }
+  // background queue (like Send): save the draft in parallel, tracked by a count for the badge
+  const queueDraft = async (d) => {
+    setSavingDrafts((n) => n + 1)
+    try {
+      await persistDraft(d)
+    } finally {
+      setSavingDrafts((n) => Math.max(0, n - 1))
+    }
+  }
+  // leaving the composer for another folder: save in the BACKGROUND and navigate immediately
+  const leaveSaveDraft = () => {
+    const d = ui('getCompose') // live content of the open composer
+    if (d?.open) queueDraft(d)
+    setComposing(false)
+    setComposeDraft(null)
+    if (navConfirm) applyFolder(navConfirm)
+    setNavConfirm(null)
+  }
+
   const [sending, setSending] = useState(0) // emails currently being sent in the background
   // background send queue: hand a message to SMTP, track in-flight count for the button badge
   const queueSend = async (payload) => {
     setSending((n) => n + 1)
     try {
       const r = await api.mail?.send?.(payload)
-      if (!r?.ok) api.notify?.('⚠ ' + (r?.error || 'send failed'))
+      if (!r?.ok) {
+        api.notify?.('⚠ ' + (r?.error || 'send failed'))
+      } else if (payload.draft?.id) {
+        // this email was sent FROM a draft → remove the original from the Drafts folder
+        await api.mail?.delete?.(payload.draft.account, payload.draft.folder, payload.draft.threadId, payload.draft.id)
+        emitMailChanged({ type: 'delete', account: payload.draft.account, folder: payload.draft.folder, threadId: payload.draft.threadId, id: payload.draft.id })
+      }
     } finally {
       setSending((n) => Math.max(0, n - 1))
     }
@@ -208,6 +283,10 @@ export default function MailView({ active, onOpenSettings }) {
     const data = folders[account]
     return !!data && [...(data.main || []), ...(data.extras || [])].some((f) => f.path === folder && f.specialUse === '\\Sent')
   }
+  const isDraftsFolder = (account, folder) => {
+    const data = folders[account]
+    return !!data && [...(data.main || []), ...(data.extras || [])].some((f) => f.path === folder && f.specialUse === '\\Drafts')
+  }
   const Row = ({ account, folder, label, Icon, trash = false, spam = false, sent = false }) => {
     const count = unreadFor(account, folder)
     const prog = markProg[account + '|' + folder]
@@ -216,12 +295,7 @@ export default function MailView({ active, onOpenSettings }) {
       <button
         className={'mail-tree__row' + (isActive(account, folder) ? ' mail-tree__row--active' : '')}
         title={collapsed ? label : undefined}
-        onClick={() => {
-          // remember whether this is a Sent box (by its special-use), so the list reliably
-          // shows the RECIPIENT — no fragile re-lookup of the folder list
-          setSel({ account, folder, sent })
-          setNavKey((k) => k + 1) // clicking a folder (even the same one) returns to the list
-        }}
+        onClick={() => goFolder({ account, folder, sent })}
         onContextMenu={(e) => {
           e.preventDefault()
           setFolderMenu({ x: e.clientX, y: e.clientY, account, folder, trash, spam })
@@ -300,16 +374,16 @@ export default function MailView({ active, onOpenSettings }) {
         {/* pinned to the very bottom of the tree; collapses to just the icon in rail mode */}
         <button
           className="mail__compose"
-          title={sending > 0 ? t('mail.sending') + ' (' + sending + ')' : t('mail.newEmail')}
+          title={sending + savingDrafts > 0 ? t('mail.sending') + ' (' + (sending + savingDrafts) + ')' : t('mail.newEmail')}
           disabled={!accounts.length || composing}
           onClick={() => setComposing(true)}
         >
           <ComposeIcon />
           {!collapsed && <span>{t('mail.newEmail')}</span>}
-          {sending > 0 && (
+          {sending + savingDrafts > 0 && (
             <span className="mail__compose-badge">
               <span className="mail-spinner mail-spinner--sm mail-spinner--white" />
-              <span className="mail__compose-num">{sending}</span>
+              <span className="mail__compose-num">{sending + savingDrafts}</span>
             </span>
           )}
         </button>
@@ -318,16 +392,41 @@ export default function MailView({ active, onOpenSettings }) {
       </aside>
 
       <main className="mail__center">
-        <MailList account={sel.account} folder={sel.folder} navKey={navKey} showRecipient={isSentFolder(sel.account, sel.folder)} />
+        <MailList account={sel.account} folder={sel.folder} navKey={navKey} showRecipient={isSentFolder(sel.account, sel.folder)} isDrafts={isDraftsFolder(sel.account, sel.folder)} />
         {composing && (
           <MailCompose
             accounts={accounts}
             defaultFrom={sel.account !== 'all' ? sel.account : accounts[0]?.email}
+            initial={composeDraft}
             onSend={queueSend}
-            onClose={() => setComposing(false)}
+            onSaveDraft={queueDraft}
+            onClose={() => {
+              setComposing(false)
+              setComposeDraft(null)
+            }}
           />
         )}
       </main>
+
+      {navConfirm && (
+        <div className="mail-leave" onClick={() => setNavConfirm(null)}>
+          <div className="mail-leave__box" onClick={(e) => e.stopPropagation()}>
+            <div className="mail-leave__title">{t('mail.leaveTitle')}</div>
+            <div className="mail-leave__text">{t('mail.leaveText')}</div>
+            <div className="mail-leave__btns">
+              <button className="btn btn--ghost" onClick={() => setNavConfirm(null)}>
+                {t('mail.leaveCancel')}
+              </button>
+              <button className="btn btn--ghost" onClick={leaveDiscard}>
+                {t('mail.leaveDiscard')}
+              </button>
+              <button className="mail-leave__save" onClick={leaveSaveDraft}>
+                {t('mail.leaveSaveDraft')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {menu && (
         <ContextMenu

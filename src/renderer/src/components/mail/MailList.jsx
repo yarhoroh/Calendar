@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { onMailChanged, emitMailChanged } from '../../lib/mailBus'
+import { updateUiState, ui } from '../../lib/uiBridge'
 import api from '../../lib/api'
 import { MailIcon, TrashIcon } from '../icons'
 import { useI18n } from '../../i18n/I18nContext'
@@ -28,7 +29,7 @@ function fmtDate(ms) {
 // The message list. ONE component for both a single account and the unified
 // ("all") views — the only difference is the extra account column, toggled by
 // `account === 'all'`. Loads real mail (cache first, then a fresh IMAP sync).
-export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0, showRecipient = false }) {
+export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0, showRecipient = false, isDrafts = false }) {
   const { t } = useI18n()
   const showAccount = account === 'all'
   // persisted view prefs — restore where the user left off
@@ -430,8 +431,66 @@ export default function MailList({ account = 'all', folder = 'INBOX', navKey = 0
     setImportantOverride((o) => ({ ...o, [id]: next }))
     api.mail?.setImportant?.(acct, id, next)
   }
+  // publish the mailbox + the message being read to the UI bridge, so the AI knows exactly
+  // where the user is in mail (which account/folder/tab) and which email is open — it can
+  // then act on "this email" with no search/ask. The mail list stays mounted, so this stays
+  // accurate across tab switches; useChat only surfaces it while the user is on the mail tab.
+  useEffect(() => {
+    updateUiState({
+      mailAccount: account,
+      mailFolder: folder,
+      mailTab: tab,
+      openMail: openMsg
+        ? {
+            account: openMsg.account || account,
+            threadId: openMsg.threadId || null,
+            id: openMsg.id || null,
+            subject: openMsg.subject || '',
+            from: openMsg.from || ''
+          }
+        : null
+    })
+  }, [openMsg, account, folder, tab])
+
+  // a message in the Drafts folder isn't "read" — it's reopened in the composer to keep
+  // editing/sending. Load its full body + inline its images, carry the draft id so it can be
+  // removed from Drafts once sent.
+  const openDraft = async (m) => {
+    // open the composer IMMEDIATELY in a loading state so the click feels instant…
+    ui('composeMail', { from: m.account, loading: true, draft: { id: m.id, threadId: m.threadId, account: m.account, folder } })
+    // …then load the body and fill it in (clearing the spinner)…
+    const r = await api.mail?.thread?.(m.account, m.threadId, m.id, folder)
+    const d = (r?.messages || [])[0] || m
+    let html = d.html || (d.text ? `<p>${String(d.text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</p>` : '')
+    // a draft saved from reply/forward marks the quote — split it back out so the user's text
+    // returns to the editor and the original returns to the quote iframe (not crammed into Tiptap)
+    let quoteHtml = ''
+    let quoteHeader = ''
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      const qEl = doc.querySelector('[data-cal-quote="1"]')
+      if (qEl) {
+        quoteHeader = qEl.querySelector('[data-cal-quote-head="1"]')?.innerHTML || ''
+        quoteHtml = qEl.querySelector('blockquote')?.innerHTML || ''
+        qEl.remove()
+        html = doc.body.innerHTML
+      }
+    } catch {
+      /* malformed html → keep it all in the editor */
+    }
+    ui('composeMail', { to: d.to, cc: d.cc, subject: d.subject, html, quoteHtml, quoteHeader, loading: false })
+    // …and attach the files last (slower — each is downloaded to a temp file)
+    const atts = []
+    for (const a of d.attachments || []) {
+      const ra = await api.mail?.saveAttachmentTemp?.(m.account, a.mid || d.id, a.part, a.name || a.filename)
+      if (ra?.ok && ra.path) atts.push({ name: a.name || a.filename || 'attachment', path: ra.path })
+    }
+    if (atts.length) ui('composeMail', { attachments: atts })
+  }
+
   // opening a thread marks it read (server-side in getMailThread); reflect instantly
   const openMessage = (m) => {
+    if (isDrafts) return openDraft(m) // drafts reopen in the composer, not the reader
     const key = m.threadId || m.id
     setReadKeys((s) => new Set(s).add(key))
     setUnreadKeys((s) => { if (!s.has(key)) return s; const n = new Set(s); n.delete(key); return n })

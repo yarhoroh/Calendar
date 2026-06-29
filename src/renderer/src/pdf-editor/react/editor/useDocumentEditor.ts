@@ -25,11 +25,35 @@ import {
   type ImageObject,
   type ObjectId,
   type ShapeObject,
+  type StyledRun,
   type TextObject,
   type VectorObject,
 } from './objects.js';
 
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+// Build the per-run style model from an extracted line. Each run resolves its CSS family (embedded
+// font first, substitute fallback) and recovers a horizontal scale from the real glyph width vs the
+// substitute's natural width — so existing text keeps its width even with a substitute font.
+function buildRuns(line: TextLine): StyledRun[] {
+  return (line.runs ?? []).map((r) => {
+    const fontFamily = [familyForPdfFont(r.fontName), pickFamily(r.fontName)].filter(Boolean).join(', ');
+    const natural = measureTextWidth(r.text, r.fontSize, fontFamily, r.bold, r.italic);
+    const sx = natural > 0 ? r.bbox.width / natural : 1;
+    return {
+      text: r.text,
+      fontFamily,
+      fontName: r.fontName,
+      fontSize: r.fontSize,
+      bold: r.bold,
+      italic: r.italic,
+      underline: false,
+      color: r.color,
+      charSpacing: 0,
+      scaleX: sx > 0.25 && sx < 4 ? sx : 1,
+    };
+  });
+}
 
 export interface RenderedPageView {
   pageIndex: number;
@@ -523,6 +547,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
         source: 'existing',
         originalBbox: line.bbox,
         baseline: line.baseline,
+        runs: buildRuns(line),
         originalText: line.text,
       };
       setObjects((prev) => [...prev, obj]);
@@ -754,6 +779,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
         source: 'existing',
         originalBbox: line.bbox,
         baseline: line.baseline,
+        runs: buildRuns(line),
         originalText: line.text,
       });
       ids.push(id);
@@ -902,6 +928,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           source: 'existing',
           originalBbox: line.bbox,
           baseline: line.baseline,
+          runs: buildRuns(line),
           originalText: line.text,
         });
       }

@@ -21,6 +21,22 @@ export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 /** Default line spacing (multiple of font size) for new/extracted text. */
 export const DEFAULT_LINE_HEIGHT = 1.2;
 
+/** One uniformly-styled run inside a rich-text object (a word/span can differ from its neighbours). */
+export interface StyledRun {
+  text: string;
+  fontFamily: string;
+  fontName: string;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  color: [number, number, number];
+  /** Extra letter spacing in points (0 = none). */
+  charSpacing: number;
+  /** Horizontal glyph scaling (1 = 100%). */
+  scaleX: number;
+}
+
 export interface TextObject {
   id: ObjectId;
   kind: 'text';
@@ -31,6 +47,9 @@ export interface TextObject {
   w: number;
   h: number;
   text: string;
+  /** Rich text: per-run styles. Present (length ≥ 1) → render/edit/save run-by-run; the runs'
+   *  text concatenated equals `text`. Absent → single-style (legacy path). */
+  runs?: StyledRun[];
   /** CSS font-family used to render on screen. */
   fontFamily: string;
   /** Original PDF font name (best effort, used when saving). */
@@ -48,6 +67,12 @@ export interface TextObject {
   align: TextAlign;
   /** Line spacing as a multiple of the font size (1.2 ≈ normal). */
   lineHeight: number;
+  /** Underline the text. */
+  underline?: boolean;
+  /** Extra letter spacing in points (0/undefined = none). */
+  charSpacing?: number;
+  /** Horizontal glyph scaling (1 = 100%; <1 condensed, >1 expanded). */
+  scaleX?: number;
   /** Clockwise rotation in degrees, around `pivot`. */
   rotation: number;
   /** Rotation pivot in normalized box coords (0..1). */

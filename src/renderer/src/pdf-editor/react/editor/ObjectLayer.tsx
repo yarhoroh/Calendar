@@ -439,7 +439,12 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
               ? obj.lineHeight
               : 1.2,
           textAlign: obj.kind === 'text' ? obj.align : undefined,
-          transform: singleLine && obj.kind === 'text' ? `translateY(${baselineTy}px)` : undefined,
+          textDecoration: obj.kind === 'text' && obj.underline ? 'underline' : undefined,
+          transform:
+            obj.kind === 'text'
+              ? `${singleLine ? `translateY(${baselineTy}px)` : ''}${obj.scaleX && obj.scaleX !== 1 ? ` scaleX(${obj.scaleX})` : ''}`.trim() || undefined
+              : undefined,
+          transformOrigin: 'left top',
           fontFamily: obj.kind === 'text' ? obj.fontFamily : undefined,
           fontSize: obj.kind === 'text' ? obj.fontSize * scale : undefined,
           // An embedded font program already carries its own weight/slant, so
@@ -451,7 +456,9 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
               ? 'italic'
               : 'normal',
           color: obj.kind === 'text' ? cssColor(obj.color) : undefined,
-          letterSpacing,
+          // explicit character spacing (from the panel) overrides the auto width-fit tracking
+          letterSpacing:
+            obj.kind === 'text' && obj.charSpacing != null ? `${obj.charSpacing * scale}px` : letterSpacing,
         };
 
         return (
@@ -541,8 +548,31 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
               // raster glyphs show through the frame — the font must not change
               // just because the line was selected/activated.
               null
+            ) : obj.kind === 'text' && obj.runs && obj.runs.length > 1 ? (
+              // Rich text: render each style run as its own span (mixed fonts/sizes/bold/colour).
+              <div style={textCss}>
+                {obj.runs.map((r, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      fontFamily: r.fontFamily,
+                      fontSize: r.fontSize * scale,
+                      fontWeight: r.bold && !isEmbeddedFamily(r.fontFamily) ? 700 : 400,
+                      fontStyle: r.italic && !isEmbeddedFamily(r.fontFamily) ? 'italic' : 'normal',
+                      textDecoration: r.underline ? 'underline' : undefined,
+                      color: cssColor(r.color),
+                      letterSpacing: r.charSpacing ? `${r.charSpacing * scale}px` : undefined,
+                      ...(r.scaleX && Math.abs(r.scaleX - 1) > 0.01
+                        ? { display: 'inline-block', transform: `scaleX(${r.scaleX})`, transformOrigin: 'left top' }
+                        : null),
+                    }}
+                  >
+                    {r.text}
+                  </span>
+                ))}
+              </div>
             ) : (
-              // Edited / lifted / new text: show our (editable) overlay.
+              // Edited / lifted / new single-style text.
               <div style={textCss}>{obj.text}</div>
             )}
 

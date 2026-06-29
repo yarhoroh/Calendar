@@ -115,6 +115,14 @@ export function StylePanel(props: StylePanelProps): ReactElement | null {
       >
         <i>К</i>
       </button>
+      <button
+        type="button"
+        style={object.underline ? toggleActive : toggle}
+        onClick={() => onChange({ underline: !object.underline })}
+        title="Подчёркивание"
+      >
+        <u>П</u>
+      </button>
       <span style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
       {ALIGN_OPTIONS.map((a) => (
         <button
@@ -138,6 +146,29 @@ export function StylePanel(props: StylePanelProps): ReactElement | null {
           onChange={(e) => {
             const v = Number(e.target.value);
             if (v >= 0.5 && v <= 4) onChange({ lineHeight: v });
+          }}
+          style={{ ...controlStyle, width: 56 }}
+        />
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title="Расстояние между буквами (pt)">
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>A↔A</span>
+        <input
+          type="number"
+          step={0.1}
+          value={Number((object.charSpacing ?? 0).toFixed(1))}
+          onChange={(e) => onChange({ charSpacing: Number(e.target.value) })}
+          style={{ ...controlStyle, width: 52 }}
+        />
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title="Горизонтальное растяжение символов, %">
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>↔%</span>
+        <input
+          type="number"
+          step={1}
+          value={Math.round((object.scaleX ?? 1) * 100)}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (v >= 10 && v <= 400) onChange({ scaleX: v / 100 });
           }}
           style={{ ...controlStyle, width: 56 }}
         />

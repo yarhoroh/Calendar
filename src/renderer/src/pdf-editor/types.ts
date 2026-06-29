@@ -49,6 +49,18 @@ export interface FormField {
   rect: Rect;
 }
 
+/** One run of uniformly-styled text inside a line (for rich text: a line may mix fonts/sizes). */
+export interface TextRun {
+  text: string;
+  bbox: Rect;
+  fontSize: number;
+  color: [number, number, number];
+  bold: boolean;
+  italic: boolean;
+  serif: boolean;
+  fontName: string;
+}
+
 /** A line of existing text on the page, with the style needed to re-render it. */
 export interface TextLine {
   text: string;
@@ -56,6 +68,9 @@ export interface TextLine {
   bbox: Rect;
   /** Glyph baseline Y, PDF points (top-left origin) — exact vertical anchor for the overlay. */
   baseline: number;
+  /** Style runs across the line (≥1). Single-style lines have one run; the fields below mirror
+   *  the dominant run for back-compat. */
+  runs: TextRun[];
   fontSize: number;
   /** RGB 0..1. */
   color: [number, number, number];

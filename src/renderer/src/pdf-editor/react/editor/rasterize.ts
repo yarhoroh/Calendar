@@ -136,17 +136,33 @@ export async function rasterizeRotated(
       ctx.fillStyle = cssColor(obj.background);
       ctx.fillRect(-pvx, -pvy, wpt, hpt);
     }
-    ctx.font = `${obj.italic ? 'italic ' : ''}${obj.bold ? '700 ' : '400 '}${obj.fontSize}px ${obj.fontFamily}`;
-    ctx.fillStyle = cssColor(obj.color);
     ctx.textBaseline = 'top';
     const lineHeight = obj.fontSize * obj.lineHeight;
-    obj.text.split('\n').forEach((line, i) => {
-      const lw = ctx.measureText(line).width;
-      let lx = -pvx; // left edge of the box (in pivot-relative coords)
-      if (obj.align === 'center') lx = -pvx + (wpt - lw) / 2;
-      else if (obj.align === 'right') lx = -pvx + (wpt - lw);
-      ctx.fillText(line, lx, -pvy + i * lineHeight);
-    });
+    if (obj.runs && obj.runs.length > 1) {
+      // Rich single line: draw each run in sequence with its own font / colour / horizontal scale.
+      let x = -pvx;
+      for (const r of obj.runs) {
+        ctx.font = `${r.italic ? 'italic ' : ''}${r.bold ? '700 ' : '400 '}${r.fontSize}px ${r.fontFamily}`;
+        ctx.fillStyle = cssColor(r.color);
+        const sx = r.scaleX && r.scaleX > 0 ? r.scaleX : 1;
+        ctx.save();
+        ctx.translate(x, -pvy);
+        if (sx !== 1) ctx.scale(sx, 1);
+        ctx.fillText(r.text, 0, 0);
+        ctx.restore();
+        x += ctx.measureText(r.text).width * sx + (r.charSpacing || 0) * Math.max(r.text.length - 1, 0);
+      }
+    } else {
+      ctx.font = `${obj.italic ? 'italic ' : ''}${obj.bold ? '700 ' : '400 '}${obj.fontSize}px ${obj.fontFamily}`;
+      ctx.fillStyle = cssColor(obj.color);
+      obj.text.split('\n').forEach((line, i) => {
+        const lw = ctx.measureText(line).width;
+        let lx = -pvx; // left edge of the box (in pivot-relative coords)
+        if (obj.align === 'center') lx = -pvx + (wpt - lw) / 2;
+        else if (obj.align === 'right') lx = -pvx + (wpt - lw);
+        ctx.fillText(line, lx, -pvy + i * lineHeight);
+      });
+    }
   }
 
   const bytes = await canvasToPng(canvas);

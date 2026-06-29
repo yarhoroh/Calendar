@@ -251,49 +251,65 @@ const handlers: {
     try {
       stext = page.toStructuredText('preserve-whitespace');
       const lines: TextLine[] = [];
-      let cur: {
+      type RunAcc = {
         chars: string[];
         quads: number[][];
-        sizes: number[];
-        colors: number[][];
-        names: string[];
-        bases: number[];
-        serif: number;
-        bold: number;
-        italic: number;
-      } | null = null;
+        fontName: string;
+        fontSize: number;
+        bold: boolean;
+        italic: boolean;
+        serif: boolean;
+        color: number[];
+      };
+      let cur: { runs: RunAcc[]; runKey: string; quads: number[][]; bases: number[] } | null = null;
       stext.walk({
         beginLine() {
-          cur = { chars: [], quads: [], sizes: [], colors: [], names: [], bases: [], serif: 0, bold: 0, italic: 0 };
+          cur = { runs: [], runKey: '', quads: [], bases: [] };
         },
         onChar(c, origin, font, size, quad, color) {
           if (!cur) return;
-          cur.chars.push(c);
-          cur.quads.push(quad);
-          cur.sizes.push(size);
-          cur.colors.push(color);
-          cur.bases.push(origin[1]); // glyph baseline Y (top-left page space) — exact vertical anchor
           const name = font.getName();
-          cur.names.push(name);
-          if (font.isSerif()) cur.serif++;
-          if (font.isBold() || /bold|black|heavy|semibold/i.test(name)) cur.bold++;
-          if (font.isItalic() || /italic|oblique/i.test(name)) cur.italic++;
+          const bold = font.isBold() || /bold|black|heavy|semibold/i.test(name);
+          const italic = font.isItalic() || /italic|oblique/i.test(name);
+          // Start a new run whenever the style changes mid-line (font / size / colour / weight / slant).
+          const key = `${name}|${Math.round(size * 10)}|${color.join(',')}|${bold ? 'b' : ''}|${italic ? 'i' : ''}`;
+          let run = cur.runs[cur.runs.length - 1];
+          if (!run || cur.runKey !== key) {
+            run = { chars: [], quads: [], fontName: name, fontSize: size, bold, italic, serif: font.isSerif(), color };
+            cur.runs.push(run);
+            cur.runKey = key;
+          }
+          run.chars.push(c);
+          run.quads.push(quad);
+          cur.quads.push(quad);
+          cur.bases.push(origin[1]); // glyph baseline Y (top-left page space) — exact vertical anchor
         },
         endLine() {
-          if (cur && cur.chars.length) {
-            const text = cur.chars.join('');
+          if (cur && cur.runs.length) {
+            const text = cur.runs.map((r) => r.chars.join('')).join('');
             if (text.trim()) {
-              const n = cur.chars.length;
+              // Dominant run (most chars) supplies the line's single-style back-compat fields.
+              const dom = cur.runs.reduce((a, b) => (b.chars.length > a.chars.length ? b : a));
               lines.push({
                 text,
                 bbox: unionQuads(cur.quads),
                 baseline: median(cur.bases),
-                fontSize: median(cur.sizes),
-                color: normColor(mostCommon(cur.colors, (c) => c.join(','), [0, 0, 0])),
-                bold: cur.bold * 2 > n,
-                italic: cur.italic * 2 > n,
-                serif: cur.serif * 2 > n,
-                fontName: mostCommon(cur.names, (s) => s, ''),
+                fontSize: dom.fontSize,
+                color: normColor(dom.color),
+                bold: dom.bold,
+                italic: dom.italic,
+                serif: dom.serif,
+                fontName: dom.fontName,
+                runs: cur.runs.map((r) => ({
+                  text: r.chars.join(''),
+                  fontName: r.fontName,
+                  fontSize: r.fontSize,
+                  bold: r.bold,
+                  italic: r.italic,
+                  serif: r.serif,
+                  color: normColor(r.color),
+                  bbox: unionQuads(r.quads),
+                })),
               });
             }
           }

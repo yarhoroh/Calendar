@@ -413,11 +413,6 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           await editor.insertImage(obj.pageIndex, baked.rect, baked.bytes);
         } else if (obj.kind === 'image') {
           await editor.insertImage(obj.pageIndex, rect, obj.bytes);
-        } else if (obj.kind === 'text' && obj.source === 'existing') {
-          // Existing edited text: rasterize WITH ITS (embedded) FONT so the glyphs stay 1:1. A
-          // FreeText re-bake would fall back to a standard font and visibly change the typeface.
-          const baked = await rasterizeRotated(obj);
-          await editor.insertImage(obj.pageIndex, baked.rect, baked.bytes);
         } else {
           if (obj.background) await editor.fillRect(obj.pageIndex, rect, obj.background);
           // Bake line by line so the chosen alignment and line spacing persist

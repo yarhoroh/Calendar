@@ -560,53 +560,6 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
                   />
                 </svg>
               ) : null
-            ) : editing && obj.kind === 'text' && obj.runs && obj.runs.length > 1 ? (
-              <div
-                contentEditable
-                suppressContentEditableWarning
-                ref={(el) => {
-                  // uncontrolled: set the run HTML once per object so React re-renders don't reset
-                  // the caret; reads happen in onInput.
-                  if (el && el.dataset.rid !== obj.id) {
-                    el.dataset.rid = obj.id;
-                    el.innerHTML = runsToHtml(obj.runs!, scale);
-                    el.focus();
-                    const range = document.createRange();
-                    range.selectNodeContents(el);
-                    range.collapse(false);
-                    const sel = window.getSelection();
-                    sel?.removeAllRanges();
-                    sel?.addRange(range);
-                  }
-                }}
-                onInput={(e) => {
-                  const runs = parseRunsFromDom(e.currentTarget, obj.runs![0], scale);
-                  onChange(obj.id, {
-                    runs,
-                    text: runs.map((r) => r.text).join(''),
-                    edited: true,
-                  } as Partial<EditorObject>);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape' || (e.key === 'Enter' && e.ctrlKey)) {
-                    e.preventDefault();
-                    onExitEdit();
-                  }
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                onMouseUp={(e) => e.stopPropagation()}
-                onBlur={() => props.onCommit()}
-                style={{
-                  ...textCss,
-                  overflow: 'hidden',
-                  padding: 0,
-                  margin: 0,
-                  border: 'none',
-                  outline: 'none',
-                  whiteSpace: 'pre',
-                }}
-              />
             ) : editing ? (
               <textarea
                 autoFocus
@@ -641,31 +594,8 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
               // raster glyphs show through the frame — the font must not change
               // just because the line was selected/activated.
               null
-            ) : obj.kind === 'text' && obj.runs && obj.runs.length > 1 ? (
-              // Rich text: render each style run as its own span (mixed fonts/sizes/bold/colour).
-              <div style={textCss}>
-                {obj.runs.map((r, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      fontFamily: r.fontFamily,
-                      fontSize: r.fontSize * scale,
-                      fontWeight: r.bold && !isEmbeddedFamily(r.fontFamily) ? 700 : 400,
-                      fontStyle: r.italic && !isEmbeddedFamily(r.fontFamily) ? 'italic' : 'normal',
-                      textDecoration: r.underline ? 'underline' : undefined,
-                      color: cssColor(r.color),
-                      letterSpacing: r.charSpacing ? `${r.charSpacing * scale}px` : undefined,
-                      ...(r.scaleX && Math.abs(r.scaleX - 1) > 0.01
-                        ? { display: 'inline-block', transform: `scaleX(${r.scaleX})`, transformOrigin: 'left top' }
-                        : null),
-                    }}
-                  >
-                    {r.text}
-                  </span>
-                ))}
-              </div>
             ) : (
-              // Edited / lifted / new single-style text.
+              // Edited / lifted / new text.
               <div style={textCss}>{obj.text}</div>
             )}
 

@@ -1148,6 +1148,30 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
     [scale],
   );
 
+  // Lift an existing image off the page when first moved/resized: erase its original from the page
+  // raster and re-render, so the moved overlay isn't doubled by the picture still baked in the page.
+  const liftImage = useCallback(
+    async (o: ImageObject) => {
+      const editor = editorRef.current;
+      if (!editor || !o.originalBbox) return;
+      const ob = o.originalBbox;
+      await editor.redactRect(o.pageIndex, { x: ob.x - 1, y: ob.y - 1, width: ob.width + 2, height: ob.height + 2 });
+      const rp = await editor.renderPage(o.pageIndex, { scale });
+      const url = URL.createObjectURL(new Blob([rp.png as BlobPart], { type: 'image/png' }));
+      urlsRef.current.push(url);
+      setPages((prev) =>
+        prev.map((p) =>
+          p.pageIndex === o.pageIndex
+            ? { pageIndex: p.pageIndex, width: rp.width, height: rp.height, renderedScale: scale, url }
+            : p,
+        ),
+      );
+      clearColorSampleCache();
+      setObjects((prev) => prev.map((x) => (x.id === o.id ? ({ ...x, lifted: true } as EditorObject) : x)));
+    },
+    [scale],
+  );
+
   // End of a group drag: lift the existing vector members off the page (text uses
   // its eraser cover, but a moved vector would otherwise double with its original).
   const endGroupMove = useCallback(
@@ -1196,11 +1220,18 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           void liftVector(merged);
         }
       }
+      if (o && o.kind === 'image' && o.source === 'existing' && !liftedRef.current.has(id)) {
+        const merged = { ...o, ...eff } as ImageObject;
+        if (imageEdited(merged)) {
+          liftedRef.current.add(id);
+          void liftImage(merged);
+        }
+      }
       if (o && o.kind === 'text' && o.source === 'existing') {
         maybeLiftText({ ...o, ...eff } as TextObject);
       }
     },
-    [liftVector, maybeLiftText],
+    [liftVector, liftImage, maybeLiftText],
   );
 
   const updateSelected = useCallback(

@@ -415,13 +415,20 @@ const handlers: {
       stext = page.toStructuredText('preserve-whitespace,preserve-images');
       stext.walk({
         onImageBlock(bbox, _matrix, image) {
+          let pix: mupdf.Pixmap | null = null;
+          let rgb: mupdf.Pixmap | null = null;
           try {
-            const pix = image.toPixmap();
-            const png = pix.asPNG();
-            pix.destroy();
+            pix = image.toPixmap();
+            // Force RGB(A): a native CMYK / indexed / gray pixmap produces a PNG the browser won't
+            // load as an <img> (the "broken image" icon), so always convert before encoding.
+            rgb = pix.convertToColorSpace(mupdf.ColorSpace.DeviceRGB, true);
+            const png = rgb.asPNG();
             out.push({ bbox: fromMupdfRect(bbox), png: detach(new Uint8Array(png)) });
           } catch {
             /* undecodable image — skip it rather than fail the whole extract */
+          } finally {
+            rgb?.destroy();
+            pix?.destroy();
           }
         },
       });

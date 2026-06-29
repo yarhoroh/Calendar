@@ -14,6 +14,7 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement } from 
 import type { Rect } from '../../types.js';
 import {
   cssColor,
+  imageEdited,
   RESIZE_HANDLES,
   resizeBox,
   textEdited,
@@ -483,7 +484,11 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
             }}
           >
             {obj.kind === 'image' ? (
-              <img src={obj.src} style={imgStyle} alt="" draggable={false} />
+              // raster-preserve: an untouched existing image is already in the page raster — don't
+              // draw the overlay (that's the duplicate). Show it only once moved/resized.
+              obj.source === 'existing' && !obj.lifted && !imageEdited(obj) ? null : (
+                <img src={obj.src} style={imgStyle} alt="" draggable={false} />
+              )
             ) : obj.kind === 'rect' ? (
               <div
                 style={{

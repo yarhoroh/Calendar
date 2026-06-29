@@ -25,8 +25,49 @@ import {
   type Pivot,
   type ResizeHandle,
 } from './objects.js';
+import type { StyledRun } from './objects.js';
 import { isEmbeddedFamily } from './fonts.js';
 import { measureAscent, measureTextWidth } from './measureText.js';
+
+const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// One run → inline CSS for a contentEditable span (and the read-only rich display).
+function runStyleStr(r: StyledRun, scale: number): string {
+  const emb = isEmbeddedFamily(r.fontFamily);
+  return [
+    `font-family:${r.fontFamily}`,
+    `font-size:${r.fontSize * scale}px`,
+    `font-weight:${r.bold && !emb ? 700 : 400}`,
+    `font-style:${r.italic && !emb ? 'italic' : 'normal'}`,
+    `text-decoration:${r.underline ? 'underline' : 'none'}`,
+    `color:${cssColor(r.color)}`,
+  ].join(';');
+}
+function runsToHtml(runs: StyledRun[], scale: number): string {
+  return runs.map((r) => `<span style="${runStyleStr(r, scale)}">${escHtml(r.text)}</span>`).join('');
+}
+// Read the edited contentEditable back into runs (one run per child span; bare text = base style).
+function parseRunsFromDom(el: HTMLElement, base: StyledRun, scale: number): StyledRun[] {
+  const runs: StyledRun[] = [];
+  el.childNodes.forEach((node) => {
+    const text = node.textContent ?? '';
+    if (!text) return;
+    const s = node.nodeType === 1 ? (node as HTMLElement).style : null;
+    runs.push({
+      text,
+      fontFamily: s?.fontFamily || base.fontFamily,
+      fontName: base.fontName,
+      fontSize: s && s.fontSize ? parseFloat(s.fontSize) / scale : base.fontSize,
+      bold: s ? s.fontWeight === '700' || s.fontWeight === 'bold' : base.bold,
+      italic: s ? s.fontStyle === 'italic' : base.italic,
+      underline: s ? (s.textDecoration || '').includes('underline') : base.underline,
+      color: base.color, // CSS colour round-trip is lossy; keep base unless changed via the panel
+      charSpacing: base.charSpacing,
+      scaleX: base.scaleX,
+    });
+  });
+  return runs.length ? runs : [{ ...base, text: el.textContent ?? '' }];
+}
 
 export interface ObjectLayerProps {
   scale: number;
@@ -519,6 +560,53 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
                   />
                 </svg>
               ) : null
+            ) : editing && obj.kind === 'text' && obj.runs && obj.runs.length > 1 ? (
+              <div
+                contentEditable
+                suppressContentEditableWarning
+                ref={(el) => {
+                  // uncontrolled: set the run HTML once per object so React re-renders don't reset
+                  // the caret; reads happen in onInput.
+                  if (el && el.dataset.rid !== obj.id) {
+                    el.dataset.rid = obj.id;
+                    el.innerHTML = runsToHtml(obj.runs!, scale);
+                    el.focus();
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    range.collapse(false);
+                    const sel = window.getSelection();
+                    sel?.removeAllRanges();
+                    sel?.addRange(range);
+                  }
+                }}
+                onInput={(e) => {
+                  const runs = parseRunsFromDom(e.currentTarget, obj.runs![0], scale);
+                  onChange(obj.id, {
+                    runs,
+                    text: runs.map((r) => r.text).join(''),
+                    edited: true,
+                  } as Partial<EditorObject>);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' || (e.key === 'Enter' && e.ctrlKey)) {
+                    e.preventDefault();
+                    onExitEdit();
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onBlur={() => props.onCommit()}
+                style={{
+                  ...textCss,
+                  overflow: 'hidden',
+                  padding: 0,
+                  margin: 0,
+                  border: 'none',
+                  outline: 'none',
+                  whiteSpace: 'pre',
+                }}
+              />
             ) : editing ? (
               <textarea
                 autoFocus

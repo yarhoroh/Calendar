@@ -14,6 +14,7 @@ import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } 
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
+import { getGoogleFont } from './googleFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -1195,6 +1196,7 @@ ipcMain.handle('pdf:reveal', (_e, path) => revealPdfPath(path))
 ipcMain.handle('pdf:read', (_e, path) => readPdfBytes(path))
 ipcMain.handle('pdf:write', (_e, { path, bytes } = {}) => writePdfBytes(path, bytes))
 ipcMain.handle('pdf:watch', (e, paths) => watchPdfFolders(paths, () => e.sender.send('pdf:tree-changed')))
+ipcMain.handle('fonts:google', (_e, { family, bold, italic } = {}) => getGoogleFont(family, bold, italic))
 
 // silent text notification (toast near the clock, no voice)
 ipcMain.on('notify:push', (_e, text) => pushMessage({ title: 'Calendar', body: String(text || '') }))

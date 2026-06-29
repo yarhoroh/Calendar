@@ -16,6 +16,7 @@ import {
   cleanFontName,
   DEFAULT_LINE_HEIGHT,
   familyIsSerif,
+  imageEdited,
   nextId,
   pickFamily,
   textEdited,
@@ -119,6 +120,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
   // text caches so clicking a frame reuses one object instead of duplicating.
   const vectorRef = useRef<Map<number, VectorPath[]>>(new Map());
   const claimedVecRef = useRef<Map<string, ObjectId>>(new Map());
+  // Per-page images (a vector baked to a stamp on save, or any embedded picture), with their
+  // on-screen blob URL + bytes, so they can be re-selected and moved after reopening.
+  const imageRef = useRef<Map<number, { bbox: Rect; src: string; bytes: Uint8Array }[]>>(new Map());
+  const claimedImgRef = useRef<Map<string, ObjectId>>(new Map());
   // Vectors whose original line-art has been redacted out of the page already.
   const liftedRef = useRef<Set<ObjectId>>(new Set());
   const objectsRef = useRef<EditorObject[]>([]);
@@ -191,6 +196,8 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
         claimedRef.current.clear();
         vectorRef.current.clear();
         claimedVecRef.current.clear();
+        imageRef.current.clear();
+        claimedImgRef.current.clear();
         liftedRef.current.clear();
         clearColorSampleCache();
         clearEmbeddedFonts();
@@ -236,6 +243,17 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           const vecs = await editor.getVectorPaths(i);
           vectorRef.current.set(i, vecs);
           allVecs[i] = vecs.map((v) => v.bbox);
+          // Images on the page (incl. a vector baked to a stamp on a previous save) → selectable.
+          const imgs = await editor.getImages(i);
+          imageRef.current.set(
+            i,
+            imgs.map((im) => {
+              const bytes = new Uint8Array(im.png);
+              const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
+              urlsRef.current.push(url);
+              return { bbox: im.bbox, src: url, bytes };
+            }),
+          );
         }
         setLineRects(allLines);
         setVectorRects(allVecs);
@@ -326,6 +344,21 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           await editor.insertImage(obj.pageIndex, baked.rect, baked.bytes);
           continue;
         }
+        // Existing image: an untouched one stays baked in the page (skip, or it doubles); a
+        // moved/resized one has its original erased and is re-stamped at the new spot below.
+        if (obj.kind === 'image' && obj.source === 'existing') {
+          if (!imageEdited(obj)) continue;
+          if (obj.originalBbox && !obj.lifted) {
+            const ob = obj.originalBbox;
+            await editor.redactRect(obj.pageIndex, {
+              x: ob.x - 1,
+              y: ob.y - 1,
+              width: ob.width + 2,
+              height: ob.height + 2,
+            });
+          }
+          // fall through to the image stamping below (at the new position)
+        }
         // Existing text: erase the original glyphs once the line is touched.
         if (obj.kind === 'text' && obj.source === 'existing' && obj.originalBbox) {
           // An untouched, never-lifted line keeps its crisp original. Once lifted
@@ -356,6 +389,11 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           await editor.insertImage(obj.pageIndex, baked.rect, baked.bytes);
         } else if (obj.kind === 'image') {
           await editor.insertImage(obj.pageIndex, rect, obj.bytes);
+        } else if (obj.kind === 'text' && obj.source === 'existing') {
+          // Existing edited text: rasterize WITH ITS (embedded) FONT so the glyphs stay 1:1. A
+          // FreeText re-bake would fall back to a standard font and visibly change the typeface.
+          const baked = await rasterizeRotated(obj);
+          await editor.insertImage(obj.pageIndex, baked.rect, baked.bytes);
         } else {
           if (obj.background) await editor.fillRect(obj.pageIndex, rect, obj.background);
           // Bake line by line so the chosen alignment and line spacing persist
@@ -470,7 +508,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
         text: line.text,
         // Prefer the document's own embedded font so editing is one-to-one;
         // fall back to the closest CSS family when it isn't usable in a browser.
-        fontFamily: familyForPdfFont(line.fontName) ?? pickFamily(line.fontName),
+        fontFamily: [familyForPdfFont(line.fontName), pickFamily(line.fontName)].filter(Boolean).join(', '),
         fontName: line.fontName,
         fontSize: line.fontSize,
         color: line.color,
@@ -575,6 +613,54 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
   // whose bbox contains the point, and select the smaller-area (more specific)
   // one. A vector is located purely by its own x/y/w/h, so the whole of it that
   // isn't covered by a tighter text line is grabbable — no text-driven routing.
+  // Materialise the smallest image under the cursor into a selectable object (mirrors selectVectorAt).
+  const selectImageAt = useCallback(async (pageIndex: number, x: number, y: number): Promise<boolean> => {
+    let best: { bbox: Rect; src: string; bytes: Uint8Array } | null = null;
+    let bestArea = Infinity;
+    for (const im of imageRef.current.get(pageIndex) ?? []) {
+      const b = im.bbox;
+      if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+        const a = Math.max(b.width, 1) * Math.max(b.height, 1);
+        if (a < bestArea) {
+          bestArea = a;
+          best = im;
+        }
+      }
+    }
+    if (!best) return false;
+    const b = best.bbox;
+    const key = `${pageIndex}:${Math.round(b.x)}:${Math.round(b.y)}:${Math.round(b.width)}:${Math.round(b.height)}`;
+    const claimed = claimedImgRef.current.get(key);
+    if (claimed && objectsRef.current.some((o) => o.id === claimed)) {
+      setSelectedId(claimed);
+      setEditingId(null);
+      return true;
+    }
+    const id = nextId();
+    claimedImgRef.current.set(key, id);
+    setObjects((prev) => [
+      ...prev,
+      {
+        id,
+        kind: 'image',
+        pageIndex,
+        x: b.x,
+        y: b.y,
+        w: b.width,
+        h: b.height,
+        rotation: 0,
+        pivot: { ...CENTER_PIVOT },
+        src: best!.src,
+        bytes: best!.bytes,
+        source: 'existing',
+        originalBbox: { ...b },
+      },
+    ]);
+    setSelectedId(id);
+    setEditingId(null);
+    return true;
+  }, []);
+
   const selectAt = useCallback(
     async (pageIndex: number, x: number, y: number, edit = false): Promise<void> => {
       const smallestAreaAt = (boxes: Rect[]): number | null => {
@@ -589,20 +675,23 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
       };
       const textArea = smallestAreaAt((layoutRef.current.get(pageIndex) ?? []).map((l) => l.bbox));
       const vecArea = smallestAreaAt((vectorRef.current.get(pageIndex) ?? []).map((v) => v.bbox));
-      const textFirst = textArea !== null && (vecArea === null || textArea <= vecArea);
-      // Try the winner, then the other as a fallback, else clear the selection.
-      if (textFirst) {
-        if (await editExistingAt(pageIndex, x, y, edit)) return;
-        if (vecArea !== null && (await selectVectorAt(pageIndex, x, y))) return;
-      } else {
-        if (vecArea !== null && (await selectVectorAt(pageIndex, x, y))) return;
-        if (textArea !== null && (await editExistingAt(pageIndex, x, y, edit))) return;
+      const imgArea = smallestAreaAt((imageRef.current.get(pageIndex) ?? []).map((im) => im.bbox));
+      // Try candidates smallest-area first (the tightest box under the cursor wins), else clear.
+      const candidates = [
+        { area: textArea, fn: () => editExistingAt(pageIndex, x, y, edit) },
+        { area: vecArea, fn: () => selectVectorAt(pageIndex, x, y) },
+        { area: imgArea, fn: () => selectImageAt(pageIndex, x, y) },
+      ]
+        .filter((c): c is { area: number; fn: () => Promise<boolean> } => c.area !== null)
+        .sort((a, b) => a.area - b.area);
+      for (const c of candidates) {
+        if (await c.fn()) return;
       }
       setSelectedId(null);
       setEditingId(null);
       setGroupIds([]); // a click on empty space also drops any lingering marquee group
     },
-    [editExistingAt, selectVectorAt],
+    [editExistingAt, selectVectorAt, selectImageAt],
   );
 
   // A single (point) selection always clears any marquee group.
@@ -650,7 +739,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
         w: line.bbox.width,
         h: line.bbox.height,
         text: line.text,
-        fontFamily: familyForPdfFont(line.fontName) ?? pickFamily(line.fontName),
+        fontFamily: [familyForPdfFont(line.fontName), pickFamily(line.fontName)].filter(Boolean).join(', '),
         fontName: line.fontName,
         fontSize: line.fontSize,
         color: line.color,
@@ -798,7 +887,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
           w: line.bbox.width,
           h: line.bbox.height,
           text: line.text,
-          fontFamily: pickFamily(line.fontName),
+          fontFamily: [familyForPdfFont(line.fontName), pickFamily(line.fontName)].filter(Boolean).join(', '),
           fontName: line.fontName,
           fontSize: line.fontSize,
           color: line.color,
@@ -975,7 +1064,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}): Docum
 
   // Zoom by a multiplicative factor, clamped to a sane range.
   const zoomBy = useCallback((factor: number) => {
-    setScale((s) => Math.min(5, Math.max(0.3, s * factor)));
+    setScale((s) => Math.min(10, Math.max(0.3, s * factor)));
   }, []);
 
   const textInput = useCallback(

@@ -394,7 +394,9 @@ const handlers: {
     const out: ImageBlock[] = [];
     let stext: mupdf.StructuredText | null = null;
     try {
-      stext = page.toStructuredText('preserve-whitespace');
+      // 'preserve-images' is REQUIRED — without it structured text omits image blocks entirely and
+      // onImageBlock never fires, so no picture (incl. a baked vector) is ever extracted.
+      stext = page.toStructuredText('preserve-whitespace,preserve-images');
       stext.walk({
         onImageBlock(bbox, _matrix, image) {
           try {

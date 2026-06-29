@@ -395,24 +395,27 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
         if (
           obj.kind === 'text' &&
           obj.originalBbox &&
-          obj.text === obj.originalText &&
+          obj.originalText &&
           singleLine &&
-          obj.text.length > 1
+          obj.originalText.length > 1
         ) {
+          // Keep the ORIGINAL line's tracking constant (derived from the original text + width), and
+          // apply it whether or not the text was edited — so adding/removing a character doesn't
+          // suddenly re-space the whole line. (Approximation of the PDF's real Tc/Tz.)
           const measured = measureTextWidth(
-            obj.text,
+            obj.originalText,
             obj.fontSize,
             obj.fontFamily,
             obj.bold,
             obj.italic,
           );
-          const perGap = (obj.originalBbox.width - measured) / (obj.text.length - 1);
+          const perGap = (obj.originalBbox.width - measured) / (obj.originalText.length - 1);
           if (Math.abs(perGap) < obj.fontSize) letterSpacing = `${perGap * scale}px`;
         }
-        // Exact vertical placement: line-height = font size (no leading), then translate so the
-        // text's baseline lands on the PDF baseline. baselineFromTop(line-height=fontSize) = ascent
-        // (measured for THIS font/size), so translateY = (pdfBaseline - boxTop) - ascent. No guessed
-        // percentages → correct at any size. NEW text (no baseline) falls back to centring.
+        // Exact baseline WITHOUT touching line-height (line-height stays box-height, which keeps the
+        // textarea intact — changing it to fontSize was what broke editing). With line-height = box,
+        // the line's baseline sits at half-leading + ascent from the box top; translate so that
+        // lands on the PDF baseline. ascent is measured for THIS font/size. No percentages.
         const ascentPx =
           singleLine && obj.kind === 'text'
             ? measureAscent(obj.fontSize * scale, obj.fontFamily, obj.bold, obj.italic)
@@ -420,8 +423,10 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
         const hasBaseline = obj.kind === 'text' && typeof obj.baseline === 'number';
         const baselineTy =
           hasBaseline && obj.kind === 'text'
-            ? (obj.baseline! - obj.y) * scale - ascentPx
-            : -obj.fontSize * scale * 0.1;
+            ? (obj.baseline! - (obj.originalBbox?.y ?? obj.y)) * scale -
+              ((obj.h - obj.fontSize) * scale) / 2 -
+              ascentPx
+            : -obj.fontSize * scale * 0.08;
         const textCss: CSSProperties = {
           ...textStyle,
           whiteSpace: 'pre',
@@ -429,7 +434,7 @@ export function ObjectLayer(props: ObjectLayerProps): ReactElement {
           background:
             obj.kind === 'text' && obj.background ? cssColor(obj.background) : 'transparent',
           lineHeight: singleLine
-            ? `${obj.fontSize * scale}px`
+            ? `${obj.h * scale}px`
             : obj.kind === 'text'
               ? obj.lineHeight
               : 1.2,

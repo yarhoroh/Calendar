@@ -153,6 +153,7 @@ const api = {
       return () => ipcRenderer.removeListener('pdf:tree-changed', h)
     }
   },
+  googleFont: (q) => ipcRenderer.invoke('fonts:google', q),
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)
     ipcRenderer.on('tts:play', h)

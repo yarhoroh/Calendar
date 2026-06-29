@@ -87,6 +87,10 @@ export interface ImageObject {
   src: string;
   /** Raw image bytes for embedding into the PDF. */
   bytes: Uint8Array;
+  /** 'existing' = extracted from the page on open (erase original when moved on save); else user-added. */
+  source?: 'existing' | 'new';
+  /** Original placement box of an existing image — skip untouched / erase moved on save. */
+  originalBbox?: Rect | null;
 }
 
 /** A vector rectangle/frame: a filled, optionally rounded box you can move,
@@ -205,6 +209,13 @@ export function textEdited(o: TextObject): boolean {
     o.w !== b.width ||
     o.h !== b.height
   );
+}
+
+/** Has an existing image been moved/resized/rotated (so its original must be erased on save)? */
+export function imageEdited(o: ImageObject): boolean {
+  if (o.source !== 'existing' || !o.originalBbox) return true; // user-added image is always re-baked
+  const b = o.originalBbox;
+  return o.rotation % 360 !== 0 || o.x !== b.x || o.y !== b.y || o.w !== b.width || o.h !== b.height;
 }
 
 export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w';

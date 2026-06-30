@@ -114,6 +114,35 @@
   display: block;
   user-select: none;
 }
+/* edit-mode object frames. One base class + a colour per object type. */
+.pdfed__ov {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+/* vectors / art objects (lines, rules, table borders) — amber */
+.pdfed__ov--vec {
+  border: 1px solid rgba(245, 158, 11, 0.9);
+  z-index: 10;
+}
+/* images — blue */
+.pdfed__ov--img {
+  border: 1.5px solid rgba(59, 130, 246, 0.95);
+  background: rgba(59, 130, 246, 0.06);
+  z-index: 11;
+}
+/* text block = paragraph group — green, solid */
+.pdfed__ov--block {
+  border: 1.5px solid var(--accent);
+  background: rgba(16, 185, 129, 0.06);
+  border-radius: 2px;
+  z-index: 12;
+}
+/* individual line inside a block (table cells land here) — green, dashed, faint */
+.pdfed__ov--line {
+  border: 1px dashed rgba(16, 185, 129, 0.55);
+  z-index: 13;
+}
 .pdfed__placeholder {
   margin: auto;
   color: var(--muted);

@@ -36,7 +36,16 @@ export const translations = {
       editText: 'Edit text (E)', addText: 'Add text (T)', image: 'Add image', shape: 'Add box (R)',
       zoomIn: 'Zoom in (Ctrl+wheel)', zoomOut: 'Zoom out (Ctrl+wheel)', loading: 'Loading…', error: 'Error',
       page: 'Page', pages: 'pages', hintEdit: 'Click text or a shape to select; double-click text to edit',
-      hintText: 'Click where to type', hintShape: 'Click where to add a box', hintIdle: 'Click text to select; double-click to edit'
+      hintText: 'Click where to type', hintShape: 'Click where to add a box', hintIdle: 'Click text to select; double-click to edit',
+      panel: { title: 'Text parameters', selectHint: 'Click a text piece to inspect its parameters', docFonts: 'Document fonts', docColors: 'Document colors', embeddedFonts: 'Embedded', systemFonts: 'System', showBoxes: 'Show bounding boxes' },
+      param: {
+        font: 'Font', size: 'Font size', color: 'Text color', bold: 'Bold', italic: 'Italic',
+        underline: 'Underline', superscript: 'Superscript', subscript: 'Subscript',
+        bulletList: 'Bulleted list', numberList: 'Numbered list', align: 'Alignment',
+        lineSpacing: 'Line spacing', paragraphSpacing: 'Paragraph spacing',
+        hScale: 'Horizontal scale', charSpacing: 'Character spacing', soon: '— later',
+        align_left: 'Left', align_center: 'Center', align_right: 'Right', align_justify: 'Justify'
+      }
     },
     tts: { pause: 'Pause', resume: 'Resume', stop: 'Stop', next: 'Next' },
     mail: {
@@ -307,7 +316,16 @@ export const translations = {
       editText: 'Редагувати текст (E)', addText: 'Додати текст (T)', image: 'Додати зображення', shape: 'Додати рамку (R)',
       zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', loading: 'Завантаження…', error: 'Помилка',
       page: 'Сторінка', pages: 'стор.', hintEdit: 'Клікни по тексту або фігурі, щоб виділити; подвійний клік — редагувати',
-      hintText: 'Клікни, де вписати текст', hintShape: 'Клікни, куди вставити рамку', hintIdle: 'Клікни по тексту, щоб виділити; подвійний клік — редагувати'
+      hintText: 'Клікни, де вписати текст', hintShape: 'Клікни, куди вставити рамку', hintIdle: 'Клікни по тексту, щоб виділити; подвійний клік — редагувати',
+      panel: { title: 'Параметри тексту', selectHint: 'Клікни по шматку тексту, щоб побачити його параметри', docFonts: 'Шрифти документа', docColors: 'Кольори документа', embeddedFonts: 'Вбудовані', systemFonts: 'Системні', showBoxes: 'Показувати рамки' },
+      param: {
+        font: 'Шрифт', size: 'Розмір шрифту', color: 'Колір тексту', bold: 'Жирний', italic: 'Курсив',
+        underline: 'Підкреслення', superscript: 'Верхній індекс', subscript: 'Нижній індекс',
+        bulletList: 'Маркований список', numberList: 'Нумерований список', align: 'Вирівнювання',
+        lineSpacing: 'Міжрядковий інтервал', paragraphSpacing: 'Інтервал абзацу',
+        hScale: 'Горизонтальний масштаб', charSpacing: 'Міжлітерний інтервал', soon: '— згодом',
+        align_left: 'Ліворуч', align_center: 'По центру', align_right: 'Праворуч', align_justify: 'По ширині'
+      }
     },
     tts: { pause: 'Пауза', resume: 'Продовжити', stop: 'Стоп', next: 'Далі' },
     mail: {

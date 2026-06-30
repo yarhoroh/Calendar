@@ -154,6 +154,10 @@ const api = {
     }
   },
   googleFont: (q) => ipcRenderer.invoke('fonts:google', q),
+  fonts: {
+    list: () => ipcRenderer.invoke('fonts:list'),
+    resolve: (fonts) => ipcRenderer.invoke('fonts:resolve', fonts),
+  },
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)
     ipcRenderer.on('tts:play', h)

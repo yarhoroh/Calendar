@@ -46,8 +46,9 @@ export function createPdfEngine() {
   return {
     open: (data) => call('open', { data }), // data: ArrayBuffer | Uint8Array → { pageCount }
     renderPage: (pageIndex, scale) => call('renderPage', { pageIndex, scale }), // → { png, width, height }
-    // → { textBlocks: [{x,y,width,height, lines:[…]}], images: [rect], vectors: [{…rect, stroked, rectangle}] }
-    getObjects: (pageIndex) => call('getObjects', { pageIndex }),
+    // → { blocks: [{x,y,width,height, lines:[{…, runs:[{text,bbox,fontName,size,color,bold,italic}]}]}],
+    //     images: [rect], vectors: [{…rect, stroked, rectangle}], fonts: [{…}], colors: [hex] }
+    getModel: (pageIndex) => call('getModel', { pageIndex }),
     dispose: () => {
       pending.clear()
       worker.terminate()

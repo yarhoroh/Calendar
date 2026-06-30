@@ -50,6 +50,10 @@
       {
         "from": "resources/stress",
         "to": "stress"
+      },
+      {
+        "from": "resources/fonts",
+        "to": "fonts"
       }
     ],
     "win": {

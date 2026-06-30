@@ -1,27 +1,49 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ZoomInIcon, ZoomOutIcon, ComposeIcon } from '../icons'
 import { useI18n } from '../../i18n/I18nContext'
+import api from '../../lib/api'
 import { createPdfEngine } from './pdfEngine'
+import StylePanel from './StylePanel'
 import './PdfEditor.css'
 
 // Draws frames for every page object MuPDF reports. Layered bottom→top: vectors (shapes/rules),
-// images, text blocks (paragraph groups), then each block's lines (table cells show up here — a row
-// is one block, its cells are separate lines on the same y).
-function PageOverlay({ obj, scale }) {
+// images, text blocks (paragraph groups — context only), then each *run* (a span of one style)
+// dashed and clickable. Clicking a run selects exactly that small piece, so the panel shows its
+// real parameters, not an average of the whole block.
+function PageOverlay({ model, scale, pageIndex, selected, onSelect, showBoxes }) {
   const box = (r) => ({ left: r.x * scale, top: r.y * scale, width: r.width * scale, height: r.height * scale })
   return (
     <>
-      {obj.vectors.map((v, i) => (
+      {showBoxes && model.vectors.map((v, i) => (
         <div key={'v' + i} className="pdfed__ov pdfed__ov--vec" style={box(v)} />
       ))}
-      {obj.images.map((m, i) => (
+      {showBoxes && model.images.map((m, i) => (
         <div key={'i' + i} className="pdfed__ov pdfed__ov--img" style={box(m)} />
       ))}
-      {obj.textBlocks.map((b, i) => (
-        <div key={'b' + i} className="pdfed__ov pdfed__ov--block" style={box(b)} />
-      ))}
-      {obj.textBlocks.flatMap((b, i) =>
-        b.lines.map((ln, j) => <div key={'l' + i + '-' + j} className="pdfed__ov pdfed__ov--line" style={box(ln)} />)
+      {/* block frames = future Rich-Editor objects (resizable/movable container of the rich text) */}
+      {showBoxes &&
+        model.blocks.map((b, i) => (
+          <div key={'b' + i} className="pdfed__ov pdfed__ov--block" style={box(b)} />
+        ))}
+      {/* runs stay clickable even with boxes hidden (is-bare just drops the visible outline) */}
+      {model.blocks.flatMap((b, bi) =>
+        b.lines.flatMap((ln, li) =>
+          ln.runs.map((run, ri) => {
+            const sel =
+              selected?.page === pageIndex && selected?.b === bi && selected?.l === li && selected?.r === ri
+            return (
+              <div
+                key={`r${bi}-${li}-${ri}`}
+                className={'pdfed__ov pdfed__ov--run' + (sel ? ' is-selected' : '') + (showBoxes ? '' : ' is-bare')}
+                style={box(run.bbox)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelect({ page: pageIndex, b: bi, l: li, r: ri })
+                }}
+              />
+            )
+          })
+        )
       )}
     </>
   )
@@ -38,12 +60,16 @@ export default function PdfEditor({ source }) {
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
   const [editing, setEditing] = useState(false)
-  const [objects, setObjects] = useState({}) // pageIndex → { textBlocks, images, vectors } (PDF points)
+  const [model, setModel] = useState({}) // pageIndex → { blocks, images, vectors, fonts, colors } (PDF points)
+  const [selected, setSelected] = useState(null) // { page, block } — clicked block
   const [tagged, setTagged] = useState(null) // does the file store logical structure (tagged PDF)?
+  const [fontList, setFontList] = useState([]) // installed + bundled families, for the font dropdown
+  const [showBoxes, setShowBoxes] = useState(true) // toggle the overlay frames' visibility
   const engineRef = useRef(null)
   const urlsRef = useRef([])
   const viewportRef = useRef(null)
   const panRef = useRef(null)
+  const zoomAnchorRef = useRef(null) // keeps the point under the cursor fixed across a zoom step
 
   const revoke = () => {
     for (const u of urlsRef.current) URL.revokeObjectURL(u)
@@ -57,6 +83,13 @@ export default function PdfEditor({ source }) {
       engineRef.current?.dispose()
       revoke()
     }
+  }, [])
+
+  // installed/bundled font families for the FORMAT font dropdown (once)
+  useEffect(() => {
+    Promise.resolve(api.fonts?.list?.())
+      .then((l) => setFontList(Array.isArray(l) ? l : []))
+      .catch(() => {})
   }, [])
 
   // open the document when bytes arrive
@@ -109,40 +142,61 @@ export default function PdfEditor({ source }) {
     }
   }, [pageCount, scale])
 
-  // On entering edit mode, ask MuPDF for every page's objects (text blocks + their lines, images,
-  // vectors) so we can frame them. Cleared on exit. Coords are PDF points, scaled at render time.
+  // On entering edit mode, ask MuPDF for every page's rich-text model (blocks→lines→runs, images,
+  // vectors, palette). Cleared on exit. Coords are PDF points, scaled at render time.
   useEffect(() => {
     if (!editing || !pageCount || !engineRef.current) {
-      setObjects({})
+      setModel({})
+      setSelected(null)
       return
     }
     let alive = true
     ;(async () => {
       const out = {}
       for (let i = 0; i < pageCount; i++) {
-        const r = await engineRef.current.getObjects(i)
+        const r = await engineRef.current.getModel(i)
         if (!alive) return
         out[i] = r
       }
-      if (alive) setObjects(out)
-    })().catch((err) => console.error('[pdf] getObjects failed:', err))
+      if (alive) setModel(out)
+    })().catch((err) => console.error('[pdf] getModel failed:', err))
     return () => {
       alive = false
     }
   }, [editing, pageCount])
 
-  // Ctrl + wheel zoom (non-passive so we cancel the browser/page zoom)
+  // Ctrl + wheel zoom (non-passive so we cancel the browser/page zoom). Anchors the zoom on the
+  // point under the cursor: we record that content point now, then restore it after the re-layout.
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onWheel = (e) => {
       if (!e.ctrlKey) return
       e.preventDefault()
-      setScale((s) => Math.min(10, Math.max(0.3, s * (e.deltaY < 0 ? 1.12 : 1 / 1.12))))
+      const rect = el.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      setScale((s) => {
+        const ns = Math.min(10, Math.max(0.3, s * (e.deltaY < 0 ? 1.12 : 1 / 1.12)))
+        if (ns !== s) {
+          zoomAnchorRef.current = { contentX: (el.scrollLeft + cx) / s, contentY: (el.scrollTop + cy) / s, cx, cy }
+        }
+        return ns
+      })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
+
+  // After a zoom re-layout, scroll so the recorded content point sits back under the cursor.
+  useLayoutEffect(() => {
+    const a = zoomAnchorRef.current
+    const el = viewportRef.current
+    if (!a || !el) return
+    el.scrollLeft = a.contentX * scale - a.cx
+    el.scrollTop = a.contentY * scale - a.cy
+    zoomAnchorRef.current = null
+  }, [scale])
 
   // Hold Space to pan the view like a hand tool
   useEffect(() => {
@@ -216,29 +270,49 @@ export default function PdfEditor({ source }) {
         <span className="pdfed__status">{statusText}</span>
       </div>
 
-      <div
-        className="pdfed__viewport"
-        ref={viewportRef}
-        style={{ cursor: spaceHeld ? (panning ? 'grabbing' : 'grab') : undefined }}
-        onMouseDown={onPanMouseDown}
-      >
-        <div className="pdfed__pages" style={{ pointerEvents: spaceHeld ? 'none' : undefined }}>
-          {pages.map((p) => (
-            <div key={p.pageIndex} className="pdfed__page" style={{ width: p.width * scale, height: p.height * scale }}>
-              <img
-                src={p.url}
-                width={p.width * scale}
-                height={p.height * scale}
-                className="pdfed__pageimg"
-                alt={`${t('pdfed.page')} ${p.pageIndex + 1}`}
-                draggable={false}
-              />
-              {editing && objects[p.pageIndex] && (
-                <PageOverlay obj={objects[p.pageIndex]} scale={scale} />
-              )}
-            </div>
-          ))}
+      <div className="pdfed__body">
+        <div
+          className="pdfed__viewport"
+          ref={viewportRef}
+          style={{ cursor: spaceHeld ? (panning ? 'grabbing' : 'grab') : undefined }}
+          onMouseDown={onPanMouseDown}
+        >
+          <div className="pdfed__pages" style={{ pointerEvents: spaceHeld ? 'none' : undefined }}>
+            {pages.map((p) => (
+              <div key={p.pageIndex} className="pdfed__page" style={{ width: p.width * scale, height: p.height * scale }}>
+                <img
+                  src={p.url}
+                  width={p.width * scale}
+                  height={p.height * scale}
+                  className="pdfed__pageimg"
+                  alt={`${t('pdfed.page')} ${p.pageIndex + 1}`}
+                  draggable={false}
+                />
+                {editing && model[p.pageIndex] && (
+                  <PageOverlay
+                    model={model[p.pageIndex]}
+                    scale={scale}
+                    pageIndex={p.pageIndex}
+                    selected={selected}
+                    onSelect={setSelected}
+                    showBoxes={showBoxes}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
+
+        {editing && (
+          <StylePanel
+            page={selected ? model[selected.page] : null}
+            block={selected ? model[selected.page]?.blocks[selected.b] : null}
+            run={selected ? model[selected.page]?.blocks[selected.b]?.lines[selected.l]?.runs[selected.r] : null}
+            fontList={fontList}
+            showBoxes={showBoxes}
+            onShowBoxes={setShowBoxes}
+          />
+        )}
       </div>
     </div>
   )

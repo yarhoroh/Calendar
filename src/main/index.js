@@ -15,6 +15,7 @@ import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { getGoogleFont } from './googleFonts'
+import { listSystemFonts, resolveFonts, setExtraFontDirs } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -1196,6 +1197,20 @@ ipcMain.handle('pdf:reveal', (_e, path) => revealPdfPath(path))
 ipcMain.handle('pdf:read', (_e, path) => readPdfBytes(path))
 ipcMain.handle('pdf:write', (_e, { path, bytes } = {}) => writePdfBytes(path, bytes))
 ipcMain.handle('pdf:watch', (e, paths) => watchPdfFolders(paths, () => e.sender.send('pdf:tree-changed')))
+
+// Fonts — available families (for the FORMAT dropdown) and PDF-font substitution.
+ipcMain.handle('fonts:list', () => {
+  const fams = new Map()
+  for (const f of listSystemFonts()) {
+    if (!f.family) continue
+    const e = fams.get(f.family) || { family: f.family, bold: false, italic: false }
+    if (f.bold) e.bold = true
+    if (f.italic) e.italic = true
+    fams.set(f.family, e)
+  }
+  return [...fams.values()].sort((a, b) => a.family.localeCompare(b.family))
+})
+ipcMain.handle('fonts:resolve', (_e, fonts) => resolveFonts(fonts))
 ipcMain.handle('fonts:google', (_e, { family, bold, italic } = {}) => getGoogleFont(family, bold, italic))
 
 // silent text notification (toast near the clock, no voice)
@@ -1288,6 +1303,16 @@ if (!gotLock) {
         return { action: 'deny' }
       })
     })
+
+    // font sources for substitution: bundled (Liberation/Noto) first, then the user's import folder
+    try {
+      const bundledFonts = app.isPackaged ? join(process.resourcesPath, 'fonts') : join(app.getAppPath(), 'resources', 'fonts')
+      const userFonts = join(app.getPath('userData'), 'fonts')
+      mkdirSync(userFonts, { recursive: true })
+      setExtraFontDirs([bundledFonts, userFonts])
+    } catch (_) {
+      // non-fatal — system fonts still work
+    }
 
     createWindow()
     createTray()

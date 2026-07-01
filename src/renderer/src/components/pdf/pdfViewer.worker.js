@@ -664,15 +664,23 @@ self.onmessage = (e) => {
               if (off >= qBlocks[bi][0] && off < qBlocks[bi][1]) { show2block[si + 1] = bi + 1; break }
             }
           }
-          for (const z in textOrigin) {
-            const [ox, oy] = textOrigin[z]
-            let best = 0
-            let bd = Infinity
-            for (let k = 0; k < shows.length; k++) {
-              const d = (shows[k].x - ox) ** 2 + (H - shows[k].y - oy) ** 2 // flip y to device space
-              if (d < bd) { bd = d; best = k + 1 }
+          const textCount = Object.keys(textOrigin).length
+          if (pageShowCount > 0 && pageShowCount === textCount) {
+            // No XObject interference: the Nth page-content show IS the Nth text paint. Map by ORDER —
+            // exact, no coordinate math (which can misfire on rotated pages / offset MediaBox).
+            for (let z = 1; z <= textCount; z++) { z2show[z] = z; z2state[z] = shows[z - 1] }
+          } else {
+            // Counts differ (text inside XObjects, etc.) → best-effort match by device position.
+            for (const z in textOrigin) {
+              const [ox, oy] = textOrigin[z]
+              let best = 0
+              let bd = Infinity
+              for (let k = 0; k < shows.length; k++) {
+                const d = (shows[k].x - ox) ** 2 + (H - shows[k].y - oy) ** 2 // flip y to device space
+                if (d < bd) { bd = d; best = k + 1 }
+              }
+              if (best) { z2show[z] = best; z2state[z] = shows[best - 1] }
             }
-            if (best) { z2show[z] = best; z2state[z] = shows[best - 1] }
           }
         } catch (_) {
           // parser failed — editing falls back to raw textSeq (fragmentZ)

@@ -200,11 +200,35 @@ function editBlockText(slice, { fontName, tfScale, rgb, text, encode, spaceUnits
   return slice
 }
 
-// Write a content stream (latin1 string) into a page's stream object and rasterise the page.
-function renderStreamToPng(streamObj, cs, pageIndex, scale) {
-  const outBytes = new Uint8Array(cs.length)
-  for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
-  streamObj.writeStream(outBytes)
+// A page's /Contents may be ONE stream or an ARRAY of streams (the renderer concatenates them). Our
+// block indexing (paintZ) is computed over the whole page, so we must read EVERY stream, and when we
+// write an edit back we collapse them into a single stream (all content in the first, rest emptied) so
+// offsets and indices stay consistent across every later edit.
+function readPageContent(pageObj) {
+  const contents = pageObj.get('Contents')
+  const dec = (s) => new TextDecoder('latin1').decode(s.readStream().asUint8Array())
+  if (contents.isArray()) {
+    const parts = []
+    for (let i = 0; i < contents.length; i++) parts.push(dec(contents.get(i)))
+    return parts.join('\n') // PDF concatenates content streams with whitespace between them
+  }
+  return dec(contents)
+}
+function writePageContent(pageObj, cs) {
+  const bytes = new Uint8Array(cs.length)
+  for (let i = 0; i < cs.length; i++) bytes[i] = cs.charCodeAt(i) & 0xff
+  const contents = pageObj.get('Contents')
+  if (contents.isArray()) {
+    contents.get(0).writeStream(bytes)
+    for (let i = 1; i < contents.length; i++) contents.get(i).writeStream(new Uint8Array(0))
+  } else {
+    contents.writeStream(bytes)
+  }
+}
+
+// Write the full page content back and rasterise the page.
+function renderPageWrite(pageObj, cs, pageIndex, scale) {
+  writePageContent(pageObj, cs)
   const page = doc.loadPage(pageIndex)
   try {
     const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false)
@@ -677,10 +701,7 @@ self.onmessage = (e) => {
       // error. The move targets q..Q blocks by index, so no per-fragment CTM is needed here.
       if (!doc) throw new Error('no document open')
       pushUndo()
-      const pageObj = doc.findPage(params.pageIndex)
-      const contents = pageObj.get('Contents')
-      const streamObj = contents.isArray() ? contents.get(0) : contents
-      const cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      const cs = readPageContent(doc.findPage(params.pageIndex))
       moveBaseline = { cs, pageIndex: params.pageIndex }
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'moveApply') {
@@ -712,24 +733,8 @@ self.onmessage = (e) => {
         wrapped++
       }
       self.postMessage({ log: `moveApply: requested ${Object.keys(shiftByPaint).length}, wrapped ${wrapped}, q-blocks ${blocks.length}` })
-      const outBytes = new Uint8Array(cs.length)
-      for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
-      const page = doc.loadPage(moveBaseline.pageIndex)
-      try {
-        const pageObj = doc.findPage(moveBaseline.pageIndex)
-        const contents = pageObj.get('Contents')
-        const streamObj = contents.isArray() ? contents.get(0) : contents
-        streamObj.writeStream(outBytes)
-        const pix = page.toPixmap(mupdf.Matrix.scale(params.scale, params.scale), mupdf.ColorSpace.DeviceRGB, false)
-        const png = pix.asPNG()
-        const w = pix.getWidth()
-        const h = pix.getHeight()
-        pix.destroy()
-        const buf = new Uint8Array(png).buffer
-        self.postMessage({ id, result: { png: buf, width: w / params.scale, height: h / params.scale } }, [buf])
-      } finally {
-        page.destroy()
-      }
+      const r = renderPageWrite(doc.findPage(moveBaseline.pageIndex), cs, moveBaseline.pageIndex, params.scale)
+      self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'moveEnd') {
       moveBaseline = null
       self.postMessage({ id, result: { ok: true } })
@@ -739,12 +744,10 @@ self.onmessage = (e) => {
       pushUndo()
       const rec = ensureEditFont(params.pageIndex, params.fontKey, params.fontBytes)
       const pageObj = doc.findPage(params.pageIndex)
-      const contents = pageObj.get('Contents')
-      const streamObj = contents.isArray() ? contents.get(0) : contents
-      let cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      const cs = readPageContent(pageObj)
       const blocks = topLevelQBlocks(maskStreamOperands(cs))
       const range = blocks[params.paintZ - 1]
-      if (!range) throw new Error('edit target block not found')
+      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
       const [s, e] = range
       const tfScale = params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1
       let spaceUnits = 250
@@ -762,44 +765,27 @@ self.onmessage = (e) => {
         encode: (str) => encodeGlyphs(rec.font, str),
         spaceUnits,
       })
-      cs = cs.slice(0, s) + edited + cs.slice(e)
-      const outBytes = new Uint8Array(cs.length)
-      for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
-      streamObj.writeStream(outBytes)
-      const page = doc.loadPage(params.pageIndex)
-      try {
-        const pix = page.toPixmap(mupdf.Matrix.scale(params.scale, params.scale), mupdf.ColorSpace.DeviceRGB, false)
-        const png = pix.asPNG()
-        const w = pix.getWidth()
-        const h = pix.getHeight()
-        pix.destroy()
-        const buf = new Uint8Array(png).buffer
-        self.postMessage({ id, result: { png: buf, width: w / params.scale, height: h / params.scale } }, [buf])
-      } finally {
-        page.destroy()
-      }
+      const r = renderPageWrite(pageObj, cs.slice(0, s) + edited + cs.slice(e), params.pageIndex, params.scale)
+      self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editBegin') {
       // Open an inline editor: stash the ORIGINAL stream, blank the block's glyphs so the underlying
       // PDF text disappears (the HTML editor draws in its place, 1:1), re-render the page.
       if (!doc) throw new Error('no document open')
       const pageObj = doc.findPage(params.pageIndex)
-      const contents = pageObj.get('Contents')
-      const streamObj = contents.isArray() ? contents.get(0) : contents
-      const cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      const cs = readPageContent(pageObj)
       editBaseline = { cs, pageIndex: params.pageIndex }
-      const range = topLevelQBlocks(maskStreamOperands(cs))[params.paintZ - 1]
-      if (!range) throw new Error('edit target block not found')
+      const blocks = topLevelQBlocks(maskStreamOperands(cs))
+      const range = blocks[params.paintZ - 1]
+      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
       const [s, e] = range
       const blanked = cs.slice(s, e).replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, '<> Tj')
-      const r = renderStreamToPng(streamObj, cs.slice(0, s) + blanked + cs.slice(e), params.pageIndex, params.scale)
+      const r = renderPageWrite(pageObj, cs.slice(0, s) + blanked + cs.slice(e), params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCancel') {
       // Abort the inline edit: restore the original stream untouched.
       if (!doc || !editBaseline) throw new Error('no edit in progress')
       const pageObj = doc.findPage(editBaseline.pageIndex)
-      const contents = pageObj.get('Contents')
-      const streamObj = contents.isArray() ? contents.get(0) : contents
-      const r = renderStreamToPng(streamObj, editBaseline.cs, editBaseline.pageIndex, params.scale)
+      const r = renderPageWrite(pageObj, editBaseline.cs, editBaseline.pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCommit') {
@@ -810,15 +796,12 @@ self.onmessage = (e) => {
       const cs0 = editBaseline.cs
       const pageIndex = editBaseline.pageIndex
       const pageObj = doc.findPage(pageIndex)
-      const contents = pageObj.get('Contents')
-      const streamObj = contents.isArray() ? contents.get(0) : contents
       // original back in place, then snapshot for undo
-      const ob = new Uint8Array(cs0.length)
-      for (let i = 0; i < cs0.length; i++) ob[i] = cs0.charCodeAt(i) & 0xff
-      streamObj.writeStream(ob)
+      writePageContent(pageObj, cs0)
       pushUndo()
-      const range = topLevelQBlocks(maskStreamOperands(cs0))[params.paintZ - 1]
-      if (!range) throw new Error('edit target block not found')
+      const blocks = topLevelQBlocks(maskStreamOperands(cs0))
+      const range = blocks[params.paintZ - 1]
+      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
       const [s, e] = range
       const slice = cs0.slice(s, e)
       const origTf = parseFloat((slice.match(/\/\S+\s+(-?[0-9.]+)\s+Tf/) || [])[1] || '10')
@@ -833,7 +816,7 @@ self.onmessage = (e) => {
       // replace ONLY the show operator (keep the block's Tm/clip/cm so position + baseline hold); each
       // run carries its own colour + font + size, and consecutive Tj advance inline along the baseline.
       const edited = slice.replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, runsSeq)
-      const r = renderStreamToPng(streamObj, cs0.slice(0, s) + edited + cs0.slice(e), pageIndex, params.scale)
+      const r = renderPageWrite(pageObj, cs0.slice(0, s) + edited + cs0.slice(e), pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'undo') {

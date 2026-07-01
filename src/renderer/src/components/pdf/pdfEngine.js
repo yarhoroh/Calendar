@@ -34,7 +34,7 @@ export function createPdfEngine() {
   worker.onerror = (e) => failAll('worker error: ' + (e.message || 'failed to load') + (e.filename ? ` @ ${e.filename}:${e.lineno}` : ''))
   worker.onmessageerror = () => failAll('worker message error')
 
-  const call = (type, params, transfer = []) =>
+  const rawCall = (type, params, transfer = []) =>
     new Promise((resolve, reject) => {
       const id = ++seq
       pending.set(id, { resolve, reject })
@@ -43,8 +43,29 @@ export function createPdfEngine() {
       else queue.push([msg, transfer]) // sent once the worker reports ready
     })
 
+  // The worker can silently lose its document (dev HMR recreates the worker between edits). If any
+  // call fails with "no document open", transparently re-open the last-loaded bytes and retry once, so
+  // move/edit/etc. keep working without a manual reload. Concurrent failures share one re-open.
+  let lastOpen = null
+  let reopening = null
+  const call = async (type, params, transfer = []) => {
+    try {
+      return await rawCall(type, params, transfer)
+    } catch (e) {
+      if (type !== 'open' && lastOpen && /no document open/i.test(e?.message || '')) {
+        if (!reopening) reopening = rawCall('open', { data: lastOpen }).finally(() => { reopening = null })
+        await reopening
+        return await rawCall(type, params, transfer)
+      }
+      throw e
+    }
+  }
+
   return {
-    open: (data) => call('open', { data }), // data: ArrayBuffer | Uint8Array → { pageCount }
+    open: (data) => {
+      lastOpen = data // remembered so we can silently recover from a worker that dropped the doc
+      return call('open', { data })
+    }, // data: ArrayBuffer | Uint8Array → { pageCount }
     renderPage: (pageIndex, scale) => call('renderPage', { pageIndex, scale }), // → { png, width, height }
     // → { blocks: [{x,y,width,height, lines:[{…, runs:[{text,bbox,fontName,size,color,bold,italic}]}]}],
     //     images: [rect], vectors: [{…rect, stroked, rectangle}], fonts: [{…}], colors: [hex] }

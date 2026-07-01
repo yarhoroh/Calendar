@@ -412,6 +412,55 @@ function collectPageShows(pageObj, H) {
   return shows
 }
 
+// Segment ONE stream into DRAWING UNITS (chunks) with verbatim byte ranges, so ANY object — text,
+// path, image — can be moved by wrapping its OWN unit in a `cm` shift. The unit includes the object's
+// preceding clip (`W n` and clip/path do NOT break a unit), so moving carries the clip along and the
+// text no longer vanishes when it leaves the original clip region. Each chunk has a device centre (to
+// match a model object), the CTM scale at the paint (to convert a drag delta) and [start,end) bytes.
+const VISIBLE_PAINT = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'])
+function buildChunks(cs, streamNum, H) {
+  const masked = maskStreamOperands(cs)
+  const toks = [...masked.matchAll(/<<|>>|\/[^\s()<>[\]{}/%]*|<[^>]*>|\([^)]*\)|[[\]]|[-+]?(?:\d+\.?\d*|\.\d+)|[A-Za-z]+\*?|['"]|\S/g)]
+  const chunks = []
+  let start = 0
+  let ctm = [1, 0, 0, 1, 0, 0]
+  const stk = []
+  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0
+  let pend = null
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity, hasPts = false
+  let textPos = null
+  const num = []
+  const N = (k) => num.slice(-k).map(Number)
+  const pt = (x, y) => { const dx = ctm[0] * x + ctm[2] * y + ctm[4], dy = ctm[1] * x + ctm[3] * y + ctm[5]; bx0 = Math.min(bx0, dx); by0 = Math.min(by0, dy); bx1 = Math.max(bx1, dx); by1 = Math.max(by1, dy); hasPts = true }
+  const reset = () => { bx0 = Infinity; by0 = Infinity; bx1 = -Infinity; by1 = -Infinity; hasPts = false; textPos = null }
+  for (const mt of toks) {
+    const t = mt[0]
+    const end = mt.index + t.length
+    if (/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(t)) { num.push(t); continue }
+    if (t[0] === '/') { pend = t.slice(1); num.length = 0; continue }
+    if (t === 'q') stk.push(ctm.slice())
+    else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
+    else if (t === 'cm') { const m = N(6); if (m.length === 6) ctm = matMul(m, ctm) }
+    else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
+    else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
+    else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+    else if (t === 'TD') { const [x, y] = N(2); L = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+    else if (t === 'T*') { tlm = matMul([1, 0, 0, 1, 0, -L], tlm); tm = tlm.slice() }
+    else if (t === 'TL') { const v = N(1); if (v.length) L = v[0] }
+    else if (t === 'm' || t === 'l') { const [x, y] = N(2); pt(x, y) }
+    else if (t === 'c') { const p = N(6); if (p.length === 6) { pt(p[0], p[1]); pt(p[2], p[3]); pt(p[4], p[5]) } }
+    else if (t === 'v' || t === 'y') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[2], p[3]) } }
+    else if (t === 're') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[0] + p[2], p[1] + p[3]) } }
+    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') { if (!textPos) { const trm = matMul(tm, ctm); textPos = [trm[4], H - trm[5]] } }
+    else if (t === 'ET') { if (textPos) chunks.push({ type: 'text', stream: streamNum, start, end, cx: textPos[0], cy: textPos[1], sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
+    else if (VISIBLE_PAINT.has(t)) { if (hasPts) chunks.push({ type: 'path', stream: streamNum, start, end, cx: (bx0 + bx1) / 2, cy: H - (by0 + by1) / 2, sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
+    else if (t === 'Do') { chunks.push({ type: 'image', stream: streamNum, start, end, cx: ctm[4] + (ctm[0] + ctm[2]) / 2, cy: H - (ctm[5] + (ctm[1] + ctm[3]) / 2), sa: ctm[0] || 1, sd: ctm[3] || 1, name: pend }); start = end; reset() }
+    // W, W*, n, sh, colour/state ops: NOT boundaries — stay inside the following unit (clip travels with it)
+    num.length = 0
+  }
+  return chunks
+}
+
 // Rasterise a page to PNG at a scale (PDF points → pixels).
 function rasterizePage(pageIndex, scale) {
   const page = doc.loadPage(pageIndex)

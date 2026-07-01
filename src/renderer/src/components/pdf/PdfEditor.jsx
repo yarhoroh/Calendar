@@ -307,10 +307,10 @@ export default function PdfEditor({ source }) {
   // Inline WYSIWYG editor: hide the block's glyphs, open the HTML editor in its place.
   const handleEditBegin = async (page, id) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZ = obj?.fragmentZ?.[0]
-    if (!engineRef.current || textZ == null) return
+    const textZs = obj?.fragmentZ
+    if (!engineRef.current || !textZs?.length) return
     try {
-      const r = await engineRef.current.editBegin(page, textZ, scale)
+      const r = await engineRef.current.editBegin(page, textZs, scale)
       updatePageImage(page, r)
       setSelected(null)
       setInlineEdit({ page, id })
@@ -331,8 +331,8 @@ export default function PdfEditor({ source }) {
   }
   const handleEditCommit = async (page, id, runs) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZ = obj?.fragmentZ?.[0]
-    if (!engineRef.current || textZ == null || !runs.length) return handleEditCancel()
+    const textZs = obj?.fragmentZ
+    if (!engineRef.current || !textZs?.length || !runs.length) return handleEditCancel()
     const origSize = obj?.lines?.[0]?.runs?.[0]?.size || runs[0].size
     setApplying(true)
     try {
@@ -351,7 +351,7 @@ export default function PdfEditor({ source }) {
         seenKey.add(fontKey)
         packed.push({ text: r.text, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
       }
-      const rr = await engineRef.current.editCommit(page, textZ, packed, scale)
+      const rr = await engineRef.current.editCommit(page, textZs, packed, scale)
       updatePageImage(page, rr)
       const m = await engineRef.current.getModel(page)
       setModel((prev) => ({ ...prev, [page]: m }))

@@ -799,9 +799,13 @@ self.onmessage = (e) => {
       const cs = readPageContent(pageObj)
       editBaseline = { cs, pageIndex: params.pageIndex }
       const shows = findTextShows(maskStreamOperands(cs))
-      const sh = shows[params.textZ - 1]
-      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
-      const out = cs.slice(0, sh[0]) + '<> Tj' + cs.slice(sh[1]) // blank the glyphs, keep position
+      const zs = (params.textZs || []).filter((z) => shows[z - 1]).sort((a, b) => b - a) // splice right→left
+      if (!zs.length) throw new Error(`edit target not found (textZs ${JSON.stringify(params.textZs)} of ${shows.length})`)
+      let out = cs
+      for (const z of zs) {
+        const [os, oe] = shows[z - 1]
+        out = out.slice(0, os) + '<> Tj' + out.slice(oe) // blank the glyphs, keep position
+      }
       const r = renderPageWrite(pageObj, out, params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCancel') {
@@ -823,10 +827,10 @@ self.onmessage = (e) => {
       writePageContent(pageObj, cs0)
       pushUndo()
       const shows = findTextShows(maskStreamOperands(cs0))
-      const sh = shows[params.textZ - 1]
-      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
-      const [os, oe] = sh
-      const orig = tfBefore(cs0, os) // original font/size to scale from and restore afterwards
+      const zs = (params.textZs || []).filter((z) => shows[z - 1]).sort((a, b) => a - b)
+      if (!zs.length) throw new Error(`edit target not found (textZs ${JSON.stringify(params.textZs)} of ${shows.length})`)
+      const primary = zs[0] // the first show op becomes the new (styled) text; the rest are blanked
+      const orig = tfBefore(cs0, shows[primary - 1][0]) // font/size to scale from and restore afterwards
       const parts = []
       for (const run of params.runs || []) {
         const rec = ensureEditFont(pageIndex, run.fontKey, run.fontBytes)
@@ -834,10 +838,15 @@ self.onmessage = (e) => {
         const rgb = hexToRgb(run.color).map((c) => Math.round(c * 1000) / 1000)
         parts.push(`${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, run.text)}> Tj`)
       }
-      // replace ONLY this show operator (Tm/clip/cm stay → position + baseline hold); runs set their
-      // own colour/font/size and flow inline; restore the original Tf so later shows keep their font.
+      // runs set their own colour/font/size and flow inline; restore the original Tf so later shows in
+      // the same text object keep their font. Splice right→left so earlier offsets stay valid.
       const runsSeq = (parts.join('\n') || '<> Tj') + `\n/${orig.font} ${orig.size} Tf`
-      const r = renderPageWrite(pageObj, cs0.slice(0, os) + runsSeq + cs0.slice(oe), pageIndex, params.scale)
+      let outCs = cs0
+      for (const z of [...zs].sort((a, b) => b - a)) {
+        const [os, oe] = shows[z - 1]
+        outCs = outCs.slice(0, os) + (z === primary ? runsSeq : '<> Tj') + outCs.slice(oe)
+      }
+      const r = renderPageWrite(pageObj, outCs, pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'undo') {

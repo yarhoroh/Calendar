@@ -78,11 +78,11 @@ export function createPdfEngine() {
     // rewrite a text object's content/font/size/colour in place → { png, width, height }
     // spec: { paintZ, text, fontBytes, fontKey, size, origSize, color }
     editText: (pageIndex, spec, scale) => call('editText', { pageIndex, scale, ...spec }, spec.fontBytes ? [spec.fontBytes] : []),
-    // inline editor (addressed by textZ = the object's text-show-operator index)
-    editBegin: (pageIndex, textZ, scale) => call('editBegin', { pageIndex, textZ, scale }),
+    // inline editor (addressed by textZs = the object's text-show-operator indices)
+    editBegin: (pageIndex, textZs, scale) => call('editBegin', { pageIndex, textZs, scale }),
     editCancel: (scale) => call('editCancel', { scale }),
-    editCommit: (pageIndex, textZ, runs, scale) =>
-      call('editCommit', { pageIndex, textZ, runs, scale }, runs.map((r) => r.fontBytes).filter(Boolean)),
+    editCommit: (pageIndex, textZs, runs, scale) =>
+      call('editCommit', { pageIndex, textZs, runs, scale }, runs.map((r) => r.fontBytes).filter(Boolean)),
     undo: () => call('undo', {}), // restore the previous working-copy snapshot → { undone, left }
     dispose: () => {
       pending.clear()

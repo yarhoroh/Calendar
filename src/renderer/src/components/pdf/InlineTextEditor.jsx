@@ -28,6 +28,15 @@ export default function InlineTextEditor({ obj, scale, fontList = [], onCancel, 
         span.style.color = r.color
         span.style.fontWeight = r.bold ? '700' : '400'
         span.style.fontStyle = r.italic ? 'italic' : 'normal'
+        if (r.underline) span.style.textDecoration = 'underline'
+        // Tz horizontal scale → scaleX; pivot at the baseline-left so it grows like PDF does
+        if (r.hScale && Math.abs(r.hScale - 1) > 0.001) {
+          span.style.display = 'inline-block'
+          span.style.transform = `scaleX(${r.hScale})`
+          span.style.transformOrigin = 'left bottom'
+        }
+        if (r.vAlign === 'super') span.style.verticalAlign = 'super'
+        else if (r.vAlign === 'sub') span.style.verticalAlign = 'sub'
         el.appendChild(span)
       }
       if (li < obj.lines.length - 1) el.appendChild(document.createTextNode(' '))

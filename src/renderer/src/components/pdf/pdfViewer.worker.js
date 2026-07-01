@@ -77,6 +77,13 @@ function maskStreamOperands(s) {
   return a.join('')
 }
 
+// Tokenise a MASKED content stream into PDF tokens. Operators can be glued to their operands with no
+// whitespace (e.g. `<00A1>Tj`, `[...]TJ`), so a plain whitespace split loses them — this splits on the
+// PDF delimiters too. Names, hex/literal strings (already masked), array brackets, numbers, operators.
+function tokenizeContent(masked) {
+  return masked.match(/<<|>>|\/[^\s()<>[\]{}/%]*|<[^>]*>|\([^)]*\)|[[\]]|[-+]?(?:\d+\.?\d*|\.\d+)|[A-Za-z]+\*?|['"]|\S/g) || []
+}
+
 // Find every TOP-LEVEL `q … Q` block (balanced; nesting from earlier cm-wraps collapses into its
 // enclosing top-level block). Returns [start, end) byte ranges in stream order. There is exactly one
 // such block per paint op (verified against the Device paint sequence), so the Nth block == paintZ N.
@@ -112,14 +119,14 @@ const matMul = (A, B) => [
   A[4] * B[0] + A[5] * B[2] + B[4], A[4] * B[1] + A[5] * B[3] + B[5],
 ]
 function blockBaseScales(masked) {
-  const toks = masked.split(/\s+/)
+  const toks = tokenizeContent(masked)
   let depth = 0
   let base = [1, 0, 0, 1, 0, 0]
   const stack = []
   const num = []
   const scales = []
   for (const t of toks) {
-    if (/^-?[0-9.]+$/.test(t)) { num.push(parseFloat(t)); continue }
+    if (/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(t)) { num.push(parseFloat(t)); continue }
     if (t === 'q') {
       if (depth === 0) scales.push([Math.abs(base[0]) || 1, Math.abs(base[3]) || 1])
       stack.push(base.slice())
@@ -347,7 +354,7 @@ function collectPageShows(pageObj, H) {
       for (let bi = 0; bi < blocks.length; bi++) if (off >= blocks[bi][0] && off < blocks[bi][1]) return bi + 1
       return 0
     })
-    const toks = masked.split(/\s+/)
+    const toks = tokenizeContent(masked)
     let ctm = baseCTM.slice()
     const stk = []
     let tm = [1, 0, 0, 1, 0, 0]
@@ -358,7 +365,7 @@ function collectPageShows(pageObj, H) {
     const N = (k) => num.slice(-k).map(Number)
     let showIdx = 0
     for (const t of toks) {
-      if (/^-?[0-9.]+$/.test(t)) { num.push(t); continue }
+      if (/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(t)) { num.push(t); continue }
       if (t[0] === '/') { pendName = t.slice(1); num.length = 0; continue }
       if (t === 'q') stk.push(ctm.slice())
       else if (t === 'Q') { if (stk.length) ctm = stk.pop() }

@@ -145,15 +145,31 @@ export default function StylePanel({ page, block, run, text = '', fontList = [],
 
       {draft && (
         <>
-          {/* editable text content — replace the object's text (речь-эдит) */}
-          <textarea
-            className="fmt__text"
-            value={textDraft}
-            onChange={(e) => setTextDraft(e.target.value)}
-            spellCheck={false}
-            rows={2}
-            placeholder={t('pdfed.panel.textPlaceholder')}
-          />
+          {/* editable text content (речь-эдит). Packed table rows expose one field per column — the
+              worker turns the boundaries back into spaces sized from the font, so columns stay put. */}
+          {text.includes('\n') ? (
+            <div className="fmt__cols">
+              {textDraft.split('\n').map((s, i, arr) => (
+                <input
+                  key={i}
+                  className="fmt__colinput"
+                  value={s}
+                  spellCheck={false}
+                  onChange={(e) => setTextDraft(arr.map((v, j) => (j === i ? e.target.value : v)).join('\n'))}
+                  placeholder={`${t('pdfed.panel.column')} ${i + 1}`}
+                />
+              ))}
+            </div>
+          ) : (
+            <textarea
+              className="fmt__text"
+              value={textDraft}
+              onChange={(e) => setTextDraft(e.target.value)}
+              spellCheck={false}
+              rows={2}
+              placeholder={t('pdfed.panel.textPlaceholder')}
+            />
+          )}
 
           {/* font family — embedded first, then all installed; each previewed in its own face */}
           <div className="fmt__selectwrap fmt__font">

@@ -313,6 +313,29 @@
   margin-top: 4px;
 }
 
+/* one field per column for a packed table row */
+.fmt__cols {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.fmt__colinput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid var(--fmt-line);
+  border-radius: 4px;
+  background: #fafafa;
+  color: #222;
+  font: inherit;
+  outline: none;
+}
+.fmt__colinput:focus {
+  border-color: #9aa8ff;
+  background: #fff;
+}
+
 /* editable text content (речь-эдит) */
 .fmt__text {
   display: block;

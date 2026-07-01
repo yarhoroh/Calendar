@@ -170,27 +170,28 @@ function columnGaps(tjBody) {
 // Surgically rewrite ONE text q..Q block: swap the font resource + size, replace the shown string
 // with new glyphs, and set the fill colour — keeping the block's clip, cm and Tm so position/scale
 // are preserved exactly. tfScale rescales the existing Tf (new effective size ÷ old effective size).
-// `text` may contain newlines: each line is a column of a packed table row, rejoined with the block's
-// own big kerning gaps so the columns stay put (falls back to one run when the counts don't line up).
-function editBlockText(slice, { fontName, tfScale, rgb, text, encode }) {
+// `text` may contain newlines: each line is a column of a packed table row. We turn the block's big
+// kerning gaps into that many REAL spaces (gap ÷ this font's space advance), so the columns keep their
+// positions AND the result is plain spaced text — natural to edit next time (no magic kerning numbers).
+function editBlockText(slice, { fontName, tfScale, rgb, text, encode, spaceUnits }) {
   slice = slice.replace(/\/\S+\s+(-?[0-9.]+)\s+Tf/, (_m, sz) => `/${fontName} ${(parseFloat(sz) * tfScale).toFixed(4)} Tf`)
   const showRe = /\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/
   const tj = slice.match(showRe)
   if (tj) {
     const segs = String(text).split('\n')
     const gaps = columnGaps(tj[0])
-    let repl
+    let joined
     if (gaps.length && segs.length === gaps.length + 1) {
-      repl = '['
+      const unit = spaceUnits > 0 ? spaceUnits : 250
+      joined = ''
       segs.forEach((s, i) => {
-        repl += `<${encode(s)}>`
-        if (i < gaps.length) repl += ` ${gaps[i]} `
+        joined += s
+        if (i < gaps.length) joined += ' '.repeat(Math.max(1, Math.round(Math.abs(gaps[i]) / unit)))
       })
-      repl += '] TJ'
     } else {
-      repl = `<${encode(segs.join(' ').replace(/\s+/g, ' ').trim())}> Tj`
+      joined = segs.join(' ') // keep internal spaces as-is (no collapsing — they carry the layout)
     }
-    slice = slice.replace(showRe, repl)
+    slice = slice.replace(showRe, `<${encode(joined)}> Tj`)
   }
   const colorOp = `${rgb.map((c) => Math.round(c * 1000) / 1000).join(' ')} rg`
   const colorRe = /(?:-?[0-9.]+\s+){3}rg\b|(?:-?[0-9.]+\s+){4}k\b|(?:^|\s)-?[0-9.]+\s+g(?=\s)/
@@ -726,12 +727,20 @@ self.onmessage = (e) => {
       if (!range) throw new Error('edit target block not found')
       const [s, e] = range
       const tfScale = params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1
+      let spaceUnits = 250
+      try {
+        const w = rec.font.advanceGlyph(rec.font.encodeCharacter(32), 0)
+        if (w > 0) spaceUnits = w * 1000
+      } catch (_) {
+        // font without a space glyph — keep the 0.25em default
+      }
       const edited = editBlockText(cs.slice(s, e), {
         fontName: rec.name,
         tfScale,
         rgb: hexToRgb(params.color),
         text: params.text || '',
         encode: (str) => encodeGlyphs(rec.font, str),
+        spaceUnits,
       })
       cs = cs.slice(0, s) + edited + cs.slice(e)
       const outBytes = new Uint8Array(cs.length)

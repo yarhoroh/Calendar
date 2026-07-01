@@ -37,7 +37,7 @@ export const translations = {
       zoomIn: 'Zoom in (Ctrl+wheel)', zoomOut: 'Zoom out (Ctrl+wheel)', loading: 'Loading…', error: 'Error',
       page: 'Page', pages: 'pages', hintEdit: 'Click text or a shape to select; double-click text to edit',
       hintText: 'Click where to type', hintShape: 'Click where to add a box', hintIdle: 'Click text to select; double-click to edit',
-      panel: { title: 'Text parameters', selectHint: 'Click a text piece to inspect its parameters', docFonts: 'Document fonts', docColors: 'Document colors', embeddedFonts: 'Embedded', systemFonts: 'System', showBoxes: 'Show bounding boxes', apply: 'Apply', applying: 'Applying…', textPlaceholder: 'Text…' },
+      panel: { title: 'Text parameters', selectHint: 'Click a text piece to inspect its parameters', docFonts: 'Document fonts', docColors: 'Document colors', embeddedFonts: 'Embedded', systemFonts: 'System', showBoxes: 'Show bounding boxes', apply: 'Apply', applying: 'Applying…', textPlaceholder: 'Text…', column: 'Column' },
       param: {
         font: 'Font', size: 'Font size', color: 'Text color', bold: 'Bold', italic: 'Italic',
         underline: 'Underline', superscript: 'Superscript', subscript: 'Subscript',
@@ -317,7 +317,7 @@ export const translations = {
       zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', loading: 'Завантаження…', error: 'Помилка',
       page: 'Сторінка', pages: 'стор.', hintEdit: 'Клікни по тексту або фігурі, щоб виділити; подвійний клік — редагувати',
       hintText: 'Клікни, де вписати текст', hintShape: 'Клікни, куди вставити рамку', hintIdle: 'Клікни по тексту, щоб виділити; подвійний клік — редагувати',
-      panel: { title: 'Параметри тексту', selectHint: 'Клікни по шматку тексту, щоб побачити його параметри', docFonts: 'Шрифти документа', docColors: 'Кольори документа', embeddedFonts: 'Вбудовані', systemFonts: 'Системні', showBoxes: 'Показувати рамки', apply: 'Застосувати', applying: 'Застосування…', textPlaceholder: 'Текст…' },
+      panel: { title: 'Параметри тексту', selectHint: 'Клікни по шматку тексту, щоб побачити його параметри', docFonts: 'Шрифти документа', docColors: 'Кольори документа', embeddedFonts: 'Вбудовані', systemFonts: 'Системні', showBoxes: 'Показувати рамки', apply: 'Застосувати', applying: 'Застосування…', textPlaceholder: 'Текст…', column: 'Колонка' },
       param: {
         font: 'Шрифт', size: 'Розмір шрифту', color: 'Колір тексту', bold: 'Жирний', italic: 'Курсив',
         underline: 'Підкреслення', superscript: 'Верхній індекс', subscript: 'Нижній індекс',

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
 import ContextMenu from '../components/ContextMenu'
 import PdfEditorTab from '../components/pdf/PdfEditorTab'
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from '../components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, PdfIcon } from '../components/icons'
 import { useI18n } from '../i18n/I18nContext'
 import './PdfView.css'
 
@@ -18,11 +18,6 @@ const FolderGlyph = ({ link }) => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     {link && <path d="M10 13a2 2 0 0 0 2 2h1M14 13a2 2 0 0 0-2-2h-1" />}
-  </svg>
-)
-const PdfGlyph = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" />
   </svg>
 )
 
@@ -296,17 +291,37 @@ export default function PdfView() {
     }
     return false
   }
+  // Scroll ONLY the tree body — never ancestor scrollers (which made the whole panel jump to the
+  // top) — so the selected row centres in view. Keeps correcting for a few frames while the branch
+  // finishes rendering, since folder scans land asynchronously and grow the tree above the row.
+  const scrollSelectedIntoView = () => {
+    let frames = 0
+    const step = () => {
+      const box = treeBodyRef.current
+      const row = box?.querySelector('.pdf-row.is-selected')
+      if (box && row) {
+        const br = box.getBoundingClientRect()
+        const rr = row.getBoundingClientRect()
+        if (rr.top < br.top || rr.bottom > br.bottom) box.scrollTop += rr.top - br.top - (box.clientHeight - rr.height) / 2 // only when clipped
+      }
+      if (frames++ < 12) requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }
   const revealInTree = async (targetPath) => {
     if (!targetPath) return
     const keys = []
     if (!(await walkVirtual(tree.roots, targetPath, keys))) return // not in the tree (e.g. since unlinked)
     setActivePath(targetPath)
     setExpanded((e) => new Set([...e, ...keys]))
-    // the branch needs a couple of frames to render once scans land, then scroll the row into view
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => treeBodyRef.current?.querySelector('.pdf-row.is-selected')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
-    )
+    scrollSelectedIntoView()
   }
+
+  // activating a tab reveals its PDF in the tree: expand the branches on its path and scroll to it
+  useEffect(() => {
+    if (activePath) revealInTree(activePath)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePath])
 
   // ---- tab strip: scroll arrows when it overflows + Ctrl-drag to reorder ----
   const updateScroll = () => {
@@ -475,7 +490,7 @@ export default function PdfView() {
           }}
         >
           <span className="pdf-row__caret">{folder ? <Caret open={open} /> : null}</span>
-          <span className="pdf-row__icon">{folder ? <FolderGlyph link={node.type === 'linkFolder'} /> : <PdfGlyph />}</span>
+          <span className="pdf-row__icon">{folder ? <FolderGlyph link={node.type === 'linkFolder'} /> : <PdfIcon />}</span>
           {node.id && editing?.id === node.id ? (
             <input
               className="pdf-row__edit"
@@ -583,7 +598,7 @@ export default function PdfView() {
       <main className="pdf__center">
         {tabs.length === 0 ? (
           <div className="pdf__placeholder">
-            <PdfGlyph />
+            <PdfIcon />
             <div className="pdf__placeholder-title">{t('pdf.placeholderTitle')}</div>
             <div className="pdf__placeholder-sub">{t('pdf.placeholderSub')}</div>
           </div>

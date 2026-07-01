@@ -1,4 +1,4 @@
-// Thin promise wrapper around the v2 MuPDF worker. One instance per open document/tab.
+// Thin promise wrapper around the MuPDF viewer worker. One instance per open document/tab.
 export function createPdfEngine() {
   const worker = new Worker(new URL('./pdfViewer.worker.js', import.meta.url), { type: 'module' })
   let seq = 0
@@ -32,16 +32,8 @@ export function createPdfEngine() {
 
   return {
     open: (data) => { lastOpen = data; return call('open', { data }) },
-    renderPage: (pageIndex, scale) => call('renderPage', { pageIndex, scale }),
-    getObjects: (pageIndex) => call('getObjects', { pageIndex }), // → { objects:[{id,type,x,y,width,height,addr,text,size,color}], pageHeight }
-    moveStart: (pageIndex) => call('moveStart', { pageIndex }),
-    moveApply: (pageIndex, items, scale) => call('moveApply', { pageIndex, items, scale }), // items:[{addr,dx,dy}]
-    moveEnd: () => call('moveEnd', {}),
-    editText: (pageIndex, spec, scale) => call('editText', { pageIndex, scale, ...spec }, spec.fontBytes ? [spec.fontBytes] : []),
-    deleteObject: (pageIndex, rect, kind, scale) => call('deleteObject', { pageIndex, rect, kind, scale }),
-    getFonts: () => call('getFonts', {}),
-    save: () => call('save', {}),
-    undo: () => call('undo', {}),
+    parsePage: (pageIndex) => call('parsePage', { pageIndex }), // → { width, height, gfx, runs } — vector SVG + text model (source of truth)
+    getFonts: () => call('getFonts', {}), // → { fonts:[{ family, bytes }] } — embedded TrueType
     dispose: () => { pending.clear(); worker.terminate() },
   }
 }

@@ -1,94 +1,47 @@
-// Thin promise wrapper around the MuPDF viewer worker. One instance per open document/tab.
+// Thin promise wrapper around the v2 MuPDF worker. One instance per open document/tab.
 export function createPdfEngine() {
   const worker = new Worker(new URL('./pdfViewer.worker.js', import.meta.url), { type: 'module' })
   let seq = 0
   let ready = false
-  const queue = [] // commands posted before the worker (WASM) finished loading
+  const queue = []
   const pending = new Map()
 
   worker.onmessage = (e) => {
-    if (e.data && e.data.ready) {
-      ready = true
-      for (const [m, transfer] of queue) worker.postMessage(m, transfer || [])
-      queue.length = 0
-      return
-    }
-    if (e.data && e.data.log) {
-      console.log('[pdf worker]', e.data.log)
-      return
-    }
+    if (e.data && e.data.ready) { ready = true; for (const [m, tr] of queue) worker.postMessage(m, tr || []); queue.length = 0; return }
+    if (e.data && e.data.log) { console.log('[pdf worker]', e.data.log); return }
     const { id, result, error } = e.data
     const p = pending.get(id)
     if (!p) return
     pending.delete(id)
-    if (error) p.reject(new Error(error))
-    else p.resolve(result)
+    error ? p.reject(new Error(error)) : p.resolve(result)
   }
-
-  // surface a dead/failed worker instead of hanging on a forever-pending promise
-  const failAll = (msg) => {
-    console.error('[pdf engine]', msg)
-    for (const p of pending.values()) p.reject(new Error(msg))
-    pending.clear()
-  }
-  worker.onerror = (e) => failAll('worker error: ' + (e.message || 'failed to load') + (e.filename ? ` @ ${e.filename}:${e.lineno}` : ''))
+  const failAll = (msg) => { console.error('[pdf engine]', msg); for (const p of pending.values()) p.reject(new Error(msg)); pending.clear() }
+  worker.onerror = (e) => failAll('worker error: ' + (e.message || 'failed to load'))
   worker.onmessageerror = () => failAll('worker message error')
 
-  const rawCall = (type, params, transfer = []) =>
-    new Promise((resolve, reject) => {
-      const id = ++seq
-      pending.set(id, { resolve, reject })
-      const msg = { id, type, params }
-      if (ready) worker.postMessage(msg, transfer)
-      else queue.push([msg, transfer]) // sent once the worker reports ready
-    })
-
-  // The worker can silently lose its document (dev HMR recreates the worker between edits). If any
-  // call fails with "no document open", transparently re-open the last-loaded bytes and retry once, so
-  // move/edit/etc. keep working without a manual reload. Concurrent failures share one re-open.
+  // remembered bytes so a worker that dropped its doc (dev HMR) can be silently re-opened
   let lastOpen = null
   let reopening = null
-  const call = async (type, params, transfer = []) => {
-    try {
-      return await rawCall(type, params, transfer)
-    } catch (e) {
-      if (type !== 'open' && lastOpen && /no document open/i.test(e?.message || '')) {
-        if (!reopening) reopening = rawCall('open', { data: lastOpen }).finally(() => { reopening = null })
-        await reopening
-        return await rawCall(type, params, transfer)
-      }
+  const raw = (type, params, tr = []) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); const msg = { id, type, params }; ready ? worker.postMessage(msg, tr) : queue.push([msg, tr]) })
+  const call = async (type, params, tr = []) => {
+    try { return await raw(type, params, tr) } catch (e) {
+      if (type !== 'open' && lastOpen && /no document open/i.test(e?.message || '')) { if (!reopening) reopening = raw('open', { data: lastOpen }).finally(() => { reopening = null }); await reopening; return raw(type, params, tr) }
       throw e
     }
   }
 
   return {
-    open: (data) => {
-      lastOpen = data // remembered so we can silently recover from a worker that dropped the doc
-      return call('open', { data })
-    }, // data: ArrayBuffer | Uint8Array → { pageCount }
-    renderPage: (pageIndex, scale) => call('renderPage', { pageIndex, scale }), // → { png, width, height }
-    // → { blocks: [{x,y,width,height, lines:[{…, runs:[{text,bbox,fontName,size,color,bold,italic}]}]}],
-    //     images: [rect], vectors: [{…rect, stroked, rectangle}], fonts: [{…}], colors: [hex] }
-    getModel: (pageIndex) => call('getModel', { pageIndex }),
-    getFonts: () => call('getFonts', {}), // embedded TrueType fonts → { fonts: [{ name, bytes }] }
-    redact: (pageIndex, rects, scale) => call('redact', { pageIndex, rects, scale }), // delete objects → { png, width, height }
-    // real-time move: start (snapshot + baseline) → apply(full delta, latest-wins) → end
+    open: (data) => { lastOpen = data; return call('open', { data }) },
+    renderPage: (pageIndex, scale) => call('renderPage', { pageIndex, scale }),
+    getObjects: (pageIndex) => call('getObjects', { pageIndex }), // → { objects:[{id,type,x,y,width,height,addr,text,size,color}], pageHeight }
     moveStart: (pageIndex) => call('moveStart', { pageIndex }),
-    moveApply: (pageIndex, items, scale) => call('moveApply', { pageIndex, items, scale }), // items: [{z,dx,dy}] full delta
+    moveApply: (pageIndex, items, scale) => call('moveApply', { pageIndex, items, scale }), // items:[{addr,dx,dy}]
     moveEnd: () => call('moveEnd', {}),
-    // rewrite a text object's content/font/size/colour in place → { png, width, height }
-    // spec: { addr:{stream,shows}, text, fontBytes, fontKey, size, origSize, color }
     editText: (pageIndex, spec, scale) => call('editText', { pageIndex, scale, ...spec }, spec.fontBytes ? [spec.fontBytes] : []),
-    // inline editor (addressed by addr = { stream, shows, blocks } — page or a form XObject)
-    editBegin: (pageIndex, addr, scale) => call('editBegin', { pageIndex, addr, scale }),
-    editCancel: (scale) => call('editCancel', { scale }),
-    editCommit: (pageIndex, addr, runs, scale) =>
-      call('editCommit', { pageIndex, addr, runs, scale }, runs.map((r) => r.fontBytes).filter(Boolean)),
-    save: () => call('save', {}), // serialise the edited working copy → { bytes: ArrayBuffer }
-    undo: () => call('undo', {}), // restore the previous working-copy snapshot → { undone, left }
-    dispose: () => {
-      pending.clear()
-      worker.terminate()
-    },
+    deleteObject: (pageIndex, rect, kind, scale) => call('deleteObject', { pageIndex, rect, kind, scale }),
+    getFonts: () => call('getFonts', {}),
+    save: () => call('save', {}),
+    undo: () => call('undo', {}),
+    dispose: () => { pending.clear(); worker.terminate() },
   }
 }

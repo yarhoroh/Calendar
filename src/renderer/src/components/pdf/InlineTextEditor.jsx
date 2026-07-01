@@ -103,8 +103,17 @@ export default function InlineTextEditor({ obj, scale, fontList = [], embeddedFa
   }
 
   const box = useMemo(() => {
-    const y0 = Math.min(...obj.lines.map((l) => l.y))
-    return { left: obj.x * scale, top: y0 * scale, minWidth: obj.width * scale, fontSize: seed.size * scale }
+    // anchor the box so the first line's TEXT baseline lands on the PDF baseline (≈ ascent above it),
+    // not the glyph-box top — this stops the editor text from sitting lower/higher than the original
+    const baseline = obj.lines?.[0]?.baseline ?? Math.min(...obj.lines.map((l) => l.y))
+    const fontPx = seed.size * scale
+    return {
+      left: obj.x * scale,
+      top: baseline * scale - fontPx * 0.8, // 0.8 ≈ typical ascent ratio
+      minWidth: obj.width * scale,
+      fontSize: fontPx,
+      letterSpacing: (obj.pdf?.tc || 0) * scale, // Tc → CSS letter-spacing
+    }
   }, [obj, scale, seed.size])
 
   const btn = (label, patch, key) => (
@@ -182,7 +191,7 @@ export default function InlineTextEditor({ obj, scale, fontList = [], embeddedFa
         contentEditable
         suppressContentEditableWarning
         spellCheck={false}
-        style={{ minWidth: box.minWidth, lineHeight: box.fontSize + 'px' }}
+        style={{ minWidth: box.minWidth, lineHeight: box.fontSize + 'px', letterSpacing: box.letterSpacing + 'px' }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel()
           e.stopPropagation()

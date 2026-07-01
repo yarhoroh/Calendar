@@ -189,21 +189,38 @@ function textShowPositions(masked) {
   let tm = [1, 0, 0, 1, 0, 0]
   let tlm = [1, 0, 0, 1, 0, 0]
   let leading = 0
+  // text state carried between shows: font resource + size (Tf), Tc, Tw, Tz(%), Ts
+  let fontRes = null
+  let fontSize = 0
+  let tc = 0
+  let tw = 0
+  let tz = 100
+  let ts = 0
+  let pendingFont = null // the /Name token seen right before a numeric Tf operand
   const num = []
   const out = []
   const N = (k) => num.slice(-k).map(Number)
   for (const t of toks) {
     if (/^-?[0-9.]+$/.test(t)) { num.push(t); continue }
+    if (t[0] === '/') { pendingFont = t.slice(1); num.length = 0; continue }
     if (t === 'q') stack.push(ctm.slice())
     else if (t === 'Q') { if (stack.length) ctm = stack.pop() }
     else if (t === 'cm') { const m = N(6); if (m.length === 6) ctm = matMul(m, ctm) }
     else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
     else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
     else if (t === 'TL') { const l = N(1); if (l.length) leading = l[0] }
+    else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0]; fontRes = pendingFont }
+    else if (t === 'Tc') { const v = N(1); if (v.length) tc = v[0] }
+    else if (t === 'Tw') { const v = N(1); if (v.length) tw = v[0] }
+    else if (t === 'Tz') { const v = N(1); if (v.length) tz = v[0] }
+    else if (t === 'Ts') { const v = N(1); if (v.length) ts = v[0] }
     else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
     else if (t === 'TD') { const [x, y] = N(2); leading = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
     else if (t === 'T*') { tlm = matMul([1, 0, 0, 1, 0, -leading], tlm); tm = tlm.slice() }
-    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') { const trm = matMul(tm, ctm); out.push([trm[4], trm[5]]) }
+    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
+      const trm = matMul(tm, ctm)
+      out.push({ x: trm[4], y: trm[5], tm: tm.slice(), ctm: ctm.slice(), fontRes, fontSize, tc, tw, tz, ts })
+    }
     num.length = 0
   }
   return out
@@ -596,18 +613,19 @@ self.onmessage = (e) => {
         // Map each text paint (textSeq) to its exact stream show-operator index (1-based, = findTextShows
         // order) by matching device origins. Robust even when paint order ≠ page-content order (XObjects).
         const z2show = {}
+        const z2state = {} // textSeq → PDF text state of its show operator (tm, tz, tc, tw, ts, fontRes…)
         try {
           const H = bounds[3] - bounds[1]
-          const showPos = textShowPositions(maskStreamOperands(readPageContent(doc.findPage(params.pageIndex)))).map(([x, y]) => [x, H - y])
+          const shows = textShowPositions(maskStreamOperands(readPageContent(doc.findPage(params.pageIndex))))
           for (const z in textOrigin) {
             const [ox, oy] = textOrigin[z]
             let best = 0
             let bd = Infinity
-            for (let k = 0; k < showPos.length; k++) {
-              const d = (showPos[k][0] - ox) ** 2 + (showPos[k][1] - oy) ** 2
+            for (let k = 0; k < shows.length; k++) {
+              const d = (shows[k].x - ox) ** 2 + (H - shows[k].y - oy) ** 2 // flip y to device space
               if (d < bd) { bd = d; best = k + 1 }
             }
-            if (best) z2show[z] = best
+            if (best) { z2show[z] = best; z2state[z] = shows[best - 1] }
           }
         } catch (_) {
           // parser failed — editing falls back to raw textSeq (fragmentZ)
@@ -739,6 +757,7 @@ self.onmessage = (e) => {
               const fragmentZ = r.zs && r.zs.length ? [...new Set(r.zs)] : r.z != null ? [r.z] : []
               const paintZs = r.paintZs && r.paintZs.length ? [...new Set(r.paintZs)] : []
               const showZs = [...new Set(fragmentZ.map((z) => z2show[z]).filter(Boolean))] // exact show-op indices
+              const st = z2state[r.z] || z2state[fragmentZ[0]] || null // PDF text state (Tz/Tc/Tw/Ts/tm…)
               textObjs.push({
                 type: 'text',
                 fk: paintZs.join(','), // same q..Q block → can't be moved in parts → one object
@@ -749,6 +768,7 @@ self.onmessage = (e) => {
                 fragmentZ,
                 showZs,
                 paintZs,
+                pdf: st && { tz: st.tz, tc: st.tc, tw: st.tw, ts: st.ts, fontRes: st.fontRes, fontSize: st.fontSize, tm: st.tm },
                 lines: [{ x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height, baseline: ln.baseline, runs: [r] }],
                 align: b.align,
                 lineSpacing: b.lineSpacing,

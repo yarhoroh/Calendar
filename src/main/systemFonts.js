@@ -200,3 +200,22 @@ export function resolveFont(pdf) {
 export function resolveFonts(pdfFonts) {
   return (pdfFonts || []).map((f) => ({ ...f, resolved: resolveFont(f) }))
 }
+
+// Locate an actual font FILE for a requested family + style (for embedding into a PDF when editing
+// text). Prefers the exact style, then any style of the family, then bundled Noto as a last resort.
+export function fontFileFor(family, { bold = false, italic = false } = {}) {
+  const fonts = listSystemFonts()
+  const inFamily = fonts.filter((f) => norm(f.family) === norm(family))
+  const noto = () => fonts.filter((f) => norm(f.family) === norm('Noto Sans'))
+  const styled = (list) =>
+    list.find((f) => !!f.bold === !!bold && !!f.italic === !!italic) || list.find((f) => !!f.bold === !!bold) || list[0]
+  const hit = styled(inFamily.length ? inFamily : noto())
+  return hit ? { family: hit.family, bold: !!hit.bold, italic: !!hit.italic, path: hit.path } : null
+}
+
+export function fontBytesFor(family, style) {
+  const hit = fontFileFor(family, style)
+  if (!hit) return null
+  const buf = readFileSync(hit.path)
+  return { family: hit.family, bold: hit.bold, italic: hit.italic, bytes: new Uint8Array(buf).buffer }
+}

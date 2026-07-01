@@ -157,6 +157,7 @@ const api = {
   fonts: {
     list: () => ipcRenderer.invoke('fonts:list'),
     resolve: (fonts) => ipcRenderer.invoke('fonts:resolve', fonts),
+    file: (family, style) => ipcRenderer.invoke('fonts:file', { family, ...style }),
   },
   onTtsPlay: (cb) => {
     const h = (_e, p) => cb(p)

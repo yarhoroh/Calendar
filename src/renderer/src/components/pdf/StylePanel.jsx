@@ -74,9 +74,14 @@ function StyleBtn({ active, title, onClick, children }) {
 
 // FORMAT panel — editable formatting controls (dropdowns, inputs, toggles) seeded from the selected
 // run/block. Edits live in local draft state; applying them back to the PDF is the next stage.
-export default function StylePanel({ page, block, run, fontList = [], showBoxes = true, onShowBoxes }) {
+export default function StylePanel({ page, block, run, text = '', fontList = [], showBoxes = true, onShowBoxes, onApply, applying }) {
   const { t } = useI18n()
   const [draft, setDraft] = useState(null)
+  const [textDraft, setTextDraft] = useState('')
+
+  useEffect(() => {
+    setTextDraft(text)
+  }, [text])
 
   useEffect(() => {
     if (!run) {
@@ -140,6 +145,16 @@ export default function StylePanel({ page, block, run, fontList = [], showBoxes 
 
       {draft && (
         <>
+          {/* editable text content — replace the object's text (речь-эдит) */}
+          <textarea
+            className="fmt__text"
+            value={textDraft}
+            onChange={(e) => setTextDraft(e.target.value)}
+            spellCheck={false}
+            rows={2}
+            placeholder={t('pdfed.panel.textPlaceholder')}
+          />
+
           {/* font family — embedded first, then all installed; each previewed in its own face */}
           <div className="fmt__selectwrap fmt__font">
             <select className="fmt__select" value={draft.fontName} onChange={(e) => set('fontName', e.target.value)} style={{ fontFamily: draft.fontName }}>
@@ -220,6 +235,10 @@ export default function StylePanel({ page, block, run, fontList = [], showBoxes 
             <SelectField icon={<HScaleIcon />} value={draft.hScale} options={HSCALE_OPTS} suffix="%" onChange={(v) => set('hScale', v)} />
             <SelectField icon={<Tracking />} value={draft.charSpacing} options={TRACK_OPTS} onChange={(v) => set('charSpacing', v)} />
           </div>
+
+          <button type="button" className="fmt__apply" disabled={applying} onClick={() => onApply?.(draft, textDraft)}>
+            {applying ? t('pdfed.panel.applying') : t('pdfed.panel.apply')}
+          </button>
         </>
       )}
 

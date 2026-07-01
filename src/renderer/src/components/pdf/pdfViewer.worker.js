@@ -15,6 +15,8 @@ import {
 let doc = null
 let undoStack = [] // snapshots (PDF bytes) of the working copy before each edit, newest last
 let moveBaseline = null // { cs, pageIndex } — baseline stream for an in-progress real-time move
+let embeddedFonts = {} // fontKey → { font, name } — fonts embedded for text edits (reset per document)
+let fontSeq = 0 // running index for /EFn resource names
 
 // snapshot the working copy so the edit about to happen can be undone (cap at 20)
 function pushUndo() {
@@ -116,6 +118,56 @@ function blockBaseScales(masked) {
     } else num.length = 0
   }
   return scales
+}
+
+const hexToRgb = (hex) => {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '')
+  if (!m) return [0, 0, 0]
+  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255]
+}
+
+// Embed a font (once per key) as a CID/Identity-H font, register it in the page's /Resources /Font,
+// and keep the Font object around so text can be encoded to glyph ids. Returns { name, font }.
+function ensureEditFont(pageIndex, fontKey, fontBytes) {
+  let rec = embeddedFonts[fontKey]
+  if (!rec) {
+    const font = new mupdf.Font(fontKey || 'EditFont', new Uint8Array(fontBytes))
+    const ref = doc.addFont(font)
+    rec = { font, ref, name: 'EF' + fontSeq++, pages: new Set() }
+    embeddedFonts[fontKey] = rec
+  }
+  if (!rec.pages.has(pageIndex)) {
+    const pageObj = doc.findPage(pageIndex)
+    let res = pageObj.getInheritable('Resources')
+    if (!res || res.isNull()) { res = doc.newDictionary(); pageObj.put('Resources', res) }
+    let fontDict = res.get('Font')
+    if (fontDict.isNull()) { fontDict = doc.newDictionary(); res.put('Font', fontDict) }
+    fontDict.put(rec.name, rec.ref)
+    rec.pages.add(pageIndex)
+  }
+  return rec
+}
+
+// Encode a JS string to hex glyph ids for a CID/Identity-H font (2 bytes per glyph = its gid).
+function encodeGlyphs(font, text) {
+  let hex = ''
+  for (const ch of text) {
+    const gid = font.encodeCharacter(ch.codePointAt(0))
+    hex += (gid & 0xffff).toString(16).padStart(4, '0')
+  }
+  return hex
+}
+
+// Surgically rewrite ONE text q..Q block: swap the font resource + size, replace the shown string
+// with new glyphs, and set the fill colour — keeping the block's clip, cm and Tm so position/scale
+// are preserved exactly. tfScale rescales the existing Tf (new effective size ÷ old effective size).
+function editBlockText(slice, { fontName, tfScale, hex, rgb }) {
+  slice = slice.replace(/\/\S+\s+(-?[0-9.]+)\s+Tf/, (_m, sz) => `/${fontName} ${(parseFloat(sz) * tfScale).toFixed(4)} Tf`)
+  slice = slice.replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, `<${hex}> Tj`)
+  const colorOp = `${rgb.map((c) => Math.round(c * 1000) / 1000).join(' ')} rg`
+  const colorRe = /(?:-?[0-9.]+\s+){3}rg\b|(?:-?[0-9.]+\s+){4}k\b|(?:^|\s)-?[0-9.]+\s+g(?=\s)/
+  slice = colorRe.test(slice) ? slice.replace(colorRe, ' ' + colorOp) : slice.replace(/\bBT\b/, `BT ${colorOp}`)
+  return slice
 }
 
 // Parse a TrueType/OpenType `name` table to recover the real font names that BaseFont may hide
@@ -251,6 +303,7 @@ self.onmessage = (e) => {
     if (type === 'open') {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
       undoStack = [] // fresh working copy → clear history
+      embeddedFonts = {} // font refs belong to the old doc — drop them
       // Is the logical structure actually stored in the file? Tagged PDFs carry a structure tree
       // (/StructTreeRoot) + marked content (/MarkInfo /Marked). Untagged PDFs carry none — blocks
       // can only be reconstructed geometrically. Report which, so we know what we're working with.
@@ -631,11 +684,44 @@ self.onmessage = (e) => {
     } else if (type === 'moveEnd') {
       moveBaseline = null
       self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'editText') {
+      // Replace a text object's content/font/size/colour in place (discrete edit, not a drag).
+      if (!doc) throw new Error('no document open')
+      pushUndo()
+      const rec = ensureEditFont(params.pageIndex, params.fontKey, params.fontBytes)
+      const hex = encodeGlyphs(rec.font, params.text || '')
+      const pageObj = doc.findPage(params.pageIndex)
+      const contents = pageObj.get('Contents')
+      const streamObj = contents.isArray() ? contents.get(0) : contents
+      let cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      const blocks = topLevelQBlocks(maskStreamOperands(cs))
+      const range = blocks[params.paintZ - 1]
+      if (!range) throw new Error('edit target block not found')
+      const [s, e] = range
+      const tfScale = params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1
+      const edited = editBlockText(cs.slice(s, e), { fontName: rec.name, tfScale, hex, rgb: hexToRgb(params.color) })
+      cs = cs.slice(0, s) + edited + cs.slice(e)
+      const outBytes = new Uint8Array(cs.length)
+      for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
+      streamObj.writeStream(outBytes)
+      const page = doc.loadPage(params.pageIndex)
+      try {
+        const pix = page.toPixmap(mupdf.Matrix.scale(params.scale, params.scale), mupdf.ColorSpace.DeviceRGB, false)
+        const png = pix.asPNG()
+        const w = pix.getWidth()
+        const h = pix.getHeight()
+        pix.destroy()
+        const buf = new Uint8Array(png).buffer
+        self.postMessage({ id, result: { png: buf, width: w / params.scale, height: h / params.scale } }, [buf])
+      } finally {
+        page.destroy()
+      }
     } else if (type === 'undo') {
       if (undoStack.length) {
         const bytes = undoStack.pop()
         doc?.destroy?.()
         doc = mupdf.Document.openDocument(bytes, 'application/pdf')
+        embeddedFonts = {} // refs pointed into the replaced doc
         self.postMessage({ id, result: { undone: true, left: undoStack.length } })
       } else {
         self.postMessage({ id, result: { undone: false, left: 0 } })
@@ -644,6 +730,7 @@ self.onmessage = (e) => {
       doc?.destroy?.()
       doc = null
       undoStack = []
+      embeddedFonts = {}
       self.postMessage({ id, result: null })
     } else {
       throw new Error('unknown request: ' + type)

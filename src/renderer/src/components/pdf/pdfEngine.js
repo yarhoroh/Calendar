@@ -9,7 +9,7 @@ export function createPdfEngine() {
   worker.onmessage = (e) => {
     if (e.data && e.data.ready) {
       ready = true
-      for (const m of queue) worker.postMessage(m)
+      for (const [m, transfer] of queue) worker.postMessage(m, transfer || [])
       queue.length = 0
       return
     }
@@ -34,13 +34,13 @@ export function createPdfEngine() {
   worker.onerror = (e) => failAll('worker error: ' + (e.message || 'failed to load') + (e.filename ? ` @ ${e.filename}:${e.lineno}` : ''))
   worker.onmessageerror = () => failAll('worker message error')
 
-  const call = (type, params) =>
+  const call = (type, params, transfer = []) =>
     new Promise((resolve, reject) => {
       const id = ++seq
       pending.set(id, { resolve, reject })
       const msg = { id, type, params }
-      if (ready) worker.postMessage(msg)
-      else queue.push(msg) // sent once the worker reports ready
+      if (ready) worker.postMessage(msg, transfer)
+      else queue.push([msg, transfer]) // sent once the worker reports ready
     })
 
   return {
@@ -54,6 +54,9 @@ export function createPdfEngine() {
     moveStart: (pageIndex) => call('moveStart', { pageIndex }),
     moveApply: (pageIndex, items, scale) => call('moveApply', { pageIndex, items, scale }), // items: [{z,dx,dy}] full delta
     moveEnd: () => call('moveEnd', {}),
+    // rewrite a text object's content/font/size/colour in place → { png, width, height }
+    // spec: { paintZ, text, fontBytes, fontKey, size, origSize, color }
+    editText: (pageIndex, spec, scale) => call('editText', { pageIndex, scale, ...spec }, spec.fontBytes ? [spec.fontBytes] : []),
     undo: () => call('undo', {}), // restore the previous working-copy snapshot → { undone, left }
     dispose: () => {
       pending.clear()

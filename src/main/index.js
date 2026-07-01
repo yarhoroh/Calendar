@@ -15,7 +15,7 @@ import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { getGoogleFont } from './googleFonts'
-import { listSystemFonts, resolveFonts, setExtraFontDirs } from './systemFonts'
+import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -1211,6 +1211,7 @@ ipcMain.handle('fonts:list', () => {
   return [...fams.values()].sort((a, b) => a.family.localeCompare(b.family))
 })
 ipcMain.handle('fonts:resolve', (_e, fonts) => resolveFonts(fonts))
+ipcMain.handle('fonts:file', (_e, { family, bold, italic } = {}) => fontBytesFor(family, { bold, italic }))
 ipcMain.handle('fonts:google', (_e, { family, bold, italic } = {}) => getGoogleFont(family, bold, italic))
 
 // silent text notification (toast near the clock, no voice)

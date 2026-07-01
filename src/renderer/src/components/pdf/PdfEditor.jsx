@@ -30,6 +30,7 @@ export default function PdfEditor({ source }) {
   const [tagged, setTagged] = useState(null) // does the file store logical structure (tagged PDF)?
   const [fontList, setFontList] = useState([]) // installed + bundled families, for the font dropdown
   const [showBoxes, setShowBoxes] = useState(true) // toggle the overlay frames' visibility
+  const [applying, setApplying] = useState(false) // an editText round-trip is in flight
   const [rev, setRev] = useState(0) // bump to force re-render of pages + model after an edit/undo
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -274,6 +275,33 @@ export default function PdfEditor({ source }) {
     }
   }
 
+  // Apply a text edit: swap the selected object's content/font/size/colour in the working copy.
+  const handleApplyEdit = async (page, obj, style, text) => {
+    if (!engineRef.current || !obj) return
+    const paintZ = obj.paintZs?.[0]
+    if (paintZ == null) return
+    const run = obj.lines?.[0]?.runs?.[0]
+    setApplying(true)
+    try {
+      const font = await api.fonts.file(style.fontName, { bold: !!style.bold, italic: !!style.italic })
+      if (!font?.bytes) throw new Error('no font file for ' + style.fontName)
+      const fontKey = font.family + (font.bold ? '-b' : '') + (font.italic ? '-i' : '')
+      const r = await engineRef.current.editText(
+        page,
+        { paintZ, text, fontBytes: font.bytes, fontKey, size: style.size, origSize: run?.size || style.size, color: style.color },
+        scale
+      )
+      updatePageImage(page, r)
+      const m = await engineRef.current.getModel(page)
+      setModel((prev) => ({ ...prev, [page]: m }))
+      setSelected(null)
+    } catch (err) {
+      console.error('[pdf] editText failed:', err)
+    } finally {
+      setApplying(false)
+    }
+  }
+
   const onPanMouseDown = (e) => {
     const el = viewportRef.current
     if (!spaceHeld || !el) return
@@ -370,14 +398,18 @@ export default function PdfEditor({ source }) {
         {editing &&
           (() => {
             const obj = selected ? model[selected.page]?.objects.find((o) => o.id === selected.id) : null
+            const objText = obj?.lines?.map((l) => l.runs.map((r) => r.text).join('')).join('\n') || ''
             return (
               <StylePanel
                 page={selected ? model[selected.page] : null}
                 block={obj}
                 run={obj?.lines?.[0]?.runs?.[0]}
+                text={objText}
                 fontList={fontList}
                 showBoxes={showBoxes}
                 onShowBoxes={setShowBoxes}
+                applying={applying}
+                onApply={(style, text) => handleApplyEdit(selected.page, obj, style, text)}
               />
             )
           })()}

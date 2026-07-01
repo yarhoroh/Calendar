@@ -33,6 +33,7 @@ export default function PdfEditor({ source }) {
   const [showBoxes, setShowBoxes] = useState(true) // toggle the overlay frames' visibility
   const [applying, setApplying] = useState(false) // an editText round-trip is in flight
   const [inlineEdit, setInlineEdit] = useState(null) // { page, id } — object open in the inline editor
+  const [embeddedFaces, setEmbeddedFaces] = useState(null) // real font name → loaded @font-face family
   const [rev, setRev] = useState(0) // bump to force re-render of pages + model after an edit/undo
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -62,6 +63,35 @@ export default function PdfEditor({ source }) {
       .then((l) => setFontList(Array.isArray(l) ? l : []))
       .catch(() => {})
   }, [])
+
+  // load the PDF's embedded TrueType fonts as @font-face so the inline editor shows real glyphs (1:1)
+  useEffect(() => {
+    if (!editing || !pageCount || !engineRef.current) return
+    let alive = true
+    ;(async () => {
+      try {
+        const res = await engineRef.current.getFonts()
+        const map = new Map()
+        for (const f of res?.fonts || []) {
+          const family = 'PDFEmbed_' + f.name.replace(/[^a-z0-9]/gi, '_')
+          try {
+            const face = new FontFace(family, f.bytes)
+            await face.load()
+            document.fonts.add(face)
+            map.set(f.name, family)
+          } catch (_) {
+            // unsupported/broken embed — the editor falls back to the family name
+          }
+        }
+        if (alive) setEmbeddedFaces(map)
+      } catch (_) {
+        /* no embedded fonts */
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [editing, pageCount])
 
   // open the document when bytes arrive
   useEffect(() => {
@@ -457,6 +487,7 @@ export default function PdfEditor({ source }) {
                     obj={model[p.pageIndex].objects.find((o) => o.id === inlineEdit.id)}
                     scale={scale}
                     fontList={fontList}
+                    embeddedFaces={embeddedFaces}
                     onCancel={handleEditCancel}
                     onCommit={(runs) => handleEditCommit(p.pageIndex, inlineEdit.id, runs)}
                   />

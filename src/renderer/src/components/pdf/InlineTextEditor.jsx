@@ -9,10 +9,17 @@ const rgbToHex = (rgb) => {
 }
 const firstFamily = (ff) => (ff || '').split(',')[0].replace(/["']/g, '').trim()
 
-export default function InlineTextEditor({ obj, scale, fontList = [], onCancel, onCommit }) {
+export default function InlineTextEditor({ obj, scale, fontList = [], embeddedFaces, onCancel, onCommit }) {
   const ref = useRef(null)
   const seed = obj.lines?.[0]?.runs?.[0] || { size: 12, color: '#000000', fontName: 'Arial' }
   const [tool, setTool] = useState({ fontName: firstFamily(seed.fontName), size: seed.size, color: seed.color })
+  // real font name → loaded @font-face family (for 1:1 glyphs) and the reverse (to read runs back)
+  const cssFamilyFor = (name) => embeddedFaces?.get(firstFamily(name)) || firstFamily(name)
+  const realNameFor = useMemo(() => {
+    const m = new Map()
+    if (embeddedFaces) for (const [real, css] of embeddedFaces) m.set(css, real)
+    return m
+  }, [embeddedFaces])
 
   // seed the editable box with one styled span per run, once
   useEffect(() => {
@@ -23,7 +30,7 @@ export default function InlineTextEditor({ obj, scale, fontList = [], onCancel, 
       for (const r of ln.runs) {
         const span = document.createElement('span')
         span.textContent = r.text
-        span.style.fontFamily = `'${firstFamily(r.fontName)}'`
+        span.style.fontFamily = `'${cssFamilyFor(r.fontName)}'`
         span.style.fontSize = r.size * scale + 'px'
         span.style.color = r.color
         span.style.fontWeight = r.bold ? '700' : '400'
@@ -77,9 +84,11 @@ export default function InlineTextEditor({ obj, scale, fontList = [], onCancel, 
       const text = n.nodeValue
       if (!text) continue
       const cs = getComputedStyle(n.parentElement)
+      const fam = firstFamily(cs.fontFamily)
       const run = {
         text,
-        fontName: firstFamily(cs.fontFamily),
+        fontName: realNameFor.get(fam) || fam, // map @font-face family back to the PDF font name
+
         size: Math.round((parseFloat(cs.fontSize) / scale) * 100) / 100,
         color: rgbToHex(cs.color),
         bold: (parseInt(cs.fontWeight, 10) || 400) >= 600,

@@ -381,6 +381,63 @@ function extractFontResources(document) {
   return out
 }
 
+// Collect the raw bytes of every embedded TrueType font (FontFile2) keyed by its real name, so the
+// renderer can load them as @font-face and show edited text in the ORIGINAL glyphs (1:1). Only
+// FontFile2 (TrueType) loads reliably in the browser; CFF/Type1 embeds fall back to a system family.
+function collectEmbeddedFonts() {
+  const out = []
+  const seen = new Set()
+  let count = 0
+  try {
+    count = doc.countObjects()
+  } catch (_) {
+    return out
+  }
+  for (let i = 1; i < count; i++) {
+    let obj = null
+    try {
+      obj = doc.newIndirect(i).resolve()
+    } catch (_) {
+      continue
+    }
+    if (!obj || !obj.isDictionary || !obj.isDictionary()) continue
+    let typ = null
+    try {
+      typ = obj.get('Type')
+    } catch (_) {
+      continue
+    }
+    if (!typ || typ.isNull() || typ.asName() !== 'Font') continue
+    const bf = obj.get('BaseFont')
+    if (bf.isNull()) continue
+    let descr = obj.get('FontDescriptor')
+    if (descr.isNull()) {
+      const df = obj.get('DescendantFonts')
+      if (df.isArray() && df.length > 0) descr = df.get(0).resolve().get('FontDescriptor')
+    }
+    if (!descr || descr.isNull()) continue
+    const ff2 = descr.get('FontFile2')
+    if (ff2.isNull()) continue
+    let raw = null
+    try {
+      raw = ff2.readStream().asUint8Array()
+    } catch (_) {
+      continue
+    }
+    let name = stripSubset(bf.asName())
+    try {
+      const nm = parseSfntName(raw)
+      if (nm) name = nm.full || nm.family || nm.post || name
+    } catch (_) {
+      /* keep BaseFont-derived name */
+    }
+    if (seen.has(name)) continue
+    seen.add(name)
+    out.push({ name, bytes: new Uint8Array(raw).buffer }) // fresh buffer so it can be transferred
+  }
+  return out
+}
+
 // MuPDF loads via top-level await, so this module only finishes evaluating (and onmessage is
 // installed) once WASM is ready. Tell the engine — it queues commands until it sees this, instead
 // of firing them into the void while we were still loading.
@@ -849,6 +906,11 @@ self.onmessage = (e) => {
       const r = renderPageWrite(pageObj, outCs, pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'getFonts') {
+      // embedded TrueType fonts (bytes) so the renderer can @font-face them for 1:1 editing
+      if (!doc) throw new Error('no document open')
+      const fonts = collectEmbeddedFonts()
+      self.postMessage({ id, result: { fonts } }, fonts.map((f) => f.bytes))
     } else if (type === 'undo') {
       if (undoStack.length) {
         const bytes = undoStack.pop()

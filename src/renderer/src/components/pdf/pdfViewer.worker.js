@@ -18,6 +18,7 @@ let moveBaseline = null // { cs, pageIndex } — baseline stream for an in-progr
 let editBaseline = null // { cs, pageIndex } — original stream while an inline text editor is open
 let embeddedFonts = {} // fontKey → { font, name } — fonts embedded for text edits (reset per document)
 let fontSeq = 0 // running index for /EFn resource names
+let docFontCache = null // cached collectEmbeddedFonts() — the PDF's own fonts, reused when re-drawing
 
 // snapshot the working copy so the edit about to happen can be undone (cap at 20)
 function pushUndo() {
@@ -147,6 +148,18 @@ function ensureEditFont(pageIndex, fontKey, fontBytes) {
     rec.pages.add(pageIndex)
   }
   return rec
+}
+
+// The PDF's OWN embedded font bytes matching a name (normalised), so re-drawn text keeps the original
+// glyphs (1:1) instead of a system substitute. Cached; reset with the document.
+function embeddedBytesByName(name) {
+  if (!name) return null
+  if (!docFontCache) { try { docFontCache = collectEmbeddedFonts() } catch (_) { docFontCache = [] } }
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
+  const n = norm(name)
+  if (!n) return null
+  const hit = docFontCache.find((f) => { const fn = norm(f.name); return fn === n || fn.includes(n) || n.includes(fn) })
+  return hit ? hit.bytes : null
 }
 
 // Encode a JS string to hex glyph ids for a CID/Identity-H font (2 bytes per glyph = its gid).
@@ -498,6 +511,7 @@ self.onmessage = (e) => {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
       undoStack = [] // fresh working copy → clear history
       embeddedFonts = {} // font refs belong to the old doc — drop them
+      docFontCache = null
       editBaseline = null
       // Is the logical structure actually stored in the file? Tagged PDFs carry a structure tree
       // (/StructTreeRoot) + marked content (/MarkInfo /Marked). Untagged PDFs carry none — blocks
@@ -966,7 +980,9 @@ self.onmessage = (e) => {
       const orig = tfBefore(cs0, shows[primary - 1][0]) // font/size to scale from and restore afterwards
       const parts = []
       for (const run of params.runs || []) {
-        const rec = ensureEditFont(pageIndex, run.fontKey, run.fontBytes)
+        // unchanged font → re-embed the PDF's OWN font (1:1 glyphs); changed → the system substitute
+        const emb = embeddedBytesByName(run.fontName)
+        const rec = emb ? ensureEditFont(pageIndex, 'emb:' + run.fontName, emb) : ensureEditFont(pageIndex, run.fontKey, run.fontBytes)
         const tf = orig.size * (run.origSize > 0 && run.size > 0 ? run.size / run.origSize : 1)
         const rgb = hexToRgb(run.color).map((c) => Math.round(c * 1000) / 1000)
         parts.push(`${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, run.text)}> Tj`)
@@ -993,6 +1009,7 @@ self.onmessage = (e) => {
         doc?.destroy?.()
         doc = mupdf.Document.openDocument(bytes, 'application/pdf')
         embeddedFonts = {} // refs pointed into the replaced doc
+      docFontCache = null
         editBaseline = null
         self.postMessage({ id, result: { undone: true, left: undoStack.length } })
       } else {
@@ -1003,6 +1020,7 @@ self.onmessage = (e) => {
       doc = null
       undoStack = []
       embeddedFonts = {}
+      docFontCache = null
       editBaseline = null
       self.postMessage({ id, result: null })
     } else {

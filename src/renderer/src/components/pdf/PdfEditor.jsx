@@ -379,7 +379,7 @@ export default function PdfEditor({ source }) {
         const fontKey = font.family + (font.bold ? '-b' : '') + (font.italic ? '-i' : '')
         const first = !seenKey.has(fontKey)
         seenKey.add(fontKey)
-        packed.push({ text: r.text, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
+        packed.push({ text: r.text, fontName: r.fontName, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
       }
       const rr = await engineRef.current.editCommit(page, textZs, packed, scale)
       updatePageImage(page, rr)

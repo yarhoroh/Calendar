@@ -313,6 +313,21 @@
   margin-top: 4px;
 }
 
+/* save button in the toolbar */
+.pdfed__btn--save {
+  width: auto;
+  padding: 0 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #3b5bfd;
+}
+.pdfed__btn--save:hover {
+  background: #2f4be0;
+}
+.pdfed__btn--save:disabled {
+  background: #b9c0d6;
+}
+
 /* inline WYSIWYG text editor drawn over the object (original glyphs hidden by the worker) */
 .pdfed__inline {
   position: absolute;

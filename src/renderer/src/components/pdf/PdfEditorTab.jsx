@@ -24,5 +24,5 @@ export default function PdfEditorTab({ path }) {
 
   if (error) return <div className="pdf-editor__msg">{error}</div>
   if (!data) return <div className="pdf-editor__msg">…</div>
-  return <PdfEditor source={data} />
+  return <PdfEditor source={data} path={path} />
 }

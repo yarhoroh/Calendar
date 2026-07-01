@@ -1172,6 +1172,11 @@ self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       const fonts = collectEmbeddedFonts()
       self.postMessage({ id, result: { fonts } }, fonts.map((f) => f.bytes))
+    } else if (type === 'save') {
+      // serialise the working copy (all edits applied) to a PDF byte buffer
+      if (!doc) throw new Error('no document open')
+      const bytes = new Uint8Array(doc.saveToBuffer().asUint8Array())
+      self.postMessage({ id, result: { bytes: bytes.buffer } }, [bytes.buffer])
     } else if (type === 'undo') {
       if (undoStack.length) {
         const bytes = undoStack.pop()

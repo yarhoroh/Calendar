@@ -84,6 +84,7 @@ export function createPdfEngine() {
     editCancel: (scale) => call('editCancel', { scale }),
     editCommit: (pageIndex, addr, runs, scale) =>
       call('editCommit', { pageIndex, addr, runs, scale }, runs.map((r) => r.fontBytes).filter(Boolean)),
+    save: () => call('save', {}), // serialise the edited working copy → { bytes: ArrayBuffer }
     undo: () => call('undo', {}), // restore the previous working-copy snapshot → { undone, left }
     dispose: () => {
       pending.clear()

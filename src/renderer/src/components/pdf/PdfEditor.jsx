@@ -30,7 +30,7 @@ const runsOf = () => [] // text pieces are now objects themselves — no separat
 
 // PDF viewer — open a document and render its pages. Editing features get rebuilt on top of this
 // one at a time. Ctrl+wheel zooms; pages re-render crisply at the new scale.
-export default function PdfEditor({ source }) {
+export default function PdfEditor({ source, path }) {
   const { t } = useI18n()
   const [pages, setPages] = useState([])
   const [pageCount, setPageCount] = useState(0)
@@ -406,6 +406,23 @@ export default function PdfEditor({ source }) {
     }
   }
 
+  // Save the edited working copy next to the original as "<name> (edited).pdf".
+  const [saving, setSaving] = useState(false)
+  const handleSave = async () => {
+    if (!engineRef.current || !path) return
+    setSaving(true)
+    try {
+      const r = await engineRef.current.save()
+      const out = String(path).replace(/\.pdf$/i, '') + ' (edited).pdf'
+      await api.pdf.write(out, new Uint8Array(r.bytes))
+      api.pdf.reveal?.(out)
+    } catch (err) {
+      console.error('[pdf] save failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const onPanMouseDown = (e) => {
     const el = viewportRef.current
     if (!spaceHeld || !el) return
@@ -455,6 +472,11 @@ export default function PdfEditor({ source }) {
         >
           <ComposeIcon />
         </button>
+        {editing && (
+          <button className="pdfed__btn pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title={t('pdfed.save')}>
+            {saving ? '…' : t('pdfed.save')}
+          </button>
+        )}
         <span className="pdfed__spacer" />
         <span className="pdfed__status">{statusText}</span>
       </div>
@@ -477,7 +499,7 @@ export default function PdfEditor({ source }) {
                   alt={`${t('pdfed.page')} ${p.pageIndex + 1}`}
                   draggable={false}
                 />
-                {editing && model[p.pageIndex] && !(inlineEdit && inlineEdit.page === p.pageIndex) && (
+                {editing && model[p.pageIndex] && (
                   <SelectLayer
                     objects={objectsOf(model[p.pageIndex])}
                     runs={runsOf(model[p.pageIndex])}
@@ -485,24 +507,13 @@ export default function PdfEditor({ source }) {
                     spaceHeld={spaceHeld}
                     showBoxes={showBoxes}
                     onSelection={(keys) => {
-                      // one text object selected → show its style in the FORMAT panel
+                      // one text object selected → edit it in the FORMAT side panel (no HTML overlay)
                       setSelected(keys.length === 1 && keys[0][0] === 't' ? { page: p.pageIndex, id: keys[0] } : null)
                     }}
                     onCommit={(c) => handleCommit(p.pageIndex, c)}
                     onMoveStart={() => engineRef.current?.moveStart(p.pageIndex)}
                     onMoveApply={(items) => handleMoveApply(p.pageIndex, items)}
                     onMoveEnd={(deltas) => handleMoveEnd(p.pageIndex, deltas)}
-                    onEditObject={(key) => handleEditBegin(p.pageIndex, key)}
-                  />
-                )}
-                {inlineEdit && inlineEdit.page === p.pageIndex && model[p.pageIndex] && (
-                  <InlineTextEditor
-                    obj={model[p.pageIndex].objects.find((o) => o.id === inlineEdit.id)}
-                    scale={scale}
-                    fontList={fontList}
-                    embeddedFaces={embeddedFaces}
-                    onCancel={handleEditCancel}
-                    onCommit={(runs) => handleEditCommit(p.pageIndex, inlineEdit.id, runs)}
                   />
                 )}
               </div>

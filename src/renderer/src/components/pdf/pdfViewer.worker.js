@@ -178,6 +178,37 @@ function findTextShows(masked) {
   while ((m = re.exec(masked))) out.push([m.index, m.index + m[0].length])
   return out
 }
+// Device origin (x, y) of each text-show operator, IN STREAM ORDER (same order as findTextShows), by
+// interpreting the content: CTM (cm + q/Q stack) and the text matrix (Tm/Td/TD/T*). Output is in the
+// content's own space; the caller flips Y by page height to match MuPDF's y-down device space. This
+// lets us map a model run (known device origin) to its exact show operator, robust to form XObjects.
+function textShowPositions(masked) {
+  const toks = masked.split(/\s+/)
+  let ctm = [1, 0, 0, 1, 0, 0]
+  const stack = []
+  let tm = [1, 0, 0, 1, 0, 0]
+  let tlm = [1, 0, 0, 1, 0, 0]
+  let leading = 0
+  const num = []
+  const out = []
+  const N = (k) => num.slice(-k).map(Number)
+  for (const t of toks) {
+    if (/^-?[0-9.]+$/.test(t)) { num.push(t); continue }
+    if (t === 'q') stack.push(ctm.slice())
+    else if (t === 'Q') { if (stack.length) ctm = stack.pop() }
+    else if (t === 'cm') { const m = N(6); if (m.length === 6) ctm = matMul(m, ctm) }
+    else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
+    else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
+    else if (t === 'TL') { const l = N(1); if (l.length) leading = l[0] }
+    else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+    else if (t === 'TD') { const [x, y] = N(2); leading = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+    else if (t === 'T*') { tlm = matMul([1, 0, 0, 1, 0, -leading], tlm); tm = tlm.slice() }
+    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') { const trm = matMul(tm, ctm); out.push([trm[4], trm[5]]) }
+    num.length = 0
+  }
+  return out
+}
+
 // Font resource + size in effect just before an offset (the last `/name size Tf` above it).
 function tfBefore(cs, at) {
   const tfs = [...cs.slice(0, at).matchAll(/\/(\S+)\s+(-?[0-9.]+)\s+Tf/g)]
@@ -506,6 +537,7 @@ self.onmessage = (e) => {
         const metricsMap = new Map()
         const vecZ = []
         const imgZ = []
+        const textOrigin = {} // textSeq → [x, y] device origin of the first glyph (to locate its show op)
         let seq = 0 // paint order (all ops) — for vector/image stacking
         let textSeq = 0 // TEXT-only order — matches Tm order in the stream, so move targets the right fragment
         const concat = (A, B) => [
@@ -530,9 +562,11 @@ self.onmessage = (e) => {
             fillText(text, ctm) {
               const paintZ = ++seq // q..Q block index (paint order, all ops) — move wraps this block
               const z = ++textSeq // text-only → Tm order
+              let first = true
               text.walk({
                 showGlyph(font, trm) {
                   const m = concat(trm, ctm)
+                  if (first) { first = false; textOrigin[z] = [m[4], m[5]] } // for show-op matching
                   const vert = Math.hypot(m[2], m[3])
                   const horiz = Math.hypot(m[0], m[1])
                   metricsMap.set(Math.round(m[4]) + ',' + Math.round(m[5]), { size: vert, hScale: vert > 0 ? horiz / vert : 1, z, paintZ })
@@ -558,6 +592,25 @@ self.onmessage = (e) => {
           // Device unavailable — sizes fall back to stext, z stays undefined
         } finally {
           dev?.close?.()
+        }
+        // Map each text paint (textSeq) to its exact stream show-operator index (1-based, = findTextShows
+        // order) by matching device origins. Robust even when paint order ≠ page-content order (XObjects).
+        const z2show = {}
+        try {
+          const H = bounds[3] - bounds[1]
+          const showPos = textShowPositions(maskStreamOperands(readPageContent(doc.findPage(params.pageIndex)))).map(([x, y]) => [x, H - y])
+          for (const z in textOrigin) {
+            const [ox, oy] = textOrigin[z]
+            let best = 0
+            let bd = Infinity
+            for (let k = 0; k < showPos.length; k++) {
+              const d = (showPos[k][0] - ox) ** 2 + (showPos[k][1] - oy) ** 2
+              if (d < bd) { bd = d; best = k + 1 }
+            }
+            if (best) z2show[z] = best
+          }
+        } catch (_) {
+          // parser failed — editing falls back to raw textSeq (fragmentZ)
         }
         const exactAt = (ox, oy) => metricsMap.get(Math.round(ox) + ',' + Math.round(oy))
         // nearest paint-order z for a rect, by centre distance
@@ -685,6 +738,7 @@ self.onmessage = (e) => {
               if (!r.text.trim()) continue
               const fragmentZ = r.zs && r.zs.length ? [...new Set(r.zs)] : r.z != null ? [r.z] : []
               const paintZs = r.paintZs && r.paintZs.length ? [...new Set(r.paintZs)] : []
+              const showZs = [...new Set(fragmentZ.map((z) => z2show[z]).filter(Boolean))] // exact show-op indices
               textObjs.push({
                 type: 'text',
                 fk: paintZs.join(','), // same q..Q block → can't be moved in parts → one object
@@ -693,6 +747,7 @@ self.onmessage = (e) => {
                 width: r.bbox.width,
                 height: r.bbox.height,
                 fragmentZ,
+                showZs,
                 paintZs,
                 lines: [{ x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height, baseline: ln.baseline, runs: [r] }],
                 align: b.align,
@@ -716,6 +771,7 @@ self.onmessage = (e) => {
             m.width = x1 - m.x
             m.height = y1 - m.y
             m.lines.push(...o.lines)
+            m.showZs = [...new Set([...(m.showZs || []), ...(o.showZs || [])])]
           } else {
             if (o.fk) byFk.set(o.fk, o)
             objects.push(o)

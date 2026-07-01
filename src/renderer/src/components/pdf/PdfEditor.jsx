@@ -310,7 +310,7 @@ export default function PdfEditor({ source }) {
   // Apply a text edit: swap the selected object's content/font/size/colour in the working copy.
   const handleApplyEdit = async (page, obj, style, text) => {
     if (!engineRef.current || !obj) return
-    const textZ = obj.fragmentZ?.[0]
+    const textZ = obj.showZs?.[0]
     if (textZ == null) return
     const run = obj.lines?.[0]?.runs?.[0]
     setApplying(true)
@@ -337,7 +337,7 @@ export default function PdfEditor({ source }) {
   // Inline WYSIWYG editor: hide the block's glyphs, open the HTML editor in its place.
   const handleEditBegin = async (page, id) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZs = obj?.fragmentZ
+    const textZs = obj?.showZs
     if (!engineRef.current || !textZs?.length) return
     try {
       const r = await engineRef.current.editBegin(page, textZs, scale)
@@ -361,7 +361,7 @@ export default function PdfEditor({ source }) {
   }
   const handleEditCommit = async (page, id, runs) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZs = obj?.fragmentZ
+    const textZs = obj?.showZs
     if (!engineRef.current || !textZs?.length || !runs.length) return handleEditCancel()
     const origSize = obj?.lines?.[0]?.runs?.[0]?.size || runs[0].size
     setApplying(true)

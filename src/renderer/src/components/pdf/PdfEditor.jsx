@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ZoomInIcon, ZoomOutIcon, ComposeIcon } from '../icons'
 import api from '../../lib/api'
 import { createPdfEngine } from './pdfEngine'
+import './PdfEditor.css'
 
 // PDF editor v2 — object-tree model. Open → render pages → (edit mode) MuPDF gives an object tree
 // per page (text/path/image, each with a byte-range address). Select frames, drag to move (worker
@@ -159,52 +160,65 @@ export default function PdfEditor({ source, path }) {
   }
 
   const px = (v) => v * scale
+  const cls = { text: 'text', path: 'vector', image: 'image' } // map object type → CSS frame modifier
   return (
-    <div className="pdfed" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div className="pdfed__toolbar" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #ddd' }}>
-        <button onClick={() => setScale((s) => Math.max(0.3, s / 1.15))}><ZoomOutIcon /></button>
-        <span>{Math.round(scale * 100)}%</span>
-        <button onClick={() => setScale((s) => Math.min(8, s * 1.15))}><ZoomInIcon /></button>
-        <span style={{ width: 8 }} />
-        <button onClick={() => setEditing((v) => !v)} style={{ fontWeight: editing ? 700 : 400 }}><ComposeIcon /> Edit</button>
-        {editing && <button onClick={handleSave} disabled={saving || !path} style={{ background: '#3b5bfd', color: '#fff', padding: '4px 12px', borderRadius: 4 }}>{saving ? '…' : 'Save'}</button>}
-        <span style={{ flex: 1 }} />
-        <span style={{ color: '#888' }}>{status === 'loading' ? '…' : `${pageCount} p.`}</span>
+    <div className="pdfed">
+      <div className="pdfed__toolbar">
+        <button className="pdfed__btn" onClick={() => setScale((s) => Math.max(0.3, s / 1.15))} title="Zoom out"><ZoomOutIcon /></button>
+        <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
+        <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(8, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
+        <span className="pdfed__sep" />
+        <button className={'pdfed__btn' + (editing ? ' is-active' : '')} onClick={() => setEditing((v) => !v)} title="Edit"><ComposeIcon /></button>
+        {editing && (
+          <button className="pdfed__btn pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
+        )}
+        <span className="pdfed__spacer" />
+        <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <div style={{ flex: 1, overflow: 'auto', background: '#525659', padding: 20 }}>
-          {pages.map((p) => (
-            <div key={p.pageIndex} style={{ position: 'relative', width: px(p.width), height: px(p.height), margin: '0 auto 16px', background: '#fff' }}>
-              <img src={p.url} width={px(p.width)} height={px(p.height)} draggable={false} alt="" />
-              {editing && (objects[p.pageIndex] || []).map((o) => (
-                <div
-                  key={o.id}
-                  onMouseDown={(e) => onObjDown(e, p.pageIndex, o)}
-                  title={o.type}
-                  style={{ position: 'absolute', left: px(o.x), top: px(o.y), width: px(o.width), height: px(o.height), outline: `1px solid ${sel && sel.page === p.pageIndex && sel.id === o.id ? '#000' : FRAME[o.type] || '#888'}`, background: sel && sel.id === o.id ? 'rgba(59,91,253,0.08)' : 'transparent', cursor: 'move' }}
-                />
-              ))}
-            </div>
-          ))}
+      <div className="pdfed__body">
+        <div className="pdfed__viewport">
+          <div className="pdfed__pages">
+            {pages.map((p) => (
+              <div key={p.pageIndex} className="pdfed__page" style={{ width: px(p.width), height: px(p.height) }}>
+                <img className="pdfed__pageimg" src={p.url} width={px(p.width)} height={px(p.height)} draggable={false} alt="" />
+                {editing &&
+                  (objects[p.pageIndex] || []).map((o) => (
+                    <div
+                      key={o.id}
+                      className={`pdfed__obj pdfed__obj--${cls[o.type] || 'block'}` + (sel && sel.page === p.pageIndex && sel.id === o.id ? ' is-sel' : '')}
+                      onMouseDown={(e) => onObjDown(e, p.pageIndex, o)}
+                      title={o.type}
+                      style={{ left: px(o.x), top: px(o.y), width: px(o.width), height: px(o.height) }}
+                    />
+                  ))}
+              </div>
+            ))}
+          </div>
         </div>
 
         {editing && (
-          <div style={{ flex: '0 0 240px', borderLeft: '1px solid #ddd', padding: 12, overflow: 'auto', fontSize: 13 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>FORMAT</div>
-            {!draft && <div style={{ color: '#888' }}>Select a text object</div>}
+          <div className="fmt">
+            <div className="fmt__title">FORMAT</div>
+            {!draft && <div className="fmt__hint">Select a text object</div>}
             {draft && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <textarea value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} rows={3} style={{ width: '100%', boxSizing: 'border-box' }} />
-                <select value={draft.fontName} onChange={(e) => setDraft((d) => ({ ...d, fontName: e.target.value }))}>
-                  {[draft.fontName, ...fontList.map((f) => f.family)].filter((v, i, a) => a.indexOf(v) === i).map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input type="number" step="0.5" value={draft.size} onChange={(e) => setDraft((d) => ({ ...d, size: parseFloat(e.target.value) }))} style={{ width: 70 }} />
-                  <input type="color" value={draft.color} onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))} />
+              <>
+                <textarea className="fmt__text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} rows={3} spellCheck={false} />
+                <div className="fmt__selectwrap fmt__font">
+                  <select className="fmt__select" value={draft.fontName} onChange={(e) => setDraft((d) => ({ ...d, fontName: e.target.value }))} style={{ fontFamily: draft.fontName }}>
+                    {[draft.fontName, ...fontList.map((f) => f.family)].filter((v, i, a) => a.indexOf(v) === i).map((f) => (
+                      <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                    ))}
+                  </select>
                 </div>
-                <button onClick={applyEdit} disabled={saving} style={{ background: '#3b5bfd', color: '#fff', padding: '6px', borderRadius: 4 }}>{saving ? '…' : 'Apply'}</button>
-              </div>
+                <div className="fmt__row">
+                  <div className="fmt__selectwrap fmt__size">
+                    <input className="fmt__num" type="number" step="0.5" value={draft.size} onChange={(e) => setDraft((d) => ({ ...d, size: parseFloat(e.target.value) }))} />
+                  </div>
+                  <input className="fmt__color" type="color" value={draft.color} onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))} />
+                </div>
+                <button className="fmt__apply" onClick={applyEdit} disabled={saving}>{saving ? '…' : 'Apply'}</button>
+              </>
             )}
           </div>
         )}

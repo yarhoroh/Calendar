@@ -64,7 +64,7 @@ function buildUnits(cs, streamNum, H) {
   const toks = [...mask(cs).matchAll(TOKENS)]
   const units = []
   let start = 0, ctm = [1, 0, 0, 1, 0, 0]; const stk = []
-  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0, pend = null
+  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0, pend = null, fontSize = 0
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hasP = false, tPos = null
   const num = []; const N = (k) => num.slice(-k).map(Number)
   const pt = (x, y) => { const dx = ctm[0]*x+ctm[2]*y+ctm[4], dy = ctm[1]*x+ctm[3]*y+ctm[5]; x0 = Math.min(x0, dx); y0 = Math.min(y0, dy); x1 = Math.max(x1, dx); y1 = Math.max(y1, dy); hasP = true }
@@ -78,6 +78,7 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
     else if (t === 'cm') { const m = N(6); if (m.length === 6) ctm = matMul(m, ctm) }
     else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
+    else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0] }
     else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
     else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
     else if (t === 'TD') { const [x, y] = N(2); L = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
@@ -88,7 +89,7 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'v' || t === 'y') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[2], p[3]) } }
     else if (t === 're') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[0] + p[2], p[1] + p[3]) } }
     else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') { const d = dev(tm[4], tm[5]); if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) } }
-    else if (t === 'ET') { if (tPos) units.push({ type: 'text', stream: streamNum, start, end, bbox: [Math.min(x0, tPos[0]), tPos[1] - 12, Math.max(x1, tPos[0]) + 6, tPos[1] + 3], sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
+    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } start = end; reset() }
     else if (VIS.has(t)) { if (hasP) units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; const w = Math.abs(ctm[0]) + Math.abs(ctm[2]), h = Math.abs(ctm[1]) + Math.abs(ctm[3]); units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, name: pend }); start = end; reset() }
     num.length = 0

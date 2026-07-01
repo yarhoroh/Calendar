@@ -14,8 +14,8 @@ import {
 
 let doc = null
 let undoStack = [] // snapshots (PDF bytes) of the working copy before each edit, newest last
-let moveBaseline = null // { cs, pageIndex } — baseline stream for an in-progress real-time move
-let editBaseline = null // { cs, pageIndex } — original stream while an inline text editor is open
+let moveBaseline = null // { streams: {num:cs}, pageIndex } — per-stream baselines for a real-time move
+let editBaseline = null // { cs, stream, pageIndex } — original stream while an inline text editor is open
 let embeddedFonts = {} // fontKey → { font, name } — fonts embedded for text edits (reset per document)
 let fontSeq = 0 // running index for /EFn resource names
 let docFontCache = null // cached collectEmbeddedFonts() — the PDF's own fonts, reused when re-drawing
@@ -320,9 +320,92 @@ function writePageContent(pageObj, cs) {
   }
 }
 
-// Write the full page content back and rasterise the page.
-function renderPageWrite(pageObj, cs, pageIndex, scale) {
-  writePageContent(pageObj, cs)
+// Read/write a content stream by our stream key: 0 = the page's /Contents (may be an array), else the
+// object number of a form XObject stream. This is how edits reach text that lives inside XObjects.
+function readStreamNum(pageObj, num) {
+  if (!num) return readPageContent(pageObj)
+  return new TextDecoder('latin1').decode(doc.newIndirect(num).readStream().asUint8Array())
+}
+function writeStreamNum(pageObj, num, cs) {
+  if (!num) { writePageContent(pageObj, cs); return }
+  const bytes = new Uint8Array(cs.length)
+  for (let i = 0; i < cs.length; i++) bytes[i] = cs.charCodeAt(i) & 0xff
+  doc.newIndirect(num).writeStream(bytes)
+}
+
+// Recursively collect every text-show operator across the page AND its form XObjects. Each entry has a
+// DEVICE position (so it can be matched to a model run), the stream it lives in (0 = page, else the
+// XObject objnum), its 1-based index + q..Q block within that stream, and the PDF text state at it.
+function collectPageShows(pageObj, H) {
+  const shows = []
+  const walk = (cs, streamNum, baseCTM, resources, depth) => {
+    if (!cs || depth > 12) return
+    const masked = maskStreamOperands(cs)
+    const ranges = findTextShows(masked)
+    const blocks = topLevelQBlocks(masked)
+    const showBlock = ranges.map(([off]) => {
+      for (let bi = 0; bi < blocks.length; bi++) if (off >= blocks[bi][0] && off < blocks[bi][1]) return bi + 1
+      return 0
+    })
+    const toks = masked.split(/\s+/)
+    let ctm = baseCTM.slice()
+    const stk = []
+    let tm = [1, 0, 0, 1, 0, 0]
+    let tlm = [1, 0, 0, 1, 0, 0]
+    let L = 0
+    let fontRes = null, fontSize = 0, tc = 0, tw = 0, tz = 100, ts = 0, pendName = null
+    const num = []
+    const N = (k) => num.slice(-k).map(Number)
+    let showIdx = 0
+    for (const t of toks) {
+      if (/^-?[0-9.]+$/.test(t)) { num.push(t); continue }
+      if (t[0] === '/') { pendName = t.slice(1); num.length = 0; continue }
+      if (t === 'q') stk.push(ctm.slice())
+      else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
+      else if (t === 'cm') { const m = N(6); if (m.length === 6) ctm = matMul(m, ctm) }
+      else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
+      else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
+      else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0]; fontRes = pendName }
+      else if (t === 'Tc') { const v = N(1); if (v.length) tc = v[0] }
+      else if (t === 'Tw') { const v = N(1); if (v.length) tw = v[0] }
+      else if (t === 'Tz') { const v = N(1); if (v.length) tz = v[0] }
+      else if (t === 'Ts') { const v = N(1); if (v.length) ts = v[0] }
+      else if (t === 'TL') { const v = N(1); if (v.length) L = v[0] }
+      else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+      else if (t === 'TD') { const [x, y] = N(2); L = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
+      else if (t === 'T*') { tlm = matMul([1, 0, 0, 1, 0, -L], tlm); tm = tlm.slice() }
+      else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
+        const trm = matMul(tm, ctm)
+        showIdx++
+        shows.push({ stream: streamNum, show: showIdx, block: showBlock[showIdx - 1] || 0, x: trm[4], y: H - trm[5], tm: tm.slice(), tz, tc, tw, ts, fontRes, fontSize })
+      } else if (t === 'Do') {
+        try {
+          const xo = resources && !resources.isNull() ? resources.get('XObject') : null
+          const ent = xo && !xo.isNull() ? xo.get(pendName) : null
+          if (ent && ent.isStream && ent.isStream()) {
+            const sub = ent.get('Subtype')
+            if (!sub.isNull() && sub.asName() === 'Form') {
+              const num2 = ent.asIndirect()
+              const mtx = ent.get('Matrix')
+              let fm = [1, 0, 0, 1, 0, 0]
+              if (mtx.isArray() && mtx.length === 6) fm = [0, 1, 2, 3, 4, 5].map((i) => mtx.get(i).asNumber())
+              const fres = ent.get('Resources')
+              walk(readStreamNum(pageObj, num2), num2, matMul(fm, ctm), !fres.isNull() ? fres : resources, depth + 1)
+            }
+          }
+        } catch (_) {
+          // unreadable/nested XObject — skip
+        }
+      }
+      num.length = 0
+    }
+  }
+  walk(readPageContent(pageObj), 0, [1, 0, 0, 1, 0, 0], pageObj.getInheritable('Resources'), 0)
+  return shows
+}
+
+// Rasterise a page to PNG at a scale (PDF points → pixels).
+function rasterizePage(pageIndex, scale) {
   const page = doc.loadPage(pageIndex)
   try {
     const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false)
@@ -334,6 +417,12 @@ function renderPageWrite(pageObj, cs, pageIndex, scale) {
   } finally {
     page.destroy()
   }
+}
+
+// Write the full page content back and rasterise the page.
+function renderPageWrite(pageObj, cs, pageIndex, scale) {
+  writePageContent(pageObj, cs)
+  return rasterizePage(pageIndex, scale)
 }
 
 // Parse a TrueType/OpenType `name` table to recover the real font names that BaseFont may hide
@@ -643,47 +732,24 @@ self.onmessage = (e) => {
         } finally {
           dev?.close?.()
         }
-        // Map each text paint (textSeq) to its exact stream show-operator index (1-based, = findTextShows
-        // order) by matching device origins. Robust even when paint order ≠ page-content order (XObjects).
-        const z2show = {}
-        const z2state = {} // textSeq → PDF text state of its show operator (tm, tz, tc, tw, ts, fontRes…)
-        const show2block = {} // show-op index → the top-level q..Q block that contains it (for move)
-        let pageShowCount = 0
-        let qBlockCount = 0
+        // Address each text paint (textSeq) to its exact show operator — across the page AND form
+        // XObjects — by matching device origins. Each address carries the stream (0=page / XObject
+        // objnum), the show + q..Q block index within it, and the PDF text state.
+        const z2addr = {} // textSeq → { stream, show, block, tz, tc, tw, ts, tm, fontRes, fontSize }
+        let collectedShows = 0
         try {
           const H = bounds[3] - bounds[1]
-          const masked = maskStreamOperands(readPageContent(doc.findPage(params.pageIndex)))
-          const shows = textShowPositions(masked)
-          const showRanges = findTextShows(masked)
-          const qBlocks = topLevelQBlocks(masked)
-          pageShowCount = showRanges.length
-          qBlockCount = qBlocks.length
-          for (let si = 0; si < showRanges.length; si++) {
-            const off = showRanges[si][0]
-            for (let bi = 0; bi < qBlocks.length; bi++) {
-              if (off >= qBlocks[bi][0] && off < qBlocks[bi][1]) { show2block[si + 1] = bi + 1; break }
-            }
-          }
-          const textCount = Object.keys(textOrigin).length
-          if (pageShowCount > 0 && pageShowCount === textCount) {
-            // No XObject interference: the Nth page-content show IS the Nth text paint. Map by ORDER —
-            // exact, no coordinate math (which can misfire on rotated pages / offset MediaBox).
-            for (let z = 1; z <= textCount; z++) { z2show[z] = z; z2state[z] = shows[z - 1] }
-          } else {
-            // Counts differ (text inside XObjects, etc.) → best-effort match by device position.
-            for (const z in textOrigin) {
-              const [ox, oy] = textOrigin[z]
-              let best = 0
-              let bd = Infinity
-              for (let k = 0; k < shows.length; k++) {
-                const d = (shows[k].x - ox) ** 2 + (H - shows[k].y - oy) ** 2 // flip y to device space
-                if (d < bd) { bd = d; best = k + 1 }
-              }
-              if (best) { z2show[z] = best; z2state[z] = shows[best - 1] }
-            }
+          const shows = collectPageShows(doc.findPage(params.pageIndex), H)
+          collectedShows = shows.length
+          for (const z in textOrigin) {
+            const [ox, oy] = textOrigin[z]
+            let best = null
+            let bd = Infinity
+            for (const s of shows) { const d = (s.x - ox) ** 2 + (s.y - oy) ** 2; if (d < bd) { bd = d; best = s } }
+            if (best) z2addr[z] = best
           }
         } catch (_) {
-          // parser failed — editing falls back to raw textSeq (fragmentZ)
+          // parser failed — editing/move will find no address for this page
         }
         const exactAt = (ox, oy) => metricsMap.get(Math.round(ox) + ',' + Math.round(oy))
         // nearest paint-order z for a rect, by centre distance
@@ -811,9 +877,13 @@ self.onmessage = (e) => {
               if (!r.text.trim()) continue
               const fragmentZ = r.zs && r.zs.length ? [...new Set(r.zs)] : r.z != null ? [r.z] : []
               const paintZs = r.paintZs && r.paintZs.length ? [...new Set(r.paintZs)] : []
-              const showZs = [...new Set(fragmentZ.map((z) => z2show[z]).filter(Boolean))] // exact show-op indices
-              const moveBlocks = [...new Set(showZs.map((s) => show2block[s]).filter(Boolean))] // q..Q blocks to cm-wrap
-              const st = z2state[r.z] || z2state[fragmentZ[0]] || null // PDF text state (Tz/Tc/Tw/Ts/tm…)
+              const addrs = fragmentZ.map((z) => z2addr[z]).filter(Boolean)
+              const st = addrs[0] || null // PDF text state (Tz/Tc/Tw/Ts/tm…) + stream address
+              const addr = {
+                stream: addrs.length ? addrs[0].stream : 0,
+                shows: [...new Set(addrs.map((a) => a.show))],
+                blocks: [...new Set(addrs.map((a) => a.block).filter(Boolean))],
+              }
               textObjs.push({
                 type: 'text',
                 fk: paintZs.join(','), // same q..Q block → can't be moved in parts → one object
@@ -822,8 +892,7 @@ self.onmessage = (e) => {
                 width: r.bbox.width,
                 height: r.bbox.height,
                 fragmentZ,
-                showZs,
-                moveBlocks,
+                addr,
                 paintZs,
                 pdf: st && { tz: st.tz, tc: st.tc, tw: st.tw, ts: st.ts, fontRes: st.fontRes, fontSize: st.fontSize, tm: st.tm },
                 lines: [{ x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height, baseline: ln.baseline, runs: [r] }],
@@ -848,8 +917,11 @@ self.onmessage = (e) => {
             m.width = x1 - m.x
             m.height = y1 - m.y
             m.lines.push(...o.lines)
-            m.showZs = [...new Set([...(m.showZs || []), ...(o.showZs || [])])]
-            m.moveBlocks = [...new Set([...(m.moveBlocks || []), ...(o.moveBlocks || [])])]
+            if (o.addr) {
+              m.addr = m.addr || { stream: o.addr.stream, shows: [], blocks: [] }
+              m.addr.shows = [...new Set([...m.addr.shows, ...o.addr.shows])]
+              m.addr.blocks = [...new Set([...m.addr.blocks, ...o.addr.blocks])]
+            }
           } else {
             if (o.fk) byFk.set(o.fk, o)
             objects.push(o)
@@ -871,10 +943,10 @@ self.onmessage = (e) => {
           const resD = doc.findPage(params.pageIndex).getInheritable('Resources')
           const xo = resD && !resD.isNull() ? resD.get('XObject') : null
           const nText = objects.filter((o) => o.type === 'text').length
-          const withShow = objects.filter((o) => o.type === 'text' && o.showZs && o.showZs.length).length
-          const withMove = objects.filter((o) => o.type === 'text' && o.moveBlocks && o.moveBlocks.length).length
+          const withAddr = objects.filter((o) => o.type === 'text' && o.addr && o.addr.shows.length).length
+          const streamsUsed = [...new Set(objects.filter((o) => o.addr).map((o) => o.addr.stream))]
           self.postMessage({
-            log: `getModel p${params.pageIndex}: textPaints=${Object.keys(textOrigin).length} pageShows=${pageShowCount} qBlocks=${qBlockCount} matchedShow=${Object.keys(z2show).length} | textObjs=${nText} withShowZs=${withShow} withMoveBlocks=${withMove} | streams=${nStreams} hasXObject=${!!(xo && !xo.isNull())}`,
+            log: `getModel p${params.pageIndex}: textPaints=${Object.keys(textOrigin).length} collectedShows=${collectedShows} matched=${Object.keys(z2addr).length} | textObjs=${nText} addressed=${withAddr} inStreams=[${streamsUsed.join(',')}] | contentStreams=${nStreams} hasXObject=${!!(xo && !xo.isNull())}`,
           })
         } catch (_) {
           /* diagnostics only */
@@ -925,39 +997,41 @@ self.onmessage = (e) => {
       // error. The move targets q..Q blocks by index, so no per-fragment CTM is needed here.
       if (!doc) throw new Error('no document open')
       pushUndo()
-      const cs = readPageContent(doc.findPage(params.pageIndex))
-      moveBaseline = { cs, pageIndex: params.pageIndex }
+      // baselines captured lazily per stream on the first moveApply (streams = 0 page / XObject objnum)
+      moveBaseline = { streams: {}, pageIndex: params.pageIndex }
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'moveApply') {
-      // Apply the full drag delta to the baseline stream and re-render (no undo snapshot here).
-      // Universal move: wrap the object's whole `q … Q` block in a `cm` translation so its content,
-      // its clip path AND any type (text/vector/image) all shift together. Device delta → page cm:
-      // x stays, y flips (device-down vs page-up) → `1 0 0 1 dx -dy cm`.
+      // Apply the full drag delta to the baseline and re-render (no undo snapshot). Universal move:
+      // wrap the object's `q … Q` block in a `cm` shift so content + clip + any type move together. The
+      // block lives in some stream (page or a form XObject); we edit that stream. Items: {stream,block}.
       if (!moveBaseline) throw new Error('no move in progress')
-      const shiftByPaint = {}
-      for (const it of params.items) shiftByPaint[it.z] = { dx: it.dx, dy: it.dy }
-      const masked = maskStreamOperands(moveBaseline.cs)
-      const blocks = topLevelQBlocks(masked)
-      const scales = blockBaseScales(masked)
-      // splice right-to-left so earlier offsets stay valid; paintZ is 1-based → block index paintZ-1.
-      // Divide the device drag delta by the block's enclosing scale so the on-screen move is exact.
-      let cs = moveBaseline.cs
-      let wrapped = 0
-      const targets = Object.keys(shiftByPaint)
-        .map(Number)
-        .filter((p) => blocks[p - 1])
-        .sort((a, b) => b - a)
-      for (const p of targets) {
-        const [s, e] = blocks[p - 1]
-        const [a, d] = scales[p - 1] || [1, 1]
-        const { dx, dy } = shiftByPaint[p]
-        const tx = dx / a
-        const ty = dy / d
-        cs = cs.slice(0, s) + `q 1 0 0 1 ${tx.toFixed(4)} ${ty.toFixed(4)} cm\n` + cs.slice(s, e) + `\nQ` + cs.slice(e)
-        wrapped++
+      const pageObj = doc.findPage(moveBaseline.pageIndex)
+      const byStream = {}
+      for (const it of params.items) {
+        const s = it.stream || 0
+        if (moveBaseline.streams[s] === undefined) moveBaseline.streams[s] = readStreamNum(pageObj, s)
+        ;(byStream[s] = byStream[s] || {})[it.block] = { dx: it.dx, dy: it.dy }
       }
-      self.postMessage({ log: `moveApply: requested ${Object.keys(shiftByPaint).length}, wrapped ${wrapped}, q-blocks ${blocks.length}` })
-      const r = renderPageWrite(doc.findPage(moveBaseline.pageIndex), cs, moveBaseline.pageIndex, params.scale)
+      let wrapped = 0
+      for (const sKey of Object.keys(byStream)) {
+        const s = Number(sKey)
+        const base = moveBaseline.streams[s]
+        const masked = maskStreamOperands(base)
+        const blocks = topLevelQBlocks(masked)
+        const scales = blockBaseScales(masked)
+        let cs = base
+        const targets = Object.keys(byStream[s]).map(Number).filter((p) => blocks[p - 1]).sort((a, b) => b - a)
+        for (const p of targets) {
+          const [st, en] = blocks[p - 1]
+          const [a, d] = scales[p - 1] || [1, 1]
+          const { dx, dy } = byStream[s][p]
+          cs = cs.slice(0, st) + `q 1 0 0 1 ${(dx / a).toFixed(4)} ${(dy / d).toFixed(4)} cm\n` + cs.slice(st, en) + `\nQ` + cs.slice(en)
+          wrapped++
+        }
+        writeStreamNum(pageObj, s, cs)
+      }
+      self.postMessage({ log: `moveApply: items ${params.items.length}, wrapped ${wrapped}, streams [${Object.keys(byStream).join(',')}]` })
+      const r = rasterizePage(moveBaseline.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'moveEnd') {
       moveBaseline = null
@@ -968,10 +1042,12 @@ self.onmessage = (e) => {
       pushUndo()
       const rec = ensureEditFont(params.pageIndex, params.fontKey, params.fontBytes)
       const pageObj = doc.findPage(params.pageIndex)
-      const cs = readPageContent(pageObj)
+      const streamNum = params.addr ? params.addr.stream : 0
+      const cs = readStreamNum(pageObj, streamNum)
       const shows = findTextShows(maskStreamOperands(cs))
-      const sh = shows[params.textZ - 1]
-      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
+      const showIdx = params.addr ? params.addr.shows[0] : params.textZ
+      const sh = shows[showIdx - 1]
+      if (!sh) throw new Error(`edit target not found (show ${showIdx} of ${shows.length} in stream ${streamNum})`)
       const [os, oe] = sh
       const orig = tfBefore(cs, os)
       const tf = orig.size * (params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1)
@@ -996,30 +1072,34 @@ self.onmessage = (e) => {
       } else joined = segs.join(' ')
       const rgb = hexToRgb(params.color).map((c) => Math.round(c * 1000) / 1000)
       const repl = `${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, joined)}> Tj\n/${orig.font} ${orig.size} Tf`
-      const r = renderPageWrite(pageObj, cs.slice(0, os) + repl + cs.slice(oe), params.pageIndex, params.scale)
+      writeStreamNum(pageObj, streamNum, cs.slice(0, os) + repl + cs.slice(oe))
+      const r = rasterizePage(params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editBegin') {
       // Open an inline editor: stash the ORIGINAL stream, blank the block's glyphs so the underlying
       // PDF text disappears (the HTML editor draws in its place, 1:1), re-render the page.
       if (!doc) throw new Error('no document open')
       const pageObj = doc.findPage(params.pageIndex)
-      const cs = readPageContent(pageObj)
-      editBaseline = { cs, pageIndex: params.pageIndex }
+      const streamNum = params.addr ? params.addr.stream : 0
+      const cs = readStreamNum(pageObj, streamNum)
+      editBaseline = { cs, stream: streamNum, pageIndex: params.pageIndex }
       const shows = findTextShows(maskStreamOperands(cs))
-      const zs = (params.textZs || []).filter((z) => shows[z - 1]).sort((a, b) => b - a) // splice right→left
-      if (!zs.length) throw new Error(`edit target not found (textZs ${JSON.stringify(params.textZs)} of ${shows.length})`)
+      const zs = (params.addr ? params.addr.shows : []).filter((z) => shows[z - 1]).sort((a, b) => b - a)
+      if (!zs.length) throw new Error(`edit target not found (shows ${JSON.stringify(params.addr?.shows)} of ${shows.length} in stream ${streamNum})`)
       let out = cs
       for (const z of zs) {
         const [os, oe] = shows[z - 1]
         out = out.slice(0, os) + '<> Tj' + out.slice(oe) // blank the glyphs, keep position
       }
-      const r = renderPageWrite(pageObj, out, params.pageIndex, params.scale)
+      writeStreamNum(pageObj, streamNum, out)
+      const r = rasterizePage(params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCancel') {
       // Abort the inline edit: restore the original stream untouched.
       if (!doc || !editBaseline) throw new Error('no edit in progress')
       const pageObj = doc.findPage(editBaseline.pageIndex)
-      const r = renderPageWrite(pageObj, editBaseline.cs, editBaseline.pageIndex, params.scale)
+      writeStreamNum(pageObj, editBaseline.stream, editBaseline.cs)
+      const r = rasterizePage(editBaseline.pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCommit') {
@@ -1029,13 +1109,14 @@ self.onmessage = (e) => {
       if (!doc || !editBaseline) throw new Error('no edit in progress')
       const cs0 = editBaseline.cs
       const pageIndex = editBaseline.pageIndex
+      const streamNum = editBaseline.stream
       const pageObj = doc.findPage(pageIndex)
       // original back in place, then snapshot for undo
-      writePageContent(pageObj, cs0)
+      writeStreamNum(pageObj, streamNum, cs0)
       pushUndo()
       const shows = findTextShows(maskStreamOperands(cs0))
-      const zs = (params.textZs || []).filter((z) => shows[z - 1]).sort((a, b) => a - b)
-      if (!zs.length) throw new Error(`edit target not found (textZs ${JSON.stringify(params.textZs)} of ${shows.length})`)
+      const zs = (params.addr ? params.addr.shows : []).filter((z) => shows[z - 1]).sort((a, b) => a - b)
+      if (!zs.length) throw new Error(`edit target not found (shows ${JSON.stringify(params.addr?.shows)} of ${shows.length} in stream ${streamNum})`)
       const primary = zs[0] // the first show op becomes the new (styled) text; the rest are blanked
       const orig = tfBefore(cs0, shows[primary - 1][0]) // font/size to scale from and restore afterwards
       const parts = []
@@ -1055,7 +1136,8 @@ self.onmessage = (e) => {
         const [os, oe] = shows[z - 1]
         outCs = outCs.slice(0, os) + (z === primary ? runsSeq : '<> Tj') + outCs.slice(oe)
       }
-      const r = renderPageWrite(pageObj, outCs, pageIndex, params.scale)
+      writeStreamNum(pageObj, streamNum, outCs)
+      const r = rasterizePage(pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'getFonts') {

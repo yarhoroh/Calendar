@@ -19,9 +19,10 @@ const objectsOf = (m) =>
     y: o.y,
     width: o.width,
     height: o.height,
-    // move wraps these top-level q..Q blocks in a cm shift. Text: the blocks that hold its show ops
-    // (position-matched, robust). Vectors/images: their paint index (no show op to match).
-    z: (o.moveBlocks && o.moveBlocks.length ? o.moveBlocks : o.paintZs) || [],
+    // move wraps these top-level q..Q blocks (in their stream) in a cm shift. Text: the blocks holding
+    // its show ops, in its stream (page or a form XObject). Vectors/images: their paint index on the page.
+    z: (o.addr && o.addr.blocks.length ? o.addr.blocks : o.paintZs) || [],
+    stream: o.addr ? o.addr.stream : 0,
   }))
 const runsOf = () => [] // text pieces are now objects themselves — no separate run hint layer
 
@@ -270,7 +271,7 @@ export default function PdfEditor({ source }) {
 
   // Real-time move: latest-wins — only the most recent drag position is rendered; skipped frames drop.
   const handleMoveApply = (page, items) => {
-    console.log('[move] sending', items.length, 'items, distinct z:', new Set(items.map((i) => i.z)).size, 'z:', [...new Set(items.map((i) => i.z))])
+    console.log('[move] sending', items.length, 'items:', items.map((i) => `s${i.stream}:b${i.block}`).join(' '))
     moveLatest.current = { page, items }
     if (moveBusy.current) return
     moveBusy.current = true
@@ -320,8 +321,8 @@ export default function PdfEditor({ source }) {
   // Apply a text edit: swap the selected object's content/font/size/colour in the working copy.
   const handleApplyEdit = async (page, obj, style, text) => {
     if (!engineRef.current || !obj) return
-    const textZ = obj.showZs?.[0]
-    if (textZ == null) return
+    const addr = obj.addr
+    if (!addr?.shows?.length) return
     const run = obj.lines?.[0]?.runs?.[0]
     setApplying(true)
     try {
@@ -330,7 +331,7 @@ export default function PdfEditor({ source }) {
       const fontKey = font.family + (font.bold ? '-b' : '') + (font.italic ? '-i' : '')
       const r = await engineRef.current.editText(
         page,
-        { textZ, text, fontBytes: font.bytes, fontKey, size: style.size, origSize: run?.size || style.size, color: style.color },
+        { addr, text, fontBytes: font.bytes, fontKey, size: style.size, origSize: run?.size || style.size, color: style.color },
         scale
       )
       updatePageImage(page, r)
@@ -347,10 +348,10 @@ export default function PdfEditor({ source }) {
   // Inline WYSIWYG editor: hide the block's glyphs, open the HTML editor in its place.
   const handleEditBegin = async (page, id) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZs = obj?.showZs
-    if (!engineRef.current || !textZs?.length) return
+    const addr = obj?.addr
+    if (!engineRef.current || !addr?.shows?.length) return
     try {
-      const r = await engineRef.current.editBegin(page, textZs, scale)
+      const r = await engineRef.current.editBegin(page, addr, scale)
       updatePageImage(page, r)
       setSelected(null)
       setInlineEdit({ page, id })
@@ -371,8 +372,8 @@ export default function PdfEditor({ source }) {
   }
   const handleEditCommit = async (page, id, runs) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const textZs = obj?.showZs
-    if (!engineRef.current || !textZs?.length || !runs.length) return handleEditCancel()
+    const addr = obj?.addr
+    if (!engineRef.current || !addr?.shows?.length || !runs.length) return handleEditCancel()
     const origSize = obj?.lines?.[0]?.runs?.[0]?.size || runs[0].size
     setApplying(true)
     try {
@@ -391,7 +392,7 @@ export default function PdfEditor({ source }) {
         seenKey.add(fontKey)
         packed.push({ text: r.text, fontName: r.fontName, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
       }
-      const rr = await engineRef.current.editCommit(page, textZs, packed, scale)
+      const rr = await engineRef.current.editCommit(page, addr, packed, scale)
       updatePageImage(page, rr)
       const m = await engineRef.current.getModel(page)
       setModel((prev) => ({ ...prev, [page]: m }))

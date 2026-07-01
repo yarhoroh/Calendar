@@ -628,9 +628,19 @@ self.onmessage = (e) => {
         // order) by matching device origins. Robust even when paint order ≠ page-content order (XObjects).
         const z2show = {}
         const z2state = {} // textSeq → PDF text state of its show operator (tm, tz, tc, tw, ts, fontRes…)
+        const show2block = {} // show-op index → the top-level q..Q block that contains it (for move)
         try {
           const H = bounds[3] - bounds[1]
-          const shows = textShowPositions(maskStreamOperands(readPageContent(doc.findPage(params.pageIndex))))
+          const masked = maskStreamOperands(readPageContent(doc.findPage(params.pageIndex)))
+          const shows = textShowPositions(masked)
+          const showRanges = findTextShows(masked)
+          const qBlocks = topLevelQBlocks(masked)
+          for (let si = 0; si < showRanges.length; si++) {
+            const off = showRanges[si][0]
+            for (let bi = 0; bi < qBlocks.length; bi++) {
+              if (off >= qBlocks[bi][0] && off < qBlocks[bi][1]) { show2block[si + 1] = bi + 1; break }
+            }
+          }
           for (const z in textOrigin) {
             const [ox, oy] = textOrigin[z]
             let best = 0
@@ -771,6 +781,7 @@ self.onmessage = (e) => {
               const fragmentZ = r.zs && r.zs.length ? [...new Set(r.zs)] : r.z != null ? [r.z] : []
               const paintZs = r.paintZs && r.paintZs.length ? [...new Set(r.paintZs)] : []
               const showZs = [...new Set(fragmentZ.map((z) => z2show[z]).filter(Boolean))] // exact show-op indices
+              const moveBlocks = [...new Set(showZs.map((s) => show2block[s]).filter(Boolean))] // q..Q blocks to cm-wrap
               const st = z2state[r.z] || z2state[fragmentZ[0]] || null // PDF text state (Tz/Tc/Tw/Ts/tm…)
               textObjs.push({
                 type: 'text',
@@ -781,6 +792,7 @@ self.onmessage = (e) => {
                 height: r.bbox.height,
                 fragmentZ,
                 showZs,
+                moveBlocks,
                 paintZs,
                 pdf: st && { tz: st.tz, tc: st.tc, tw: st.tw, ts: st.ts, fontRes: st.fontRes, fontSize: st.fontSize, tm: st.tm },
                 lines: [{ x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height, baseline: ln.baseline, runs: [r] }],
@@ -806,6 +818,7 @@ self.onmessage = (e) => {
             m.height = y1 - m.y
             m.lines.push(...o.lines)
             m.showZs = [...new Set([...(m.showZs || []), ...(o.showZs || [])])]
+            m.moveBlocks = [...new Set([...(m.moveBlocks || []), ...(o.moveBlocks || [])])]
           } else {
             if (o.fk) byFk.set(o.fk, o)
             objects.push(o)

@@ -12,7 +12,17 @@ import './PdfEditor.css'
 // content). Adapt them to the select layer's shape (key=id, z=paintZs = q..Q block indices, which the
 // worker shifts via a cm-wrap) and pull run bboxes for the grey style-span hints.
 const objectsOf = (m) =>
-  (m.objects || []).map((o) => ({ key: o.id, type: o.type, x: o.x, y: o.y, width: o.width, height: o.height, z: o.paintZs }))
+  (m.objects || []).map((o) => ({
+    key: o.id,
+    type: o.type,
+    x: o.x,
+    y: o.y,
+    width: o.width,
+    height: o.height,
+    // move wraps these top-level q..Q blocks in a cm shift. Text: the blocks that hold its show ops
+    // (position-matched, robust). Vectors/images: their paint index (no show op to match).
+    z: (o.moveBlocks && o.moveBlocks.length ? o.moveBlocks : o.paintZs) || [],
+  }))
 const runsOf = () => [] // text pieces are now objects themselves — no separate run hint layer
 
 // PDF viewer — open a document and render its pages. Editing features get rebuilt on top of this

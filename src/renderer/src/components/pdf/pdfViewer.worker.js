@@ -158,12 +158,40 @@ function encodeGlyphs(font, text) {
   return hex
 }
 
+// A TJ number this large is a COLUMN gap (table cell boundary), not letter/word kerning (which stays
+// well under ~100). Between such gaps sit separate cells packed into one Tj — we preserve the gaps so
+// editing one cell doesn't collapse the row into a single run.
+const BIG_KERN = 300
+function columnGaps(tjBody) {
+  const nums = (tjBody.replace(/<[0-9A-Fa-f\s]*>/g, ' ').match(/-?\d+(?:\.\d+)?/g) || []).map(Number)
+  return nums.filter((n) => Math.abs(n) >= BIG_KERN)
+}
+
 // Surgically rewrite ONE text q..Q block: swap the font resource + size, replace the shown string
 // with new glyphs, and set the fill colour — keeping the block's clip, cm and Tm so position/scale
 // are preserved exactly. tfScale rescales the existing Tf (new effective size ÷ old effective size).
-function editBlockText(slice, { fontName, tfScale, hex, rgb }) {
+// `text` may contain newlines: each line is a column of a packed table row, rejoined with the block's
+// own big kerning gaps so the columns stay put (falls back to one run when the counts don't line up).
+function editBlockText(slice, { fontName, tfScale, rgb, text, encode }) {
   slice = slice.replace(/\/\S+\s+(-?[0-9.]+)\s+Tf/, (_m, sz) => `/${fontName} ${(parseFloat(sz) * tfScale).toFixed(4)} Tf`)
-  slice = slice.replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, `<${hex}> Tj`)
+  const showRe = /\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/
+  const tj = slice.match(showRe)
+  if (tj) {
+    const segs = String(text).split('\n')
+    const gaps = columnGaps(tj[0])
+    let repl
+    if (gaps.length && segs.length === gaps.length + 1) {
+      repl = '['
+      segs.forEach((s, i) => {
+        repl += `<${encode(s)}>`
+        if (i < gaps.length) repl += ` ${gaps[i]} `
+      })
+      repl += '] TJ'
+    } else {
+      repl = `<${encode(segs.join(' ').replace(/\s+/g, ' ').trim())}> Tj`
+    }
+    slice = slice.replace(showRe, repl)
+  }
   const colorOp = `${rgb.map((c) => Math.round(c * 1000) / 1000).join(' ')} rg`
   const colorRe = /(?:-?[0-9.]+\s+){3}rg\b|(?:-?[0-9.]+\s+){4}k\b|(?:^|\s)-?[0-9.]+\s+g(?=\s)/
   slice = colorRe.test(slice) ? slice.replace(colorRe, ' ' + colorOp) : slice.replace(/\bBT\b/, `BT ${colorOp}`)
@@ -689,7 +717,6 @@ self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       pushUndo()
       const rec = ensureEditFont(params.pageIndex, params.fontKey, params.fontBytes)
-      const hex = encodeGlyphs(rec.font, params.text || '')
       const pageObj = doc.findPage(params.pageIndex)
       const contents = pageObj.get('Contents')
       const streamObj = contents.isArray() ? contents.get(0) : contents
@@ -699,7 +726,13 @@ self.onmessage = (e) => {
       if (!range) throw new Error('edit target block not found')
       const [s, e] = range
       const tfScale = params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1
-      const edited = editBlockText(cs.slice(s, e), { fontName: rec.name, tfScale, hex, rgb: hexToRgb(params.color) })
+      const edited = editBlockText(cs.slice(s, e), {
+        fontName: rec.name,
+        tfScale,
+        rgb: hexToRgb(params.color),
+        text: params.text || '',
+        encode: (str) => encodeGlyphs(rec.font, str),
+      })
       cs = cs.slice(0, s) + edited + cs.slice(e)
       const outBytes = new Uint8Array(cs.length)
       for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff

@@ -13,7 +13,7 @@ const normRect = (m) => ({
 const hit = (a, b) => !(a.x > b.x + b.w || a.x + a.w < b.x || a.y > b.y + b.h || a.y + a.h < b.y)
 
 // objects: [{ key, type, x, y, width, height }] in PDF points
-export default function SelectLayer({ objects, runs, scale, spaceHeld, showBoxes, onSelection, onCommit, onMoveStart, onMoveApply, onMoveEnd }) {
+export default function SelectLayer({ objects, runs, scale, spaceHeld, showBoxes, onSelection, onCommit, onMoveStart, onMoveApply, onMoveEnd, onEditObject }) {
   const [sel, setSel] = useState(() => new Set())
   const [moves, setMoves] = useState({}) // key → { dx, dy } in points
   const [removed, setRemoved] = useState(() => new Set())
@@ -184,8 +184,14 @@ export default function SelectLayer({ objects, runs, scale, spaceHeld, showBoxes
     frame = px({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
   }
 
+  const onDouble = (e) => {
+    if (spaceHeld) return
+    const o = topAt(ptOf(e))
+    if (o && o.type === 'text') onEditObject?.(o.key)
+  }
+
   return (
-    <div className={'pdfed__select' + (dragging ? ' is-dragging' : '')} ref={ref} onMouseDown={onDown}>
+    <div className={'pdfed__select' + (dragging ? ' is-dragging' : '')} ref={ref} onMouseDown={onDown} onDoubleClick={onDouble}>
       {/* runs — grey dashed, non-interactive visual hint of the style spans */}
       {showBoxes &&
         runs.map((r, i) => <div key={'r' + i} className="pdfed__ov pdfed__ov--run is-bare" style={px({ x: r.x, y: r.y, w: r.width, h: r.height })} />)}

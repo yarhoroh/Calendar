@@ -15,6 +15,7 @@ import {
 let doc = null
 let undoStack = [] // snapshots (PDF bytes) of the working copy before each edit, newest last
 let moveBaseline = null // { cs, pageIndex } — baseline stream for an in-progress real-time move
+let editBaseline = null // { cs, pageIndex } — original stream while an inline text editor is open
 let embeddedFonts = {} // fontKey → { font, name } — fonts embedded for text edits (reset per document)
 let fontSeq = 0 // running index for /EFn resource names
 
@@ -199,6 +200,24 @@ function editBlockText(slice, { fontName, tfScale, rgb, text, encode, spaceUnits
   return slice
 }
 
+// Write a content stream (latin1 string) into a page's stream object and rasterise the page.
+function renderStreamToPng(streamObj, cs, pageIndex, scale) {
+  const outBytes = new Uint8Array(cs.length)
+  for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
+  streamObj.writeStream(outBytes)
+  const page = doc.loadPage(pageIndex)
+  try {
+    const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false)
+    const png = pix.asPNG()
+    const w = pix.getWidth()
+    const h = pix.getHeight()
+    pix.destroy()
+    return { png: new Uint8Array(png).buffer, width: w / scale, height: h / scale }
+  } finally {
+    page.destroy()
+  }
+}
+
 // Parse a TrueType/OpenType `name` table to recover the real font names that BaseFont may hide
 // behind a generic id (e.g. "CIDFont+F1"). Returns { family, full, post } or null.
 function parseSfntName(buf) {
@@ -333,6 +352,7 @@ self.onmessage = (e) => {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
       undoStack = [] // fresh working copy → clear history
       embeddedFonts = {} // font refs belong to the old doc — drop them
+      editBaseline = null
       // Is the logical structure actually stored in the file? Tagged PDFs carry a structure tree
       // (/StructTreeRoot) + marked content (/MarkInfo /Marked). Untagged PDFs carry none — blocks
       // can only be reconstructed geometrically. Report which, so we know what we're working with.
@@ -758,12 +778,71 @@ self.onmessage = (e) => {
       } finally {
         page.destroy()
       }
+    } else if (type === 'editBegin') {
+      // Open an inline editor: stash the ORIGINAL stream, blank the block's glyphs so the underlying
+      // PDF text disappears (the HTML editor draws in its place, 1:1), re-render the page.
+      if (!doc) throw new Error('no document open')
+      const pageObj = doc.findPage(params.pageIndex)
+      const contents = pageObj.get('Contents')
+      const streamObj = contents.isArray() ? contents.get(0) : contents
+      const cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      editBaseline = { cs, pageIndex: params.pageIndex }
+      const range = topLevelQBlocks(maskStreamOperands(cs))[params.paintZ - 1]
+      if (!range) throw new Error('edit target block not found')
+      const [s, e] = range
+      const blanked = cs.slice(s, e).replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, '<> Tj')
+      const r = renderStreamToPng(streamObj, cs.slice(0, s) + blanked + cs.slice(e), params.pageIndex, params.scale)
+      self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'editCancel') {
+      // Abort the inline edit: restore the original stream untouched.
+      if (!doc || !editBaseline) throw new Error('no edit in progress')
+      const pageObj = doc.findPage(editBaseline.pageIndex)
+      const contents = pageObj.get('Contents')
+      const streamObj = contents.isArray() ? contents.get(0) : contents
+      const r = renderStreamToPng(streamObj, editBaseline.cs, editBaseline.pageIndex, params.scale)
+      editBaseline = null
+      self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'editCommit') {
+      // Rebuild the block from the editor's styled runs. Each run gets its own embedded font, size
+      // (scaled from the block's original Tf) and colour; consecutive Tj auto-advance so runs flow
+      // inline on the block's baseline. Restores the original first so undo returns the true original.
+      if (!doc || !editBaseline) throw new Error('no edit in progress')
+      const cs0 = editBaseline.cs
+      const pageIndex = editBaseline.pageIndex
+      const pageObj = doc.findPage(pageIndex)
+      const contents = pageObj.get('Contents')
+      const streamObj = contents.isArray() ? contents.get(0) : contents
+      // original back in place, then snapshot for undo
+      const ob = new Uint8Array(cs0.length)
+      for (let i = 0; i < cs0.length; i++) ob[i] = cs0.charCodeAt(i) & 0xff
+      streamObj.writeStream(ob)
+      pushUndo()
+      const range = topLevelQBlocks(maskStreamOperands(cs0))[params.paintZ - 1]
+      if (!range) throw new Error('edit target block not found')
+      const [s, e] = range
+      const slice = cs0.slice(s, e)
+      const origTf = parseFloat((slice.match(/\/\S+\s+(-?[0-9.]+)\s+Tf/) || [])[1] || '10')
+      const parts = []
+      for (const run of params.runs || []) {
+        const rec = ensureEditFont(pageIndex, run.fontKey, run.fontBytes)
+        const tf = origTf * (run.origSize > 0 && run.size > 0 ? run.size / run.origSize : 1)
+        const rgb = hexToRgb(run.color).map((c) => Math.round(c * 1000) / 1000)
+        parts.push(`${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, run.text)}> Tj`)
+      }
+      const runsSeq = parts.join('\n') || '<> Tj'
+      // replace ONLY the show operator (keep the block's Tm/clip/cm so position + baseline hold); each
+      // run carries its own colour + font + size, and consecutive Tj advance inline along the baseline.
+      const edited = slice.replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, runsSeq)
+      const r = renderStreamToPng(streamObj, cs0.slice(0, s) + edited + cs0.slice(e), pageIndex, params.scale)
+      editBaseline = null
+      self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'undo') {
       if (undoStack.length) {
         const bytes = undoStack.pop()
         doc?.destroy?.()
         doc = mupdf.Document.openDocument(bytes, 'application/pdf')
         embeddedFonts = {} // refs pointed into the replaced doc
+        editBaseline = null
         self.postMessage({ id, result: { undone: true, left: undoStack.length } })
       } else {
         self.postMessage({ id, result: { undone: false, left: 0 } })
@@ -773,6 +852,7 @@ self.onmessage = (e) => {
       doc = null
       undoStack = []
       embeddedFonts = {}
+      editBaseline = null
       self.postMessage({ id, result: null })
     } else {
       throw new Error('unknown request: ' + type)

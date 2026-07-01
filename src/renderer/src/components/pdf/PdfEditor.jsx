@@ -5,6 +5,7 @@ import api from '../../lib/api'
 import { createPdfEngine } from './pdfEngine'
 import StylePanel from './StylePanel'
 import SelectLayer from './SelectLayer'
+import InlineTextEditor from './InlineTextEditor'
 import './PdfEditor.css'
 
 // The page model already carries the fixed objects (stable id + all stream fragments + styled
@@ -31,6 +32,7 @@ export default function PdfEditor({ source }) {
   const [fontList, setFontList] = useState([]) // installed + bundled families, for the font dropdown
   const [showBoxes, setShowBoxes] = useState(true) // toggle the overlay frames' visibility
   const [applying, setApplying] = useState(false) // an editText round-trip is in flight
+  const [inlineEdit, setInlineEdit] = useState(null) // { page, id } — object open in the inline editor
   const [rev, setRev] = useState(0) // bump to force re-render of pages + model after an edit/undo
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -302,6 +304,65 @@ export default function PdfEditor({ source }) {
     }
   }
 
+  // Inline WYSIWYG editor: hide the block's glyphs, open the HTML editor in its place.
+  const handleEditBegin = async (page, id) => {
+    const obj = model[page]?.objects.find((o) => o.id === id)
+    const paintZ = obj?.paintZs?.[0]
+    if (!engineRef.current || paintZ == null) return
+    try {
+      const r = await engineRef.current.editBegin(page, paintZ, scale)
+      updatePageImage(page, r)
+      setSelected(null)
+      setInlineEdit({ page, id })
+    } catch (err) {
+      console.error('[pdf] editBegin failed:', err)
+    }
+  }
+  const handleEditCancel = async () => {
+    const page = inlineEdit?.page
+    setInlineEdit(null)
+    if (page == null || !engineRef.current) return
+    try {
+      const r = await engineRef.current.editCancel(scale)
+      updatePageImage(page, r)
+    } catch (err) {
+      console.error('[pdf] editCancel failed:', err)
+    }
+  }
+  const handleEditCommit = async (page, id, runs) => {
+    const obj = model[page]?.objects.find((o) => o.id === id)
+    const paintZ = obj?.paintZs?.[0]
+    if (!engineRef.current || paintZ == null || !runs.length) return handleEditCancel()
+    const origSize = obj?.lines?.[0]?.runs?.[0]?.size || runs[0].size
+    setApplying(true)
+    try {
+      const fontCache = new Map()
+      const seenKey = new Set()
+      const packed = []
+      for (const r of runs) {
+        let font = fontCache.get(r.fontName + r.bold + r.italic)
+        if (!font) {
+          font = await api.fonts.file(r.fontName, { bold: !!r.bold, italic: !!r.italic })
+          fontCache.set(r.fontName + r.bold + r.italic, font)
+        }
+        if (!font?.bytes) continue
+        const fontKey = font.family + (font.bold ? '-b' : '') + (font.italic ? '-i' : '')
+        const first = !seenKey.has(fontKey)
+        seenKey.add(fontKey)
+        packed.push({ text: r.text, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
+      }
+      const rr = await engineRef.current.editCommit(page, paintZ, packed, scale)
+      updatePageImage(page, rr)
+      const m = await engineRef.current.getModel(page)
+      setModel((prev) => ({ ...prev, [page]: m }))
+    } catch (err) {
+      console.error('[pdf] editCommit failed:', err)
+    } finally {
+      setApplying(false)
+      setInlineEdit(null)
+    }
+  }
+
   const onPanMouseDown = (e) => {
     const el = viewportRef.current
     if (!spaceHeld || !el) return
@@ -373,7 +434,7 @@ export default function PdfEditor({ source }) {
                   alt={`${t('pdfed.page')} ${p.pageIndex + 1}`}
                   draggable={false}
                 />
-                {editing && model[p.pageIndex] && (
+                {editing && model[p.pageIndex] && !(inlineEdit && inlineEdit.page === p.pageIndex) && (
                   <SelectLayer
                     objects={objectsOf(model[p.pageIndex])}
                     runs={runsOf(model[p.pageIndex])}
@@ -388,6 +449,16 @@ export default function PdfEditor({ source }) {
                     onMoveStart={() => engineRef.current?.moveStart(p.pageIndex)}
                     onMoveApply={(items) => handleMoveApply(p.pageIndex, items)}
                     onMoveEnd={(deltas) => handleMoveEnd(p.pageIndex, deltas)}
+                    onEditObject={(key) => handleEditBegin(p.pageIndex, key)}
+                  />
+                )}
+                {inlineEdit && inlineEdit.page === p.pageIndex && model[p.pageIndex] && (
+                  <InlineTextEditor
+                    obj={model[p.pageIndex].objects.find((o) => o.id === inlineEdit.id)}
+                    scale={scale}
+                    fontList={fontList}
+                    onCancel={handleEditCancel}
+                    onCommit={(runs) => handleEditCommit(p.pageIndex, inlineEdit.id, runs)}
                   />
                 )}
               </div>

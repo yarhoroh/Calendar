@@ -168,6 +168,23 @@ function columnGaps(tjBody) {
   return nums.filter((n) => Math.abs(n) >= BIG_KERN)
 }
 
+// Every text-show operator (Tj/TJ/'/") in stream order, as [start,end) byte ranges. MuPDF fires one
+// fillText per show operator, so the Nth show == the Nth text paint == a run's textSeq (fragmentZ).
+// This is how we locate text to edit — robust even when a q..Q block holds several shows.
+function findTextShows(masked) {
+  const re = /(\[[^\]]*\]|<[^>]*>|\((?:[^()\\]|\\.)*\))\s*(?:TJ|Tj|'|")/g
+  const out = []
+  let m
+  while ((m = re.exec(masked))) out.push([m.index, m.index + m[0].length])
+  return out
+}
+// Font resource + size in effect just before an offset (the last `/name size Tf` above it).
+function tfBefore(cs, at) {
+  const tfs = [...cs.slice(0, at).matchAll(/\/(\S+)\s+(-?[0-9.]+)\s+Tf/g)]
+  const last = tfs[tfs.length - 1]
+  return last ? { font: last[1], size: parseFloat(last[2]) } : { font: 'F1', size: 10 }
+}
+
 // Surgically rewrite ONE text q..Q block: swap the font resource + size, replace the shown string
 // with new glyphs, and set the fill colour — keeping the block's clip, cm and Tm so position/scale
 // are preserved exactly. tfScale rescales the existing Tf (new effective size ÷ old effective size).
@@ -745,11 +762,12 @@ self.onmessage = (e) => {
       const rec = ensureEditFont(params.pageIndex, params.fontKey, params.fontBytes)
       const pageObj = doc.findPage(params.pageIndex)
       const cs = readPageContent(pageObj)
-      const blocks = topLevelQBlocks(maskStreamOperands(cs))
-      const range = blocks[params.paintZ - 1]
-      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
-      const [s, e] = range
-      const tfScale = params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1
+      const shows = findTextShows(maskStreamOperands(cs))
+      const sh = shows[params.textZ - 1]
+      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
+      const [os, oe] = sh
+      const orig = tfBefore(cs, os)
+      const tf = orig.size * (params.origSize > 0 && params.size > 0 ? params.size / params.origSize : 1)
       let spaceUnits = 250
       try {
         const w = rec.font.advanceGlyph(rec.font.encodeCharacter(32), 0)
@@ -757,15 +775,21 @@ self.onmessage = (e) => {
       } catch (_) {
         // font without a space glyph — keep the 0.25em default
       }
-      const edited = editBlockText(cs.slice(s, e), {
-        fontName: rec.name,
-        tfScale,
-        rgb: hexToRgb(params.color),
-        text: params.text || '',
-        encode: (str) => encodeGlyphs(rec.font, str),
-        spaceUnits,
-      })
-      const r = renderPageWrite(pageObj, cs.slice(0, s) + edited + cs.slice(e), params.pageIndex, params.scale)
+      // column gaps (big kernings) in the ORIGINAL operand become real spaces so columns stay put
+      const segs = String(params.text || '').split('\n')
+      const gaps = columnGaps(cs.slice(os, oe))
+      let joined
+      if (gaps.length && segs.length === gaps.length + 1) {
+        const unit = spaceUnits > 0 ? spaceUnits : 250
+        joined = ''
+        segs.forEach((str, i) => {
+          joined += str
+          if (i < gaps.length) joined += ' '.repeat(Math.max(1, Math.round(Math.abs(gaps[i]) / unit)))
+        })
+      } else joined = segs.join(' ')
+      const rgb = hexToRgb(params.color).map((c) => Math.round(c * 1000) / 1000)
+      const repl = `${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, joined)}> Tj\n/${orig.font} ${orig.size} Tf`
+      const r = renderPageWrite(pageObj, cs.slice(0, os) + repl + cs.slice(oe), params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editBegin') {
       // Open an inline editor: stash the ORIGINAL stream, blank the block's glyphs so the underlying
@@ -774,12 +798,11 @@ self.onmessage = (e) => {
       const pageObj = doc.findPage(params.pageIndex)
       const cs = readPageContent(pageObj)
       editBaseline = { cs, pageIndex: params.pageIndex }
-      const blocks = topLevelQBlocks(maskStreamOperands(cs))
-      const range = blocks[params.paintZ - 1]
-      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
-      const [s, e] = range
-      const blanked = cs.slice(s, e).replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, '<> Tj')
-      const r = renderPageWrite(pageObj, cs.slice(0, s) + blanked + cs.slice(e), params.pageIndex, params.scale)
+      const shows = findTextShows(maskStreamOperands(cs))
+      const sh = shows[params.textZ - 1]
+      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
+      const out = cs.slice(0, sh[0]) + '<> Tj' + cs.slice(sh[1]) // blank the glyphs, keep position
+      const r = renderPageWrite(pageObj, out, params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'editCancel') {
       // Abort the inline edit: restore the original stream untouched.
@@ -799,24 +822,22 @@ self.onmessage = (e) => {
       // original back in place, then snapshot for undo
       writePageContent(pageObj, cs0)
       pushUndo()
-      const blocks = topLevelQBlocks(maskStreamOperands(cs0))
-      const range = blocks[params.paintZ - 1]
-      if (!range) throw new Error(`edit target block not found (paintZ ${params.paintZ} of ${blocks.length})`)
-      const [s, e] = range
-      const slice = cs0.slice(s, e)
-      const origTf = parseFloat((slice.match(/\/\S+\s+(-?[0-9.]+)\s+Tf/) || [])[1] || '10')
+      const shows = findTextShows(maskStreamOperands(cs0))
+      const sh = shows[params.textZ - 1]
+      if (!sh) throw new Error(`edit target not found (textZ ${params.textZ} of ${shows.length})`)
+      const [os, oe] = sh
+      const orig = tfBefore(cs0, os) // original font/size to scale from and restore afterwards
       const parts = []
       for (const run of params.runs || []) {
         const rec = ensureEditFont(pageIndex, run.fontKey, run.fontBytes)
-        const tf = origTf * (run.origSize > 0 && run.size > 0 ? run.size / run.origSize : 1)
+        const tf = orig.size * (run.origSize > 0 && run.size > 0 ? run.size / run.origSize : 1)
         const rgb = hexToRgb(run.color).map((c) => Math.round(c * 1000) / 1000)
         parts.push(`${rgb.join(' ')} rg /${rec.name} ${tf.toFixed(4)} Tf <${encodeGlyphs(rec.font, run.text)}> Tj`)
       }
-      const runsSeq = parts.join('\n') || '<> Tj'
-      // replace ONLY the show operator (keep the block's Tm/clip/cm so position + baseline hold); each
-      // run carries its own colour + font + size, and consecutive Tj advance inline along the baseline.
-      const edited = slice.replace(/\[[^\]]*\]\s*TJ|<[0-9A-Fa-f\s]*>\s*Tj|\((?:[^()\\]|\\.)*\)\s*Tj/, runsSeq)
-      const r = renderPageWrite(pageObj, cs0.slice(0, s) + edited + cs0.slice(e), pageIndex, params.scale)
+      // replace ONLY this show operator (Tm/clip/cm stay → position + baseline hold); runs set their
+      // own colour/font/size and flow inline; restore the original Tf so later shows keep their font.
+      const runsSeq = (parts.join('\n') || '<> Tj') + `\n/${orig.font} ${orig.size} Tf`
+      const r = renderPageWrite(pageObj, cs0.slice(0, os) + runsSeq + cs0.slice(oe), pageIndex, params.scale)
       editBaseline = null
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'undo') {

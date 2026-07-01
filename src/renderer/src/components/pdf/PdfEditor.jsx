@@ -280,8 +280,8 @@ export default function PdfEditor({ source }) {
   // Apply a text edit: swap the selected object's content/font/size/colour in the working copy.
   const handleApplyEdit = async (page, obj, style, text) => {
     if (!engineRef.current || !obj) return
-    const paintZ = obj.paintZs?.[0]
-    if (paintZ == null) return
+    const textZ = obj.fragmentZ?.[0]
+    if (textZ == null) return
     const run = obj.lines?.[0]?.runs?.[0]
     setApplying(true)
     try {
@@ -290,7 +290,7 @@ export default function PdfEditor({ source }) {
       const fontKey = font.family + (font.bold ? '-b' : '') + (font.italic ? '-i' : '')
       const r = await engineRef.current.editText(
         page,
-        { paintZ, text, fontBytes: font.bytes, fontKey, size: style.size, origSize: run?.size || style.size, color: style.color },
+        { textZ, text, fontBytes: font.bytes, fontKey, size: style.size, origSize: run?.size || style.size, color: style.color },
         scale
       )
       updatePageImage(page, r)
@@ -307,10 +307,10 @@ export default function PdfEditor({ source }) {
   // Inline WYSIWYG editor: hide the block's glyphs, open the HTML editor in its place.
   const handleEditBegin = async (page, id) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const paintZ = obj?.paintZs?.[0]
-    if (!engineRef.current || paintZ == null) return
+    const textZ = obj?.fragmentZ?.[0]
+    if (!engineRef.current || textZ == null) return
     try {
-      const r = await engineRef.current.editBegin(page, paintZ, scale)
+      const r = await engineRef.current.editBegin(page, textZ, scale)
       updatePageImage(page, r)
       setSelected(null)
       setInlineEdit({ page, id })
@@ -331,8 +331,8 @@ export default function PdfEditor({ source }) {
   }
   const handleEditCommit = async (page, id, runs) => {
     const obj = model[page]?.objects.find((o) => o.id === id)
-    const paintZ = obj?.paintZs?.[0]
-    if (!engineRef.current || paintZ == null || !runs.length) return handleEditCancel()
+    const textZ = obj?.fragmentZ?.[0]
+    if (!engineRef.current || textZ == null || !runs.length) return handleEditCancel()
     const origSize = obj?.lines?.[0]?.runs?.[0]?.size || runs[0].size
     setApplying(true)
     try {
@@ -351,7 +351,7 @@ export default function PdfEditor({ source }) {
         seenKey.add(fontKey)
         packed.push({ text: r.text, fontKey, fontBytes: first ? font.bytes : undefined, size: r.size, origSize, color: r.color })
       }
-      const rr = await engineRef.current.editCommit(page, paintZ, packed, scale)
+      const rr = await engineRef.current.editCommit(page, textZ, packed, scale)
       updatePageImage(page, rr)
       const m = await engineRef.current.getModel(page)
       setModel((prev) => ({ ...prev, [page]: m }))

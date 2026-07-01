@@ -49,6 +49,12 @@ export function createPdfEngine() {
     // → { blocks: [{x,y,width,height, lines:[{…, runs:[{text,bbox,fontName,size,color,bold,italic}]}]}],
     //     images: [rect], vectors: [{…rect, stroked, rectangle}], fonts: [{…}], colors: [hex] }
     getModel: (pageIndex) => call('getModel', { pageIndex }),
+    redact: (pageIndex, rects, scale) => call('redact', { pageIndex, rects, scale }), // delete objects → { png, width, height }
+    // real-time move: start (snapshot + baseline) → apply(full delta, latest-wins) → end
+    moveStart: (pageIndex) => call('moveStart', { pageIndex }),
+    moveApply: (pageIndex, items, scale) => call('moveApply', { pageIndex, items, scale }), // items: [{z,dx,dy}] full delta
+    moveEnd: () => call('moveEnd', {}),
+    undo: () => call('undo', {}), // restore the previous working-copy snapshot → { undone, left }
     dispose: () => {
       pending.clear()
       worker.terminate()

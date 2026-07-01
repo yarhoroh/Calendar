@@ -4,50 +4,15 @@ import { useI18n } from '../../i18n/I18nContext'
 import api from '../../lib/api'
 import { createPdfEngine } from './pdfEngine'
 import StylePanel from './StylePanel'
+import SelectLayer from './SelectLayer'
 import './PdfEditor.css'
 
-// Draws frames for every page object MuPDF reports. Layered bottom→top: vectors (shapes/rules),
-// images, text blocks (paragraph groups — context only), then each *run* (a span of one style)
-// dashed and clickable. Clicking a run selects exactly that small piece, so the panel shows its
-// real parameters, not an average of the whole block.
-function PageOverlay({ model, scale, pageIndex, selected, onSelect, showBoxes }) {
-  const box = (r) => ({ left: r.x * scale, top: r.y * scale, width: r.width * scale, height: r.height * scale })
-  return (
-    <>
-      {showBoxes && model.vectors.map((v, i) => (
-        <div key={'v' + i} className="pdfed__ov pdfed__ov--vec" style={box(v)} />
-      ))}
-      {showBoxes && model.images.map((m, i) => (
-        <div key={'i' + i} className="pdfed__ov pdfed__ov--img" style={box(m)} />
-      ))}
-      {/* block frames = future Rich-Editor objects (resizable/movable container of the rich text) */}
-      {showBoxes &&
-        model.blocks.map((b, i) => (
-          <div key={'b' + i} className="pdfed__ov pdfed__ov--block" style={box(b)} />
-        ))}
-      {/* runs stay clickable even with boxes hidden (is-bare just drops the visible outline) */}
-      {model.blocks.flatMap((b, bi) =>
-        b.lines.flatMap((ln, li) =>
-          ln.runs.map((run, ri) => {
-            const sel =
-              selected?.page === pageIndex && selected?.b === bi && selected?.l === li && selected?.r === ri
-            return (
-              <div
-                key={`r${bi}-${li}-${ri}`}
-                className={'pdfed__ov pdfed__ov--run' + (sel ? ' is-selected' : '') + (showBoxes ? '' : ' is-bare')}
-                style={box(run.bbox)}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelect({ page: pageIndex, b: bi, l: li, r: ri })
-                }}
-              />
-            )
-          })
-        )
-      )}
-    </>
-  )
-}
+// The page model already carries the fixed objects (stable id + all stream fragments + styled
+// content). Adapt them to the select layer's shape (key=id, z=paintZs = q..Q block indices, which the
+// worker shifts via a cm-wrap) and pull run bboxes for the grey style-span hints.
+const objectsOf = (m) =>
+  (m.objects || []).map((o) => ({ key: o.id, type: o.type, x: o.x, y: o.y, width: o.width, height: o.height, z: o.paintZs }))
+const runsOf = () => [] // text pieces are now objects themselves — no separate run hint layer
 
 // PDF viewer — open a document and render its pages. Editing features get rebuilt on top of this
 // one at a time. Ctrl+wheel zooms; pages re-render crisply at the new scale.
@@ -65,11 +30,14 @@ export default function PdfEditor({ source }) {
   const [tagged, setTagged] = useState(null) // does the file store logical structure (tagged PDF)?
   const [fontList, setFontList] = useState([]) // installed + bundled families, for the font dropdown
   const [showBoxes, setShowBoxes] = useState(true) // toggle the overlay frames' visibility
+  const [rev, setRev] = useState(0) // bump to force re-render of pages + model after an edit/undo
   const engineRef = useRef(null)
   const urlsRef = useRef([])
   const viewportRef = useRef(null)
   const panRef = useRef(null)
   const zoomAnchorRef = useRef(null) // keeps the point under the cursor fixed across a zoom step
+  const moveBusy = useRef(false) // a moveApply render is in flight
+  const moveLatest = useRef(null) // newest pending move job (latest-wins)
 
   const revoke = () => {
     for (const u of urlsRef.current) URL.revokeObjectURL(u)
@@ -140,7 +108,7 @@ export default function PdfEditor({ source }) {
     return () => {
       alive = false
     }
-  }, [pageCount, scale])
+  }, [pageCount, scale, rev])
 
   // On entering edit mode, ask MuPDF for every page's rich-text model (blocks→lines→runs, images,
   // vectors, palette). Cleared on exit. Coords are PDF points, scaled at render time.
@@ -163,7 +131,27 @@ export default function PdfEditor({ source }) {
     return () => {
       alive = false
     }
-  }, [editing, pageCount])
+  }, [editing, pageCount, rev])
+
+  // Ctrl+Z — undo the last edit by restoring the previous working-copy snapshot, then re-render
+  useEffect(() => {
+    if (!editing) return
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault()
+        Promise.resolve(engineRef.current?.undo())
+          .then((r) => {
+            if (r?.undone) {
+              setSelected(null)
+              setRev((v) => v + 1)
+            }
+          })
+          .catch((err) => console.error('[pdf] undo failed:', err))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editing])
 
   // Ctrl + wheel zoom (non-passive so we cancel the browser/page zoom). Anchors the zoom on the
   // point under the cursor: we record that content point now, then restore it after the re-layout.
@@ -216,6 +204,75 @@ export default function PdfEditor({ source }) {
       window.removeEventListener('keyup', up)
     }
   }, [])
+
+  const updatePageImage = (page, r) => {
+    const url = URL.createObjectURL(new Blob([r.png], { type: 'image/png' }))
+    urlsRef.current.push(url)
+    setPages((prev) => prev.map((pg) => (pg.pageIndex === page ? { ...pg, url } : pg)))
+  }
+
+  // Delete: apply to the working copy, refresh image + model.
+  const handleCommit = async (page, c) => {
+    if (!engineRef.current || c.type !== 'delete') return
+    try {
+      const r = await engineRef.current.redact(page, c.rects, scale)
+      updatePageImage(page, r)
+      const m = await engineRef.current.getModel(page)
+      setModel((prev) => ({ ...prev, [page]: m }))
+      setSelected(null)
+    } catch (err) {
+      console.error('[pdf] delete failed:', err)
+    }
+  }
+
+  // Real-time move: latest-wins — only the most recent drag position is rendered; skipped frames drop.
+  const handleMoveApply = (page, items) => {
+    console.log('[move] sending', items.length, 'items, distinct z:', new Set(items.map((i) => i.z)).size, 'z:', [...new Set(items.map((i) => i.z))])
+    moveLatest.current = { page, items }
+    if (moveBusy.current) return
+    moveBusy.current = true
+    ;(async () => {
+      while (moveLatest.current) {
+        const job = moveLatest.current
+        moveLatest.current = null
+        try {
+          const r = await engineRef.current.moveApply(job.page, job.items, scale)
+          updatePageImage(job.page, r)
+        } catch (err) {
+          console.error('[pdf] moveApply failed:', err)
+        }
+      }
+      moveBusy.current = false
+    })()
+  }
+  const handleMoveEnd = async (page, deltas) => {
+    // update object positions IN PLACE FIRST (synchronously, batched with the layer's offset reset)
+    // so the frame stays on the new spot — no re-segmentation, no return-then-jump flicker.
+    setModel((prev) => {
+      const m = prev[page]
+      if (!m) return prev
+      const shiftBox = (r, d) => ({ ...r, x: r.x + d.dx, y: r.y + d.dy })
+      const objects = m.objects.map((o) => {
+        const d = deltas[o.id]
+        if (!d) return o
+        const lines = o.lines?.map((l) => ({
+          ...l,
+          x: l.x + d.dx,
+          y: l.y + d.dy,
+          runs: l.runs.map((r) => ({ ...r, bbox: shiftBox(r.bbox, d) })),
+        }))
+        return { ...o, x: o.x + d.dx, y: o.y + d.dy, lines }
+      })
+      return { ...prev, [page]: { ...m, objects } }
+    })
+    // finalize the worker move afterwards (doesn't affect the UI)
+    while (moveBusy.current) await new Promise((r) => setTimeout(r, 8))
+    try {
+      await engineRef.current.moveEnd()
+    } catch (err) {
+      console.error('[pdf] moveEnd failed:', err)
+    }
+  }
 
   const onPanMouseDown = (e) => {
     const el = viewportRef.current
@@ -289,13 +346,20 @@ export default function PdfEditor({ source }) {
                   draggable={false}
                 />
                 {editing && model[p.pageIndex] && (
-                  <PageOverlay
-                    model={model[p.pageIndex]}
+                  <SelectLayer
+                    objects={objectsOf(model[p.pageIndex])}
+                    runs={runsOf(model[p.pageIndex])}
                     scale={scale}
-                    pageIndex={p.pageIndex}
-                    selected={selected}
-                    onSelect={setSelected}
+                    spaceHeld={spaceHeld}
                     showBoxes={showBoxes}
+                    onSelection={(keys) => {
+                      // one text object selected → show its style in the FORMAT panel
+                      setSelected(keys.length === 1 && keys[0][0] === 't' ? { page: p.pageIndex, id: keys[0] } : null)
+                    }}
+                    onCommit={(c) => handleCommit(p.pageIndex, c)}
+                    onMoveStart={() => engineRef.current?.moveStart(p.pageIndex)}
+                    onMoveApply={(items) => handleMoveApply(p.pageIndex, items)}
+                    onMoveEnd={(deltas) => handleMoveEnd(p.pageIndex, deltas)}
                   />
                 )}
               </div>
@@ -303,16 +367,20 @@ export default function PdfEditor({ source }) {
           </div>
         </div>
 
-        {editing && (
-          <StylePanel
-            page={selected ? model[selected.page] : null}
-            block={selected ? model[selected.page]?.blocks[selected.b] : null}
-            run={selected ? model[selected.page]?.blocks[selected.b]?.lines[selected.l]?.runs[selected.r] : null}
-            fontList={fontList}
-            showBoxes={showBoxes}
-            onShowBoxes={setShowBoxes}
-          />
-        )}
+        {editing &&
+          (() => {
+            const obj = selected ? model[selected.page]?.objects.find((o) => o.id === selected.id) : null
+            return (
+              <StylePanel
+                page={selected ? model[selected.page] : null}
+                block={obj}
+                run={obj?.lines?.[0]?.runs?.[0]}
+                fontList={fontList}
+                showBoxes={showBoxes}
+                onShowBoxes={setShowBoxes}
+              />
+            )
+          })()}
       </div>
     </div>
   )

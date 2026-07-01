@@ -38,7 +38,9 @@ export function charsToRuns(chars) {
         mono: ch.mono,
         color: ch.color,
         hScale: ch.hScale, // horizontal scale (Tz), 1 = 100%
-        z: ch.z, // paint order (content-stream order) from the Device pass
+        z: ch.z, // first stream fragment (paint order)
+        zs: [], // ALL stream fragments this run touches (one run can span several Tj of one style)
+        paintZs: [], // q..Q block indices this run touches (for the move wrapper)
         baseline: ch.oy, // text baseline y (for super/subscript and line spacing)
         x0: ch.x0,
         y0: ch.y0,
@@ -47,6 +49,8 @@ export function charsToRuns(chars) {
       }
       runs.push(cur)
     }
+    if (ch.z != null && !cur.zs.includes(ch.z)) cur.zs.push(ch.z)
+    if (ch.paintZ != null && !cur.paintZs.includes(ch.paintZ)) cur.paintZs.push(ch.paintZ)
     cur.text += ch.c
     cur.x0 = Math.min(cur.x0, ch.x0)
     cur.y0 = Math.min(cur.y0, ch.y0)
@@ -64,6 +68,8 @@ export function charsToRuns(chars) {
     color: r.color,
     hScale: r.hScale,
     z: r.z,
+    zs: r.zs,
+    paintZs: r.paintZs,
     baseline: r.baseline,
     bbox: { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0 },
   }))

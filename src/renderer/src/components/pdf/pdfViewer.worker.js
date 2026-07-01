@@ -13,8 +13,110 @@ import {
 } from './pdfModel.js'
 
 let doc = null
+let undoStack = [] // snapshots (PDF bytes) of the working copy before each edit, newest last
+let moveBaseline = null // { cs, pageIndex } — baseline stream for an in-progress real-time move
+
+// snapshot the working copy so the edit about to happen can be undone (cap at 20)
+function pushUndo() {
+  if (!doc) return
+  try {
+    undoStack.push(doc.saveToBuffer().asUint8Array())
+    if (undoStack.length > 20) undoStack.shift()
+  } catch (_) {
+    // saveToBuffer failed — skip this undo point rather than break the edit
+  }
+}
 
 const stripSubset = (n) => (n || '').replace(/^[A-Z]{6}\+/, '')
+
+// Length-preserving mask: blank the inside of ( ) literal strings and < > hex strings so q/Q letters
+// living inside text/operands are never mistaken for q/Q operators. Offsets stay identical to the
+// original stream, so block ranges found here splice back into the real bytes unchanged.
+function maskStreamOperands(s) {
+  const a = s.split('')
+  let i = 0
+  while (i < a.length) {
+    const ch = a[i]
+    if (ch === '(') {
+      let depth = 1
+      let j = i + 1
+      while (j < a.length && depth > 0) {
+        if (a[j] === '\\') { a[j] = 'X'; if (j + 1 < a.length) a[j + 1] = 'X'; j += 2; continue }
+        if (a[j] === '(') depth++
+        else if (a[j] === ')') { depth--; if (depth === 0) break }
+        a[j] = 'X'
+        j++
+      }
+      i = j + 1
+    } else if (ch === '<') {
+      let j = i + 1
+      while (j < a.length && a[j] !== '>') { a[j] = 'X'; j++ }
+      i = j + 1
+    } else i++
+  }
+  return a.join('')
+}
+
+// Find every TOP-LEVEL `q … Q` block (balanced; nesting from earlier cm-wraps collapses into its
+// enclosing top-level block). Returns [start, end) byte ranges in stream order. There is exactly one
+// such block per paint op (verified against the Device paint sequence), so the Nth block == paintZ N.
+const Q_OP = /(?<=^|[\s[\]<>(){}/])[qQ](?=[\s[\]<>(){}/]|$)/g
+function topLevelQBlocks(masked) {
+  Q_OP.lastIndex = 0
+  let m
+  let depth = 0
+  let start = -1
+  const blocks = []
+  while ((m = Q_OP.exec(masked))) {
+    if (m[0] === 'q') {
+      if (depth === 0) start = m.index
+      depth++
+    } else if (depth > 0) {
+      depth--
+      if (depth === 0 && start >= 0) {
+        blocks.push([start, m.index + 1])
+        start = -1
+      }
+    }
+  }
+  return blocks
+}
+
+// The enclosing (page-base) CTM scale |a|,|d| in effect at each top-level block's `q`, built from the
+// depth-0 `cm` operators only (transforms inside a q..Q are saved/restored, so they don't carry over).
+// A `cm` shift inserted right after the `q` is multiplied by this scale, so dividing the device-space
+// drag delta by it makes the on-screen move exact. Same order as topLevelQBlocks → index by paintZ-1.
+const matMul = (A, B) => [
+  A[0] * B[0] + A[1] * B[2], A[0] * B[1] + A[1] * B[3],
+  A[2] * B[0] + A[3] * B[2], A[2] * B[1] + A[3] * B[3],
+  A[4] * B[0] + A[5] * B[2] + B[4], A[4] * B[1] + A[5] * B[3] + B[5],
+]
+function blockBaseScales(masked) {
+  const toks = masked.split(/\s+/)
+  let depth = 0
+  let base = [1, 0, 0, 1, 0, 0]
+  const stack = []
+  const num = []
+  const scales = []
+  for (const t of toks) {
+    if (/^-?[0-9.]+$/.test(t)) { num.push(parseFloat(t)); continue }
+    if (t === 'q') {
+      if (depth === 0) scales.push([Math.abs(base[0]) || 1, Math.abs(base[3]) || 1])
+      stack.push(base.slice())
+      depth++
+      num.length = 0
+    } else if (t === 'Q') {
+      if (stack.length) base = stack.pop()
+      depth--
+      num.length = 0
+    } else if (t === 'cm') {
+      const m = num.slice(-6)
+      if (depth === 0 && m.length === 6) base = matMul(m, base)
+      num.length = 0
+    } else num.length = 0
+  }
+  return scales
+}
 
 // Parse a TrueType/OpenType `name` table to recover the real font names that BaseFont may hide
 // behind a generic id (e.g. "CIDFont+F1"). Returns { family, full, post } or null.
@@ -148,6 +250,7 @@ self.onmessage = (e) => {
   try {
     if (type === 'open') {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
+      undoStack = [] // fresh working copy → clear history
       // Is the logical structure actually stored in the file? Tagged PDFs carry a structure tree
       // (/StructTreeRoot) + marked content (/MarkInfo /Marked). Untagged PDFs carry none — blocks
       // can only be reconstructed geometrically. Report which, so we know what we're working with.
@@ -203,7 +306,8 @@ self.onmessage = (e) => {
         const metricsMap = new Map()
         const vecZ = []
         const imgZ = []
-        let seq = 0
+        let seq = 0 // paint order (all ops) — for vector/image stacking
+        let textSeq = 0 // TEXT-only order — matches Tm order in the stream, so move targets the right fragment
         const concat = (A, B) => [
           A[0] * B[0] + A[1] * B[2],
           A[0] * B[1] + A[1] * B[3],
@@ -224,13 +328,14 @@ self.onmessage = (e) => {
         try {
           dev = new mupdf.Device({
             fillText(text, ctm) {
-              const z = ++seq
+              const paintZ = ++seq // q..Q block index (paint order, all ops) — move wraps this block
+              const z = ++textSeq // text-only → Tm order
               text.walk({
                 showGlyph(font, trm) {
                   const m = concat(trm, ctm)
                   const vert = Math.hypot(m[2], m[3])
                   const horiz = Math.hypot(m[0], m[1])
-                  metricsMap.set(Math.round(m[4]) + ',' + Math.round(m[5]), { size: vert, hScale: vert > 0 ? horiz / vert : 1, z })
+                  metricsMap.set(Math.round(m[4]) + ',' + Math.round(m[5]), { size: vert, hScale: vert > 0 ? horiz / vert : 1, z, paintZ })
                 },
               })
             },
@@ -304,6 +409,7 @@ self.onmessage = (e) => {
                 mono: font.isMono(),
                 color: colorToHex(color),
                 z: ex ? ex.z : undefined,
+                paintZ: ex ? ex.paintZ : undefined,
                 ox: origin[0],
                 oy: origin[1],
                 x0: b.x0,
@@ -368,12 +474,66 @@ self.onmessage = (e) => {
           }
         }
         const palette = collectPalette(blocks)
+
+        // Objects = individual TEXT pieces (runs), plus images/vectors. Each text object is one run
+        // with its own stream fragment(s); move/select work per-piece (or grouped via marquee). Block
+        // grouping is dropped for now. id = type prefix + running index → unique React key.
+        const textObjs = []
+        for (const b of blocks) {
+          for (const ln of b.lines) {
+            for (const r of ln.runs) {
+              if (!r.text.trim()) continue
+              const fragmentZ = r.zs && r.zs.length ? [...new Set(r.zs)] : r.z != null ? [r.z] : []
+              const paintZs = r.paintZs && r.paintZs.length ? [...new Set(r.paintZs)] : []
+              textObjs.push({
+                type: 'text',
+                fk: paintZs.join(','), // same q..Q block → can't be moved in parts → one object
+                x: r.bbox.x,
+                y: r.bbox.y,
+                width: r.bbox.width,
+                height: r.bbox.height,
+                fragmentZ,
+                paintZs,
+                lines: [{ x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height, baseline: ln.baseline, runs: [r] }],
+                align: b.align,
+                lineSpacing: b.lineSpacing,
+                paragraphSpacing: b.paragraphSpacing,
+              })
+            }
+          }
+        }
+        // merge pieces that live in the SAME stream fragment(s) — one Tj can't be moved in parts, so
+        // they become one object (e.g. "Quantity … Rate" packed into a single Tj with wide spacing)
+        const byFk = new Map()
+        const objects = []
+        for (const o of textObjs) {
+          const m = o.fk ? byFk.get(o.fk) : null
+          if (m) {
+            const x1 = Math.max(m.x + m.width, o.x + o.width)
+            const y1 = Math.max(m.y + m.height, o.y + o.height)
+            m.x = Math.min(m.x, o.x)
+            m.y = Math.min(m.y, o.y)
+            m.width = x1 - m.x
+            m.height = y1 - m.y
+            m.lines.push(...o.lines)
+          } else {
+            if (o.fk) byFk.set(o.fk, o)
+            objects.push(o)
+          }
+        }
+        objects.forEach((o, i) => {
+          o.id = 't' + i
+          delete o.fk
+        })
+        for (const im of images)
+          objects.push({ id: 'i' + objects.length, type: 'image', x: im.x, y: im.y, width: im.width, height: im.height, fragmentZ: [], paintZs: im.z != null ? [im.z] : [] })
+        for (const v of vectors)
+          objects.push({ id: 'v' + objects.length, type: 'vector', x: v.x, y: v.y, width: v.width, height: v.height, fragmentZ: [], paintZs: v.z != null ? [v.z] : [] })
+
         self.postMessage({
           id,
           result: {
-            blocks,
-            images,
-            vectors,
+            objects,
             fonts: fontResources.length ? fontResources : palette.fonts,
             colors: palette.colors,
             docLineSpacing,
@@ -382,9 +542,108 @@ self.onmessage = (e) => {
       } finally {
         page.destroy()
       }
+    } else if (type === 'redact') {
+      // Delete objects from the working copy: cover each rect with a Redact annotation, apply (which
+      // removes the underlying content), then re-render the page. Edits the in-memory doc only.
+      if (!doc) throw new Error('no document open')
+      pushUndo() // snapshot before mutating the working copy
+      const page = doc.loadPage(params.pageIndex)
+      try {
+        for (const r of params.rects) {
+          const annot = page.createAnnotation('Redact')
+          annot.setRect([r.x, r.y, r.x + r.width, r.y + r.height])
+        }
+        // remove ONLY the kind of object being deleted; leave the background/plate intact.
+        // text always removed; images/vectors removed only if such an object is in the selection.
+        const hasImg = params.rects.some((r) => r.type === 'image')
+        const hasVec = params.rects.some((r) => r.type === 'vector')
+        page.applyRedactions(false, hasImg ? 1 : 0, hasVec ? 2 : 0, 0) // (no black box, image, line-art, text)
+        const m = mupdf.Matrix.scale(params.scale, params.scale)
+        const pix = page.toPixmap(m, mupdf.ColorSpace.DeviceRGB, false)
+        const png = pix.asPNG()
+        const w = pix.getWidth()
+        const h = pix.getHeight()
+        pix.destroy()
+        const buf = new Uint8Array(png).buffer
+        self.postMessage({ id, result: { png: buf, width: w / params.scale, height: h / params.scale } }, [buf])
+      } finally {
+        page.destroy()
+      }
+    } else if (type === 'moveStart') {
+      // Begin a real-time move: snapshot for undo, capture the BASELINE content stream. moveApply always
+      // works from this baseline + the full drag delta (latest-wins), so skipped frames never accumulate
+      // error. The move targets q..Q blocks by index, so no per-fragment CTM is needed here.
+      if (!doc) throw new Error('no document open')
+      pushUndo()
+      const pageObj = doc.findPage(params.pageIndex)
+      const contents = pageObj.get('Contents')
+      const streamObj = contents.isArray() ? contents.get(0) : contents
+      const cs = new TextDecoder('latin1').decode(streamObj.readStream().asUint8Array())
+      moveBaseline = { cs, pageIndex: params.pageIndex }
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'moveApply') {
+      // Apply the full drag delta to the baseline stream and re-render (no undo snapshot here).
+      // Universal move: wrap the object's whole `q … Q` block in a `cm` translation so its content,
+      // its clip path AND any type (text/vector/image) all shift together. Device delta → page cm:
+      // x stays, y flips (device-down vs page-up) → `1 0 0 1 dx -dy cm`.
+      if (!moveBaseline) throw new Error('no move in progress')
+      const shiftByPaint = {}
+      for (const it of params.items) shiftByPaint[it.z] = { dx: it.dx, dy: it.dy }
+      const masked = maskStreamOperands(moveBaseline.cs)
+      const blocks = topLevelQBlocks(masked)
+      const scales = blockBaseScales(masked)
+      // splice right-to-left so earlier offsets stay valid; paintZ is 1-based → block index paintZ-1.
+      // Divide the device drag delta by the block's enclosing scale so the on-screen move is exact.
+      let cs = moveBaseline.cs
+      let wrapped = 0
+      const targets = Object.keys(shiftByPaint)
+        .map(Number)
+        .filter((p) => blocks[p - 1])
+        .sort((a, b) => b - a)
+      for (const p of targets) {
+        const [s, e] = blocks[p - 1]
+        const [a, d] = scales[p - 1] || [1, 1]
+        const { dx, dy } = shiftByPaint[p]
+        const tx = dx / a
+        const ty = dy / d
+        cs = cs.slice(0, s) + `q 1 0 0 1 ${tx.toFixed(4)} ${ty.toFixed(4)} cm\n` + cs.slice(s, e) + `\nQ` + cs.slice(e)
+        wrapped++
+      }
+      self.postMessage({ log: `moveApply: requested ${Object.keys(shiftByPaint).length}, wrapped ${wrapped}, q-blocks ${blocks.length}` })
+      const outBytes = new Uint8Array(cs.length)
+      for (let i = 0; i < cs.length; i++) outBytes[i] = cs.charCodeAt(i) & 0xff
+      const page = doc.loadPage(moveBaseline.pageIndex)
+      try {
+        const pageObj = doc.findPage(moveBaseline.pageIndex)
+        const contents = pageObj.get('Contents')
+        const streamObj = contents.isArray() ? contents.get(0) : contents
+        streamObj.writeStream(outBytes)
+        const pix = page.toPixmap(mupdf.Matrix.scale(params.scale, params.scale), mupdf.ColorSpace.DeviceRGB, false)
+        const png = pix.asPNG()
+        const w = pix.getWidth()
+        const h = pix.getHeight()
+        pix.destroy()
+        const buf = new Uint8Array(png).buffer
+        self.postMessage({ id, result: { png: buf, width: w / params.scale, height: h / params.scale } }, [buf])
+      } finally {
+        page.destroy()
+      }
+    } else if (type === 'moveEnd') {
+      moveBaseline = null
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'undo') {
+      if (undoStack.length) {
+        const bytes = undoStack.pop()
+        doc?.destroy?.()
+        doc = mupdf.Document.openDocument(bytes, 'application/pdf')
+        self.postMessage({ id, result: { undone: true, left: undoStack.length } })
+      } else {
+        self.postMessage({ id, result: { undone: false, left: 0 } })
+      }
     } else if (type === 'close') {
       doc?.destroy?.()
       doc = null
+      undoStack = []
       self.postMessage({ id, result: null })
     } else {
       throw new Error('unknown request: ' + type)

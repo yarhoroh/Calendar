@@ -529,3 +529,91 @@
   cursor: pointer;
   accent-color: var(--fmt-active);
 }
+
+/* ---- object selection layer ---- */
+.pdfed__select {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+/* while dragging, don't let objects under the cursor hover-highlight and distract */
+.pdfed__select.is-dragging .pdfed__obj,
+.pdfed__select.is-dragging .pdfed__ov--run {
+  pointer-events: none;
+}
+/* cover the original location of a moved object (white background assumption) */
+.pdfed__cover {
+  position: absolute;
+  background: #fff;
+  pointer-events: none;
+  z-index: 14;
+}
+/* the moved object itself — a window into the rendered page, shifted to the new spot */
+.pdfed__sprite {
+  position: absolute;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 15;
+}
+.pdfed__obj {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.pdfed__obj--block {
+  border: 1px solid rgba(16, 185, 129, 0.5);
+}
+.pdfed__obj--text {
+  border: 1px dashed rgba(110, 110, 110, 0.75);
+  pointer-events: auto;
+  cursor: move;
+}
+.pdfed__obj--text:hover {
+  border-color: rgba(70, 70, 70, 0.95);
+  background: rgba(120, 120, 120, 0.1);
+}
+.pdfed__obj--image {
+  border: 1.5px solid rgba(59, 130, 246, 0.9);
+  background: rgba(59, 130, 246, 0.05);
+}
+.pdfed__obj--vector {
+  border: 1px solid rgba(245, 158, 11, 0.85);
+}
+.pdfed__obj.is-bare {
+  border-color: transparent;
+  background: transparent;
+}
+.pdfed__obj.is-sel {
+  border-color: #1473e6;
+  background: rgba(20, 115, 230, 0.1);
+}
+.pdfed__frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #1473e6;
+  pointer-events: none;
+  z-index: 30;
+}
+.pdfed__handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1px solid #1473e6;
+}
+.pdfed__handle--nw { left: -4px; top: -4px; }
+.pdfed__handle--n  { left: calc(50% - 4px); top: -4px; }
+.pdfed__handle--ne { right: -4px; top: -4px; }
+.pdfed__handle--e  { right: -4px; top: calc(50% - 4px); }
+.pdfed__handle--se { right: -4px; bottom: -4px; }
+.pdfed__handle--s  { left: calc(50% - 4px); bottom: -4px; }
+.pdfed__handle--sw { left: -4px; bottom: -4px; }
+.pdfed__handle--w  { left: -4px; top: calc(50% - 4px); }
+.pdfed__rubber {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed #1473e6;
+  background: rgba(20, 115, 230, 0.1);
+  pointer-events: none;
+  z-index: 25;
+}

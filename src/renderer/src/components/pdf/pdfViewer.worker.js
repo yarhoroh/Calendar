@@ -33,6 +33,22 @@ function pushUndo() {
 
 const stripSubset = (n) => (n || '').replace(/^[A-Z]{6}\+/, '')
 
+// Does an sfnt (TrueType/OpenType) buffer contain a given 4-char table? Used to skip fonts the browser
+// can't load as @font-face (e.g. subset CID fonts with no 'cmap').
+function sfntHasTable(buf, tag) {
+  try {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const n = dv.getUint16(4)
+    for (let i = 0; i < n; i++) {
+      const r = 12 + i * 16
+      if (String.fromCharCode(buf[r], buf[r + 1], buf[r + 2], buf[r + 3]) === tag) return true
+    }
+  } catch (_) {
+    /* unreadable */
+  }
+  return false
+}
+
 // Length-preserving mask: blank the inside of ( ) literal strings and < > hex strings so q/Q letters
 // living inside text/operands are never mistaken for q/Q operators. Offsets stay identical to the
 // original stream, so block ranges found here splice back into the real bytes unchanged.
@@ -494,6 +510,9 @@ function collectEmbeddedFonts() {
     }
     if (seen.has(name)) continue
     seen.add(name)
+    // subset CID fonts often ship WITHOUT a unicode cmap → the browser's OTS rejects them as @font-face.
+    // Skip those (the editor falls back to a system family) instead of spamming OTS parse errors.
+    if (!sfntHasTable(raw, 'cmap')) continue
     out.push({ name, bytes: new Uint8Array(raw).buffer }) // fresh buffer so it can be transferred
   }
   return out
@@ -629,12 +648,16 @@ self.onmessage = (e) => {
         const z2show = {}
         const z2state = {} // textSeq → PDF text state of its show operator (tm, tz, tc, tw, ts, fontRes…)
         const show2block = {} // show-op index → the top-level q..Q block that contains it (for move)
+        let pageShowCount = 0
+        let qBlockCount = 0
         try {
           const H = bounds[3] - bounds[1]
           const masked = maskStreamOperands(readPageContent(doc.findPage(params.pageIndex)))
           const shows = textShowPositions(masked)
           const showRanges = findTextShows(masked)
           const qBlocks = topLevelQBlocks(masked)
+          pageShowCount = showRanges.length
+          qBlockCount = qBlocks.length
           for (let si = 0; si < showRanges.length; si++) {
             const off = showRanges[si][0]
             for (let bi = 0; bi < qBlocks.length; bi++) {
@@ -832,6 +855,22 @@ self.onmessage = (e) => {
           objects.push({ id: 'i' + objects.length, type: 'image', x: im.x, y: im.y, width: im.width, height: im.height, fragmentZ: [], paintZs: im.z != null ? [im.z] : [] })
         for (const v of vectors)
           objects.push({ id: 'v' + objects.length, type: 'vector', x: v.x, y: v.y, width: v.width, height: v.height, fragmentZ: [], paintZs: v.z != null ? [v.z] : [] })
+
+        // Diagnostics: why does editing work on one PDF but not another? Compare these across files.
+        try {
+          const contents = doc.findPage(params.pageIndex).get('Contents')
+          const nStreams = contents.isArray() ? contents.length : 1
+          const resD = doc.findPage(params.pageIndex).getInheritable('Resources')
+          const xo = resD && !resD.isNull() ? resD.get('XObject') : null
+          const nText = objects.filter((o) => o.type === 'text').length
+          const withShow = objects.filter((o) => o.type === 'text' && o.showZs && o.showZs.length).length
+          const withMove = objects.filter((o) => o.type === 'text' && o.moveBlocks && o.moveBlocks.length).length
+          self.postMessage({
+            log: `getModel p${params.pageIndex}: textPaints=${Object.keys(textOrigin).length} pageShows=${pageShowCount} qBlocks=${qBlockCount} matchedShow=${Object.keys(z2show).length} | textObjs=${nText} withShowZs=${withShow} withMoveBlocks=${withMove} | streams=${nStreams} hasXObject=${!!(xo && !xo.isNull())}`,
+          })
+        } catch (_) {
+          /* diagnostics only */
+        }
 
         self.postMessage({
           id,

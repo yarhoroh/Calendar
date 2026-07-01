@@ -353,7 +353,7 @@ function collectPageShows(pageObj, H) {
     let tm = [1, 0, 0, 1, 0, 0]
     let tlm = [1, 0, 0, 1, 0, 0]
     let L = 0
-    let fontRes = null, fontSize = 0, tc = 0, tw = 0, tz = 100, ts = 0, pendName = null
+    let fontRes = null, fontSize = 0, tc = 0, tw = 0, tz = 100, ts = 0, tr = 0, pendName = null
     const num = []
     const N = (k) => num.slice(-k).map(Number)
     let showIdx = 0
@@ -370,14 +370,15 @@ function collectPageShows(pageObj, H) {
       else if (t === 'Tw') { const v = N(1); if (v.length) tw = v[0] }
       else if (t === 'Tz') { const v = N(1); if (v.length) tz = v[0] }
       else if (t === 'Ts') { const v = N(1); if (v.length) ts = v[0] }
+      else if (t === 'Tr') { const v = N(1); if (v.length) tr = v[0] }
       else if (t === 'TL') { const v = N(1); if (v.length) L = v[0] }
       else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
       else if (t === 'TD') { const [x, y] = N(2); L = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
       else if (t === 'T*') { tlm = matMul([1, 0, 0, 1, 0, -L], tlm); tm = tlm.slice() }
       else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
         const trm = matMul(tm, ctm)
-        showIdx++
-        shows.push({ stream: streamNum, show: showIdx, block: showBlock[showIdx - 1] || 0, x: trm[4], y: H - trm[5], tm: tm.slice(), tz, tc, tw, ts, fontRes, fontSize })
+        showIdx++ // count ALL shows (index must match findTextShows), but skip INVISIBLE text (Tr 3/7)
+        if (tr !== 3 && tr !== 7) shows.push({ stream: streamNum, show: showIdx, block: showBlock[showIdx - 1] || 0, x: trm[4], y: H - trm[5], tm: tm.slice(), tz, tc, tw, ts, fontRes, fontSize })
       } else if (t === 'Do') {
         try {
           const xo = resources && !resources.isNull() ? resources.get('XObject') : null

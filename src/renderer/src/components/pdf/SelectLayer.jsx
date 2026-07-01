@@ -81,7 +81,7 @@ export default function SelectLayer({ objects, runs, scale, spaceHeld, showBoxes
       const items = []
       for (const k of d.keys) {
         const o = objects.find((x) => x.key === k)
-        if (o?.z?.length) for (const z of o.z) items.push({ stream: o.stream || 0, block: z, dx, dy })
+        if (o?.move) items.push({ ...o.move, dx, dy })
       }
       if (items.length) onMoveApply?.(items)
     } else if (d.mode === 'marquee') {

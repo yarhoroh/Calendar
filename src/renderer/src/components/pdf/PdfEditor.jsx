@@ -19,10 +19,12 @@ const objectsOf = (m) =>
     y: o.y,
     width: o.width,
     height: o.height,
-    // move wraps these top-level q..Q blocks (in their stream) in a cm shift. Text: the blocks holding
-    // its show ops, in its stream (page or a form XObject). Vectors/images: their paint index on the page.
-    z: (o.addr && o.addr.blocks.length ? o.addr.blocks : o.paintZs) || [],
-    stream: o.addr ? o.addr.stream : 0,
+    // how to move this object: TEXT shifts each show's Tm (so only it moves, even when the whole page
+    // is one q..Q block); vectors/images wrap their q..Q block in a cm shift.
+    move:
+      o.type === 'text' && o.addr
+        ? { kind: 'tm', stream: o.addr.stream, shows: o.addr.shows, sa: o.addr.sa, sd: o.addr.sd }
+        : { kind: 'block', stream: 0, block: (o.paintZs && o.paintZs[0]) || 0 },
   }))
 const runsOf = () => [] // text pieces are now objects themselves — no separate run hint layer
 
@@ -271,7 +273,7 @@ export default function PdfEditor({ source }) {
 
   // Real-time move: latest-wins — only the most recent drag position is rendered; skipped frames drop.
   const handleMoveApply = (page, items) => {
-    console.log('[move] sending', items.length, 'items:', items.map((i) => `s${i.stream}:b${i.block}`).join(' '))
+    console.log('[move] sending', items.length, 'items:', items.map((i) => (i.kind === 'tm' ? `tm s${i.stream} shows[${i.shows}]` : `block ${i.block}`)).join(' '))
     moveLatest.current = { page, items }
     if (moveBusy.current) return
     moveBusy.current = true

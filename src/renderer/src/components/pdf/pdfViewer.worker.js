@@ -385,7 +385,7 @@ function collectPageShows(pageObj, H) {
       else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
         const trm = matMul(tm, ctm)
         showIdx++ // count ALL shows (index must match findTextShows), but skip INVISIBLE text (Tr 3/7)
-        if (tr !== 3 && tr !== 7) shows.push({ stream: streamNum, show: showIdx, block: showBlock[showIdx - 1] || 0, x: trm[4], y: H - trm[5], tm: tm.slice(), tz, tc, tw, ts, fontRes, fontSize })
+        if (tr !== 3 && tr !== 7) shows.push({ stream: streamNum, show: showIdx, block: showBlock[showIdx - 1] || 0, x: trm[4], y: H - trm[5], tm: tm.slice(), sa: ctm[0], sd: ctm[3], tz, tc, tw, ts, fontRes, fontSize })
       } else if (t === 'Do') {
         try {
           const xo = resources && !resources.isNull() ? resources.get('XObject') : null
@@ -891,6 +891,8 @@ self.onmessage = (e) => {
                 stream: addrs.length ? addrs[0].stream : 0,
                 shows: [...new Set(addrs.map((a) => a.show))],
                 blocks: [...new Set(addrs.map((a) => a.block).filter(Boolean))],
+                sa: st ? st.sa : 1, // CTM scale at the show → convert device drag to Tm delta on move
+                sd: st ? st.sd : 1,
               }
               textObjs.push({
                 type: 'text',
@@ -1014,31 +1016,48 @@ self.onmessage = (e) => {
       // block lives in some stream (page or a form XObject); we edit that stream. Items: {stream,block}.
       if (!moveBaseline) throw new Error('no move in progress')
       const pageObj = doc.findPage(moveBaseline.pageIndex)
-      const byStream = {}
+      const streamsHit = new Set()
       for (const it of params.items) {
         const s = it.stream || 0
+        streamsHit.add(s)
         if (moveBaseline.streams[s] === undefined) moveBaseline.streams[s] = readStreamNum(pageObj, s)
-        ;(byStream[s] = byStream[s] || {})[it.block] = { dx: it.dx, dy: it.dy }
       }
-      let wrapped = 0
-      for (const sKey of Object.keys(byStream)) {
-        const s = Number(sKey)
+      const TM = /(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+Tm/g
+      for (const s of streamsHit) {
         const base = moveBaseline.streams[s]
         const masked = maskStreamOperands(base)
+        const shows = findTextShows(masked)
         const blocks = topLevelQBlocks(masked)
         const scales = blockBaseScales(masked)
+        const tms = [...base.matchAll(TM)].map((m) => ({ start: m.index, end: m.index + m[0].length, p: m.slice(1, 5), e: parseFloat(m[5]), f: parseFloat(m[6]) }))
+        const edits = [] // { start, end, text } (Tm rewrite) or { start, end, pre, suf } (block wrap)
+        const tmSeen = new Map()
+        for (const it of params.items) {
+          if ((it.stream || 0) !== s) continue
+          if (it.kind === 'block') {
+            const [st, en] = blocks[it.block - 1] || []
+            if (st == null) continue
+            const [a, d] = scales[it.block - 1] || [1, 1]
+            edits.push({ start: st, end: en, pre: `q 1 0 0 1 ${(it.dx / a).toFixed(4)} ${(it.dy / d).toFixed(4)} cm\n`, suf: `\nQ` })
+          } else {
+            const de = it.dx / (it.sa || 1)
+            const df = -it.dy / (it.sd || 1)
+            for (const showIdx of it.shows || []) {
+              const so = shows[showIdx - 1]?.[0]
+              if (so == null) continue
+              let tm = null // the Tm operator that positions this show = last Tm before it
+              for (const t of tms) if (t.start < so && (!tm || t.start > tm.start)) tm = t
+              if (tm && !tmSeen.has(tm.start)) { tmSeen.set(tm.start, true); edits.push({ start: tm.start, end: tm.end, text: `${tm.p.join(' ')} ${(tm.e + de).toFixed(3)} ${(tm.f + df).toFixed(3)} Tm` }) }
+            }
+          }
+        }
         let cs = base
-        const targets = Object.keys(byStream[s]).map(Number).filter((p) => blocks[p - 1]).sort((a, b) => b - a)
-        for (const p of targets) {
-          const [st, en] = blocks[p - 1]
-          const [a, d] = scales[p - 1] || [1, 1]
-          const { dx, dy } = byStream[s][p]
-          cs = cs.slice(0, st) + `q 1 0 0 1 ${(dx / a).toFixed(4)} ${(dy / d).toFixed(4)} cm\n` + cs.slice(st, en) + `\nQ` + cs.slice(en)
-          wrapped++
+        for (const ed of edits.sort((a, b) => b.start - a.start)) {
+          if (ed.text != null) cs = cs.slice(0, ed.start) + ed.text + cs.slice(ed.end)
+          else cs = cs.slice(0, ed.start) + ed.pre + cs.slice(ed.start, ed.end) + ed.suf + cs.slice(ed.end)
         }
         writeStreamNum(pageObj, s, cs)
       }
-      self.postMessage({ log: `moveApply: items ${params.items.length}, wrapped ${wrapped}, streams [${Object.keys(byStream).join(',')}]` })
       const r = rasterizePage(moveBaseline.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'moveEnd') {

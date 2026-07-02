@@ -21,22 +21,25 @@ const distSeg = (px, py, x1, y1, x2, y2) => {
 }
 const lineHitPad = (o) => (o.strokeW || 1) / 2 + 3 // half stroke + finger padding, pt
 const hitTest = (objects, x, y) => {
-  let best = null
-  for (const o of objects) {
-    if (o.line) {
-      // a slanted line/arrow only reacts near its actual path (same for both — one geometry)
-      if (distSeg(x, y, o.line.x1, o.line.y1, o.line.x2, o.line.y2) > lineHitPad(o)) continue
-    } else {
-      const padX = o.bbox.w < PAD ? PAD : 0
-      const padY = o.bbox.h < PAD ? PAD : 0
-      if (x < o.bbox.x - padX || x > o.bbox.x + o.bbox.w + padX) continue
-      if (y < o.bbox.y - padY || y > o.bbox.y + o.bbox.h + padY) continue
-    }
-    if (!best) { best = o; continue }
-    if ((o.z || 0) > (best.z || 0)) best = o
-    else if ((o.z || 0) === (best.z || 0) && o.bbox.w * o.bbox.h < best.bbox.w * best.bbox.h) best = o
+  const under = (o) => {
+    if (o.line) return distSeg(x, y, o.line.x1, o.line.y1, o.line.x2, o.line.y2) <= lineHitPad(o)
+    const padX = o.bbox.w < PAD ? PAD : 0
+    const padY = o.bbox.h < PAD ? PAD : 0
+    return x >= o.bbox.x - padX && x <= o.bbox.x + o.bbox.w + padX && y >= o.bbox.y - padY && y <= o.bbox.y + o.bbox.h + padY
   }
-  return best
+  const pick = (list) => {
+    let best = null
+    for (const o of list) {
+      if (!under(o)) continue
+      if (!best) { best = o; continue }
+      if ((o.z || 0) > (best.z || 0)) best = o
+      else if ((o.z || 0) === (best.z || 0) && o.bbox.w * o.bbox.h < best.bbox.w * best.bbox.h) best = o
+    }
+    return best
+  }
+  // TEXT first: a click on text picks the text, even if an art object sits on top of it; only when
+  // no text is under the cursor do images/vectors get selected
+  return pick(objects.filter((o) => o.type === 'text')) || pick(objects.filter((o) => o.type !== 'text'))
 }
 const unionOf = (objs) => {
   if (!objs.length) return null

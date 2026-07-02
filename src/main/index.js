@@ -14,7 +14,7 @@ import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } 
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
-import { initPdfIndex, syncIndex, reindexPath, indexStates, indexSummary, searchIndex } from './pdfIndex'
+import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex } from './pdfIndex'
 import { getGoogleFont } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
@@ -1334,9 +1334,10 @@ if (!gotLock) {
     createWindow()
     createTray()
     initDb()
-    // PDF full-text index: reconcile once shortly after start (background worker pool)
+    // PDF full-text index: re-check every recorded file's mtime (catch edits made while closed),
+    // then reconcile with the tree — all on the background worker pool
     initPdfIndex(() => mainWindow?.webContents?.send('pdf:index-changed'))
-    setTimeout(() => syncIndex(getPdfTree), 2000)
+    setTimeout(() => { verifyDb(); syncIndex(getPdfTree) }, 2000)
     ensureAiConfig()
     migrateNotesJson()
     initNotify({

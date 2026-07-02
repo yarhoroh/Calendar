@@ -168,6 +168,28 @@ export function syncIndex(getTree) {
   return { reachable: reach.size, queued: added }
 }
 
+// Startup safety net: re-check the mtime/size of EVERY file recorded in the DB (not just the ones
+// currently reachable from the tree). Any that changed on disk while the app was closed — or that
+// were left mid-index — get re-queued, so a file edited by another program is caught on next launch.
+export function verifyDb() {
+  if (!db) return { checked: 0, requeued: 0 }
+  const rows = db.prepare('SELECT key, path, mtime, size, status FROM docs').all()
+  let requeued = 0
+  for (const r of rows) {
+    const st = safeStat(r.path)
+    if (!st) continue // gone → syncIndex prunes it if it's also unlinked
+    const stale = r.status === 'pending' || r.status === 'indexing' ||
+      Math.abs((r.mtime || 0) - st.mtimeMs) > 1 || (r.size || 0) !== st.size
+    if (stale) {
+      db.prepare("UPDATE docs SET status='pending' WHERE key=?").run(r.key)
+      enqueue(r.key, r.path)
+      requeued++
+    }
+  }
+  if (requeued) { notify?.(); pump() }
+  return { checked: rows.length, requeued }
+}
+
 // Force one file back into the queue (used right after the editor saves it).
 export function reindexPath(path) {
   if (!db) return

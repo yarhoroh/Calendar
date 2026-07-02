@@ -264,23 +264,24 @@
   color: #d9534f;
   font-weight: 700;
 }
-/* filled status dot: grey = queued, yellow = indexing, green = indexed */
+/* hollow status ring: grey = queued, yellow = indexing, green = indexed (outline only) */
 .pdf-idx__dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--muted);
+  background: transparent;
+  border: 1.6px solid var(--muted);
 }
 .pdf-idx__dot.is-pending {
-  background: #b8b8b8;
+  border-color: #b8b8b8;
   opacity: 0.55;
 }
 .pdf-idx__dot.is-busy {
-  background: #e0a825;
+  border-color: #e0a825;
   animation: pdf-idx-pulse 1s ease-in-out infinite;
 }
 .pdf-idx__dot.is-done {
-  background: #1e9e5a;
+  border-color: #1e9e5a;
 }
 @keyframes pdf-idx-pulse {
   0%,

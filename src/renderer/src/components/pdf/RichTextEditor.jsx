@@ -80,6 +80,8 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
     grabSel: () => { if (editor) savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to } },
     exec: (cmd, val) => {
       if (!editor) return
+      const sel = savedSel.current || { from: editor.state.selection.from, to: editor.state.selection.to }
+      const empty = sel.from === sel.to // nothing highlighted
       const c = editor.chain()
       if (savedSel.current) { c.setTextSelection(savedSel.current); savedSel.current = null }
       if (cmd === 'fontName') c.setFontFamily(val).run()
@@ -88,8 +90,10 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
       else if (cmd === 'bold') c.toggleBold().run()
       else if (cmd === 'italic') c.toggleItalic().run()
       else if (cmd === 'applyStyle') {
-        // eyedropper: the picked text's complete style in one transaction
-        let ch = c.setFontFamily(val.family).setFontSize(`${val.sizePx * scale}px`).setColor(val.color)
+        // eyedropper: the picked text's complete style in one transaction — with NOTHING selected,
+        // apply it to the whole editor (no need to select the text first)
+        let ch = empty ? c.selectAll() : c
+        ch = ch.setFontFamily(val.family).setFontSize(`${val.sizePx * scale}px`).setColor(val.color)
         ch = val.bold ? ch.setBold() : ch.unsetBold()
         ch = val.italic ? ch.setItalic() : ch.unsetItalic()
         ch.run()

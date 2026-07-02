@@ -549,12 +549,23 @@ export default function PdfEditor({ source, path }) {
   // worker pulls them from the file) so restyled text looks exactly like the rest of the document.
   // BUT: for NEW text a subset/non-embedded PDF font can't be trusted (missing glyphs) — the system
   // lookalike steps in. A style change (bold/italic) also falls back to the lookalike in that style.
+  // strip subset/PostScript/style decorations → a plain family the system loader can resolve
+  // (weight/slant are requested separately via {bold, italic}); "Arial-BoldMT" → "Arial",
+  // "TimesNewRomanPS-BoldMT" → "Times New Roman"
+  const baseFamily = (n) => {
+    let s = String(n).replace(/^[A-Z]{6}\+/, '') // subset tag ABCDEF+
+    s = s.replace(/[-,\s]*(Bold|Italic|Oblique|Black|Heavy|Light|Medium|Semibold|Demi|Regular|Roman)+(MT|PS|PSMT)*$/i, '')
+    s = s.replace(/(PSMT|PS|MT)$/i, '') // trailing PostScript markers
+    s = s.replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words (TimesNewRoman → Times New Roman)
+    return s.trim() || String(n)
+  }
   const fontSourceFor = async (family, bold, italic, forNewText = false) => {
     const df = docFonts.find((f) => f.name === family)
     // own bytes only for TrueType document fonts (Type1/CFF mis-encode through our CID insert),
     // unstyled, and — for NEW text — only full (non-subset) faces
     if (df && df.tt && !bold && !italic && !(forNewText && (df.subset || !df.embedded))) return { pdf: family }
-    if (df) family = df.match || df.name
+    // resolve to a system-loadable family: the doc font's lookalike, else the decoration-stripped name
+    family = df ? (df.match || baseFamily(df.name)) : baseFamily(family)
     const f = await api.fonts.file(family, { bold, italic })
     return f?.bytes ? { bytes: f.bytes, family } : null
   }

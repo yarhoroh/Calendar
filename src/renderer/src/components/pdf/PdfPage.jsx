@@ -319,12 +319,12 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
           <div
             className="pdfed__frame"
             style={px(resizeBox
-              ? { x: resizeBox.x - 2, y: resizeBox.y - 2, w: resizeBox.w + 4, h: resizeBox.h + 4 }
+              ? resizeBox
               : {
-                  x: union.x - 2 + (ghost?.dx || 0) + (nudge?.dx || 0),
-                  y: union.y - 2 + (ghost?.dy || 0) + (nudge?.dy || 0),
-                  w: union.w + 4,
-                  h: union.h + 4
+                  x: union.x + (ghost?.dx || 0) + (nudge?.dx || 0),
+                  y: union.y + (ghost?.dy || 0) + (nudge?.dy || 0),
+                  w: union.w,
+                  h: union.h
                 })}
           />
         )}

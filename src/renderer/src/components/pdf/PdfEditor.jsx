@@ -653,18 +653,31 @@ export default function PdfEditor({ source, path }) {
         if (!json) { const r = await engineRef.current.readVariables(); json = r?.json || null }
         const list = json ? JSON.parse(json) : null
         if (Array.isArray(list) && list.length) {
-          // the input must reflect what's ACTUALLY in the PDF now, not the last-saved value — read
-          // the current text at each variable's own anchors from the freshly-loaded model
-          const readCurrent = (v) => {
-            const occ = v.occurrences?.[0]
-            const pg = occ && model.find((p) => p.pageIndex === occ.page)
-            if (!pg) return v.value
+          // find the runs currently sitting at an occurrence's anchors (styles/chainBox may be
+          // stale — e.g. saved before chainBox existed — so rebuild from the live model)
+          const liveRuns = (occ) => {
+            const pg = model.find((p) => p.pageIndex === occ.page)
+            if (!pg) return null
             const runs = (occ.parts || [{ x: occ.x, baseline: occ.baseline }])
               .map((p) => pg.runs.find((r) => Math.abs(r.x - p.x) < 1.5 && Math.abs(r.y - p.baseline) < 1.5))
               .filter(Boolean)
-            return runs.length ? joinRuns(runs).replace(/\s+/g, ' ').trim() : v.value
+            return runs.length ? runs : null
           }
-          setVariables(list.map((v) => ({ ...v, value: readCurrent(v) })))
+          setVariables(list.map((v) => {
+            const occurrences = v.occurrences.map((occ) => {
+              const runs = liveRuns(occ)
+              if (!runs) return occ
+              // refresh only chainBox (positions may lack it if saved before the fix) — KEEP the
+              // stored style: reading it from live runs would inherit a previously-corrupted font
+              const x0 = Math.min(...runs.map((r) => r.bbox.x)), x1 = Math.max(...runs.map((r) => r.bbox.x + r.bbox.w))
+              const y0 = Math.min(...runs.map((r) => r.bbox.y)), y1 = Math.max(...runs.map((r) => r.bbox.y + r.bbox.h))
+              return { ...occ, chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } }
+            })
+            // the input reflects what's ACTUALLY in the PDF now, not the last-saved value
+            const runs0 = liveRuns(v.occurrences[0])
+            const value = runs0 ? joinRuns(runs0).replace(/\s+/g, ' ').trim() : v.value
+            return { ...v, occurrences, value }
+          }))
           console.log(`[pdf][vars] restored ${list.length} variable(s)`)
         }
       } catch (e) { console.warn('[pdf][vars] restore failed:', e?.message) }

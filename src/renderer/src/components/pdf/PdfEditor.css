@@ -397,14 +397,6 @@
   background: var(--hover);
   color: var(--text);
 }
-.pdfed__vars-badge {
-  font-size: 10px;
-  min-width: 16px;
-  padding: 1px 4px;
-  border-radius: 8px;
-  background: var(--accent, #1473e6);
-  color: #fff;
-}
 /* one variable card */
 .pdfed__var {
   padding: 7px;

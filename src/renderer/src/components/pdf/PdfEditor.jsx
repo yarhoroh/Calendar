@@ -1421,7 +1421,6 @@ export default function PdfEditor({ source, path }) {
         {varsCollapsed ? (
           <button className="pdfed__vars-open" title="Variables" onClick={toggleVarsCollapsed}>
             <ChevronLeftIcon />
-            {variables.length > 0 && <span className="pdfed__vars-badge">{variables.length}</span>}
           </button>
         ) : (
           <aside className="pdfed__vars" style={{ width: varsWidth }}>

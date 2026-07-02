@@ -1091,10 +1091,12 @@ export default function PdfEditor({ source, path }) {
                   W
                   <ComboNum value={selObj1.strokeW ?? 1} onPick={(v) => deferMutation(() => strokeWidthSelected(Math.max(0.2, v || 1)))} opts={[0.5, 1, 1.5, 2, 3, 4, 6]} step={0.5} min={0.2} max={40} width={60} />
                 </label>
-                <label className="pdfed__mini" title="Corner radius, pt — rebuilds the path as a rounded rectangle over the same bounds">
-                  R
-                  <ComboNum value={selObj1.radius ?? 0} onPick={(v) => deferMutation(() => radiusSelected(Math.max(0, v || 0)))} opts={[0, 2, 4, 6, 8, 12, 16, 24]} step={1} min={0} max={200} width={60} />
-                </label>
+                {!selObj1.line && ( /* corner radius makes no sense for a line/arrow */
+                  <label className="pdfed__mini" title="Corner radius, pt — rebuilds the path as a rounded rectangle over the same bounds">
+                    R
+                    <ComboNum value={selObj1.radius ?? 0} onPick={(v) => deferMutation(() => radiusSelected(Math.max(0, v || 0)))} opts={[0, 2, 4, 6, 8, 12, 16, 24]} step={1} min={0} max={200} width={60} />
+                  </label>
+                )}
                 <select className="pdfed__fontsel pdfed__dashsel" value={selObj1.dash || 'solid'} onChange={(e) => dashSelected(e.target.value)} title="Line type">
                   <option value="solid">— Solid</option>
                   <option value="dashed">– – Dashed</option>

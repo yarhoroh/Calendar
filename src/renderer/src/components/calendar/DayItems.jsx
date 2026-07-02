@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n/I18nContext'
 import { useDayItems, newItem } from '../../hooks/useDayItems'
 import { useFolderFilter } from '../../lib/folderFilter'
 import { useEverydayProjection } from '../../lib/everydayProjection'
-import { parseKey } from '../../lib/dates'
+import { parseKey, monthDayMatches } from '../../lib/dates'
 import DayItem from './DayItem'
 import ItemEditor from './ItemEditor'
 import './DayItems.css'
@@ -104,14 +104,24 @@ function DayItems({ dayKey, sort }) {
   // which doesn't know about Google — wrap it so a linked note's time/title/text
   // change is also pushed to its Google event (main skips read-only calendars)
   const isDate = /^\d{4}-\d{2}-\d{2}$/.test(dayKey)
+  const isEveryday = dayKey === 'everyday'
   const updateAndSync = (id, patch) => {
     update(id, patch)
-    if (!isDate || !('time' in patch || 'title' in patch || 'text' in patch || 'html' in patch)) return
+    // an everyday note also syncs its recurrence (days/monthDays), not only time/title/text
+    const touches = ['time', 'title', 'text', 'html', 'days', 'monthDays'].some((k) => k in patch)
+    if ((!isDate && !isEveryday) || !touches) return
     const cur = items.find((i) => i.id === id)
     if (!cur?.googleEventId) return
     const m = { ...cur, ...patch }
     const hhmm = m.time ? String(m.time).split('T')[1] || m.time : null
-    api.google?.updateEvent?.(m.googleEventId, { title: m.title || '(no title)', day: dayKey, time: hhmm, description: m.text || '' })
+    api.google?.updateEvent?.(m.googleEventId, {
+      title: m.title || '(no title)',
+      day: dayKey,
+      time: hhmm,
+      description: m.text || '',
+      days: isEveryday ? m.days : undefined,
+      monthDays: isEveryday ? m.monthDays : undefined
+    })
   }
   const clearDrag = () => {
     setDraggingId(null)
@@ -166,13 +176,15 @@ function DayItems({ dayKey, sort }) {
   const visible = visibleIds ? items.filter((it) => visibleIds.has(it.folderId || null)) : items
 
   // everyday notes shown as extra notes in the day's list when the calendar
-  // "every day" toggle is on. A note's active weekdays are its own `days`, or —
-  // if it has none — the global working days from settings.
+  // "every day" toggle is on. A monthly note (its `monthDays`) matches by day of
+  // month; a weekly note matches its own `days`, or the global working days.
   const everydayMatches =
     proj.enabled && isDated(dayKey)
       ? proj.items.filter((it) => {
+          const d = parseKey(dayKey)
+          if (Array.isArray(it.monthDays) && it.monthDays.length) return monthDayMatches(d, it.monthDays)
           const eff = Array.isArray(it.days) && it.days.length ? it.days : proj.workingDays
-          return eff?.includes(parseKey(dayKey).getDay())
+          return eff?.includes(d.getDay())
         })
       : []
 
@@ -242,6 +254,8 @@ function DayItems({ dayKey, sort }) {
             initialHtml={it.html || ''}
             initialTime={it.time || null}
             initialDays={it.days}
+            initialMonthDays={it.monthDays}
+            initialSpeak={it.speak}
             defaultDays={proj.workingDays}
             noteId={it.id}
             day={dayKey}
@@ -257,7 +271,9 @@ function DayItems({ dayKey, sort }) {
                   text: draft.text,
                   html: draft.html,
                   time: draft.time || null,
-                  days: draft.days
+                  days: draft.days,
+                  monthDays: draft.monthDays,
+                  speak: draft.speak
                 })
               setExpandedId(it.id)
             }}
@@ -268,7 +284,9 @@ function DayItems({ dayKey, sort }) {
                   text: draft.text,
                   html: draft.html,
                   time: draft.time || null,
-                  days: draft.days
+                  days: draft.days,
+                  monthDays: draft.monthDays,
+                  speak: draft.speak
                 })
               setExpandedId(null)
             }}
@@ -279,20 +297,29 @@ function DayItems({ dayKey, sort }) {
                 html: f.html,
                 time: f.time || null,
                 days: f.days,
+                monthDays: f.monthDays,
+                speak: f.speak,
                 ...(f.google || {}) // fresh share → link the note to the new Google event
               })
               if (f.time)
-                api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text, days: f.days })
+                api.setReminder?.({ id: it.id, when: f.time, dayKey, title: f.title || 'Calendar', body: f.text, days: f.days, monthDays: f.monthDays, speak: f.speak })
               else api.clearReminder?.(it.id)
               if (f.google) {
                 // just shared → register it so the Appointments tab dedupes it
                 if (f.google.googleEventId) api.google?.markImported?.({ gid: f.google.googleEventId, noteId: it.id, day: dayKey })
-              } else if (it.googleEventId && /^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
-                // editing ANY linked Google note on a real date → push the change up.
-                // main skips read-only calendars; dated-only avoids breaking recurring
-                // (everyday) series, whose gid is the repeating master.
+              } else if (it.googleEventId && (/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || dayKey === 'everyday')) {
+                // editing a linked Google note → push the change up (main skips read-only
+                // calendars). For an everyday note this updates the recurring series master:
+                // its time + recurrence (main keeps the series' own start date).
                 const hhmm = f.time ? String(f.time).split('T')[1] || f.time : null
-                api.google?.updateEvent?.(it.googleEventId, { title: f.title || '(no title)', day: dayKey, time: hhmm, description: f.text })
+                api.google?.updateEvent?.(it.googleEventId, {
+                  title: f.title || '(no title)',
+                  day: dayKey,
+                  time: hhmm,
+                  description: f.text,
+                  days: dayKey === 'everyday' ? f.days : undefined,
+                  monthDays: dayKey === 'everyday' ? f.monthDays : undefined
+                })
               }
               stop()
             }}
@@ -363,6 +390,8 @@ function DayItems({ dayKey, sort }) {
               html: draft?.html || '',
               time: draft?.time || null,
               days: draft?.days,
+              monthDays: draft?.monthDays,
+              speak: draft?.speak,
               folderId: activeId || null
             }
             add(item)
@@ -376,6 +405,8 @@ function DayItems({ dayKey, sort }) {
               html: f.html,
               time: f.time || null,
               days: f.days,
+              monthDays: f.monthDays,
+              speak: f.speak,
               folderId: activeId || null, // file new notes into the active folder
               ...(f.google || {}) // shared straight from a new note → link it
             }
@@ -387,7 +418,9 @@ function DayItems({ dayKey, sort }) {
                 dayKey,
                 title: item.title || 'Calendar',
                 body: item.text,
-                days: item.days
+                days: item.days,
+                monthDays: item.monthDays,
+                speak: item.speak
               })
             if (f.google) api.google?.markImported?.({ gid: f.google.googleEventId, noteId: item.id, day: dayKey })
             stop()

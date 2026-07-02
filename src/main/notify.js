@@ -1,5 +1,6 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
+import { recurs } from './recurrence'
 
 // Standalone notification module: owns a small always-on-top window pinned to
 // the bottom-right of the screen (near the clock), independent of the main
@@ -56,6 +57,11 @@ function send(payload) {
   raise(w)
   w.webContents.send('reminder:fire', payload)
   if (opts.getSound?.() !== false) shell.beep()
+  // per-note "read aloud" flag: also hand the note (title + body) to the AI in
+  // the main window so it can say it out loud — it decides what to read.
+  if (payload.speak) {
+    opts.getMain?.()?.webContents?.send('reminder:speak', { title: payload.title || '', body: payload.body || '' })
+  }
 }
 
 export function initNotify(options) {
@@ -83,12 +89,12 @@ function nextDaily(hh, mm) {
 }
 
 // fires every day at hh:mm (used for the "every day" virtual day), but only on
-// the active weekdays — the note's own `days` if set, otherwise the globally
-// configured working days. Non-active days are skipped (still rescheduled).
+// the days it actually recurs on — monthly (payload.monthDays) or weekly (its
+// own `days`, else the global working days). Other days are skipped (still
+// rescheduled). See ./recurrence.
 function scheduleDaily(payload, hh, mm) {
   const tick = () => {
-    const wd = payload.days && payload.days.length ? payload.days : opts.getWorkingDays?.()
-    if (!wd || wd.includes(new Date().getDay())) send(payload)
+    if (recurs(new Date(), payload.days, payload.monthDays, opts.getWorkingDays?.())) send(payload)
     // reschedule for the NEXT occurrence, skipping any slot within the next minute — a timer
     // that fires a hair early (Windows/Electron jitter) must NOT immediately re-fire today,
     // which produced two popups for one daily reminder.
@@ -129,7 +135,7 @@ export function scheduleAll(map) {
   for (const key of Object.keys(map)) {
     for (const it of map[key]) {
       if (it.time) {
-        setReminder({ id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text), days: it.days }, it.time)
+        setReminder({ id: it.id, dayKey: key, title: it.title || 'Calendar', body: stripHtml(it.text), days: it.days, monthDays: it.monthDays, speak: it.speak }, it.time)
       }
     }
   }

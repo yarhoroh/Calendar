@@ -86,6 +86,8 @@ export default function DayItem({
   // which weekdays this everyday note is active on — its own `days`, else the
   // global working days (the default shown pre-selected in the picker)
   const effDays = item.days && item.days.length ? item.days : workingDays
+  // days of month a monthly everyday note fires on (empty = it's a weekly note)
+  const effMonthDays = item.monthDays || []
 
   useEffect(() => {
     if (!isEveryday) return
@@ -125,7 +127,9 @@ export default function DayItem({
       dayKey,
       title: item.title || 'Calendar',
       body: item.text || '',
-      days: isEveryday ? effDays : undefined
+      days: isEveryday ? effDays : undefined,
+      monthDays: isEveryday ? effMonthDays : undefined,
+      speak: !!item.speak
     })
   }
 
@@ -133,7 +137,21 @@ export default function DayItem({
   const setDays = (next) => {
     onUpdate(item.id, { days: next })
     if (item.time)
-      api.setReminder?.({ id: item.id, when: item.time, dayKey, title: item.title || 'Calendar', body: item.text || '', days: next })
+      api.setReminder?.({ id: item.id, when: item.time, dayKey, title: item.title || 'Calendar', body: item.text || '', days: next, monthDays: effMonthDays, speak: !!item.speak })
+  }
+
+  // change which days of the month a monthly everyday note fires on; reschedule if timed
+  const setMonthDays = (next) => {
+    onUpdate(item.id, { monthDays: next })
+    if (item.time)
+      api.setReminder?.({ id: item.id, when: item.time, dayKey, title: item.title || 'Calendar', body: item.text || '', days: effDays, monthDays: next, speak: !!item.speak })
+  }
+
+  // toggle whether the AI reads this reminder aloud when it fires; reschedule if timed
+  const setSpeak = (next) => {
+    onUpdate(item.id, { speak: next })
+    if (item.time)
+      api.setReminder?.({ id: item.id, when: item.time, dayKey, title: item.title || 'Calendar', body: item.text || '', days: isEveryday ? effDays : undefined, monthDays: isEveryday ? effMonthDays : undefined, speak: next })
   }
   const clearTime = () => {
     onUpdate(item.id, { time: null })
@@ -198,9 +216,9 @@ export default function DayItem({
               </span>
               {isEveryday && (
                 <span className="day-item__days-tip">
-                  {WEEK_ORDER.filter((d) => effDays.includes(d)).map((d) => (
-                    <span key={d}>{weekdayShort(d)}</span>
-                  ))}
+                  {effMonthDays.length
+                    ? effMonthDays.map((d) => <span key={d}>{d >= 32 ? t('items.lastDayShort') : d}</span>)
+                    : WEEK_ORDER.filter((d) => effDays.includes(d)).map((d) => <span key={d}>{weekdayShort(d)}</span>)}
                 </span>
               )}
             </span>
@@ -224,6 +242,10 @@ export default function DayItem({
               showDays={isEveryday}
               days={effDays}
               onDays={setDays}
+              monthDays={effMonthDays}
+              onMonthDays={setMonthDays}
+              speak={!!item.speak}
+              onSpeak={setSpeak}
               onChange={setTime}
               onClear={clearTime}
               onClose={() => setReminderOpen(false)}

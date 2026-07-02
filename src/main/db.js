@@ -181,6 +181,16 @@ export function initDb() {
     // column already exists
   }
   try {
+    db.exec('ALTER TABLE notes ADD COLUMN month_days TEXT') // everyday: days of month (32 = last day) for monthly repeats
+  } catch {
+    // column already exists
+  }
+  try {
+    db.exec('ALTER TABLE notes ADD COLUMN speak INTEGER') // 1 = the AI reads this reminder aloud when it fires
+  } catch {
+    // column already exists
+  }
+  try {
     db.exec('ALTER TABLE notes ADD COLUMN html TEXT')
   } catch {
     // column already exists
@@ -296,6 +306,8 @@ function rowToItem(r) {
     collapsed: !!r.collapsed,
     folderId: r.folder_id || null,
     days: r.days ? r.days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null,
+    monthDays: r.month_days ? r.month_days.split(',').map(Number).filter((n) => !Number.isNaN(n)) : null,
+    speak: !!r.speak,
     html: r.html || '',
     googleEventId: r.google_event_id || null,
     googleCalendar: r.google_calendar || null,
@@ -311,8 +323,8 @@ export function getItems(day) {
 export function saveItems(day, items) {
   const del = db.prepare('DELETE FROM notes WHERE day = ?')
   const ins = db.prepare(`
-    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, html, google_event_id, google_calendar, google_account, google_shared, date_statuses)
-    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @html, @google_event_id, @google_calendar, @google_account, @google_shared, @date_statuses)
+    INSERT INTO notes (id, day, position, title, text, status, time, bold, italic, size, collapsed, folder_id, days, month_days, speak, html, google_event_id, google_calendar, google_account, google_shared, date_statuses)
+    VALUES (@id, @day, @position, @title, @text, @status, @time, @bold, @italic, @size, @collapsed, @folder_id, @days, @month_days, @speak, @html, @google_event_id, @google_calendar, @google_account, @google_shared, @date_statuses)
   `)
   const tx = db.transaction((d, list) => {
     del.run(d)
@@ -331,6 +343,8 @@ export function saveItems(day, items) {
         collapsed: it.collapsed ? 1 : 0,
         folder_id: it.folderId ?? null,
         days: Array.isArray(it.days) && it.days.length ? it.days.join(',') : null,
+        month_days: Array.isArray(it.monthDays) && it.monthDays.length ? it.monthDays.join(',') : null,
+        speak: it.speak ? 1 : 0,
         html: it.html ?? null,
         google_event_id: it.googleEventId ?? null,
         google_calendar: it.googleCalendar ?? null,
@@ -416,6 +430,11 @@ export function getImport(gid) {
 }
 export function unmarkImport(gid) {
   db.prepare('DELETE FROM gcal_imports WHERE google_event_id = ?').run(gid)
+}
+// every import mark (gid → note + its day/board) — used by auto-sync to detect
+// events that were deleted on Google so their imported notes can be removed too
+export function allImports() {
+  return db.prepare('SELECT google_event_id AS gid, note_id AS noteId, day FROM gcal_imports').all()
 }
 
 // one-time import from the legacy notes.json map { day: [items] }

@@ -14,6 +14,7 @@ import { useTheme } from './hooks/useTheme'
 import { useWindowControls } from './hooks/useWindowControls'
 import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
+import { useReminderSpeakRunner } from './hooks/useReminderSpeakRunner'
 import { useMailTaskRunner } from './hooks/useMailTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
 import { useChat } from './hooks/useChat'
@@ -99,6 +100,7 @@ export default function App() {
   const chat = useChat({ onCommand: runCommand })
 
   useAiTaskRunner({ onCommand: runCommand })
+  useReminderSpeakRunner({ onCommand: runCommand })
   useMailTaskRunner({ onCommand: runCommand })
   useTelegramBridge({ onCommand: runCommand })
 

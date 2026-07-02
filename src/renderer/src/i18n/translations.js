@@ -122,7 +122,7 @@ export const translations = {
       recording: 'Recording… release to send',
       transcribing: 'Transcribing…'
     },
-    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Every day', general: 'General', everydayInCal: 'Show weekday "every day" notes on the calendar' },
+    calendar: { prev: 'Previous', next: 'Next', today: 'Today', pickDate: 'Pick a date', everyday: 'Periodic', general: 'General', everydayInCal: 'Show periodic notes on the calendar' },
     items: {
       placeholder: 'Write a note…',
       titlePlaceholder: 'Title',
@@ -130,6 +130,11 @@ export const translations = {
       paste: 'Paste',
       reminder: 'Reminder',
       clearReminder: 'Clear reminder',
+      repeatWeekly: 'Weekly',
+      repeatMonthly: 'Monthly',
+      lastDay: 'Last day',
+      lastDayShort: 'end',
+      speakAloud: 'Read aloud (AI)',
       expand: 'Fullscreen',
       collapse: 'Exit fullscreen',
       close: 'Close',
@@ -402,7 +407,7 @@ export const translations = {
       recording: 'Запис… відпустіть, щоб надіслати',
       transcribing: 'Розпізнавання…'
     },
-    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Щодня', general: 'Загальні', everydayInCal: 'Показувати «щоденні» нотатки з днями тижня в календарі' },
+    calendar: { prev: 'Назад', next: 'Вперед', today: 'Сьогодні', pickDate: 'Обрати дату', everyday: 'Періодичні', general: 'Загальні', everydayInCal: 'Показувати періодичні нотатки в календарі' },
     items: {
       placeholder: 'Напишіть нотатку…',
       titlePlaceholder: 'Заголовок',
@@ -410,6 +415,11 @@ export const translations = {
       paste: 'Вставити',
       reminder: 'Нагадування',
       clearReminder: 'Прибрати нагадування',
+      repeatWeekly: 'Щотижня',
+      repeatMonthly: 'Щомісяця',
+      lastDay: 'Останній день',
+      lastDayShort: 'кін.',
+      speakAloud: 'Читати вголос (AI)',
       expand: 'На весь екран',
       collapse: 'Вийти з повноекранного',
       close: 'Закрити',

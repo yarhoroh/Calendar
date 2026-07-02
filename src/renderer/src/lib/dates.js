@@ -73,6 +73,19 @@ export function dateNumeric(d) {
   return `${dd}.${mm}.${d.getFullYear()}`
 }
 
+// day-of-month count for a date's month (28..31)
+export const daysInMonth = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+
+// does a monthly everyday note (monthDays = days of month, 32 = "last day") fire
+// on this date? A selected day past the month's length (31 in Feb, or the 32
+// sentinel) falls onto the last day of that month. Mirror of main/recurrence.
+export function monthDayMatches(d, monthDays) {
+  const dom = d.getDate()
+  if (monthDays.includes(dom)) return true
+  const dim = daysInMonth(d)
+  return dom === dim && monthDays.some((n) => n > dim)
+}
+
 export const weekday = (d) => wkShort.format(d)
 // 2-letter weekday name for a getDay() index (0=Sun .. 6=Sat). Trimmed to two
 // chars so English ("Mon") matches the localized Ukrainian 2-letter form.

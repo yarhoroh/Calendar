@@ -1,6 +1,7 @@
 import { getItems, getItemsRange, allAttachments, importedEventIds } from './db'
 import { formatNotes } from './prompt'
 import { listEventsAllSelected } from './google'
+import { recurs } from './recurrence'
 
 // Find a getNotes request inside a model reply's ```calendar block. Returns a
 // normalized { board, label } | { from, to, label } or null.
@@ -107,22 +108,22 @@ function datesInRange(from, to) {
   const out = []
   const end = parse(to)
   for (let d = parse(from); d <= end && out.length < 60; d.setDate(d.getDate() + 1))
-    out.push({ key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, dow: d.getDay() })
+    out.push({ key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, date: new Date(d) })
   return out
 }
 
 // "everyday" notes projected onto each real date in the range, exactly like the
-// calendar UI: included only on dates whose weekday matches the note's own `days`
-// (or the global working days). Each carries its per-date status override if set.
+// calendar UI: included only on dates the note recurs on — monthly (its
+// `monthDays`) or weekly (its own `days`, else the global working days). Each
+// carries its per-date status override if set.
 function projectEveryday(from, to, workingDays) {
   const everyday = getItems('everyday') || []
   if (!everyday.length) return []
   const wd = Array.isArray(workingDays) && workingDays.length ? workingDays : [1, 2, 3, 4, 5]
   const out = []
-  for (const { key, dow } of datesInRange(from, to)) {
+  for (const { key, date } of datesInRange(from, to)) {
     for (const e of everyday) {
-      const eff = Array.isArray(e.days) && e.days.length ? e.days : wd
-      if (!eff.includes(dow)) continue
+      if (!recurs(date, e.days, e.monthDays, wd)) continue
       const status = (e.dateStatuses && e.dateStatuses[key]) || e.status || 'todo'
       out.push({ ...e, day: key, status, everyday: true })
     }

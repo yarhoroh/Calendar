@@ -12,6 +12,11 @@
   gap: 8px;
 }
 
+/* monthly mode needs room for the 7-column day grid */
+.reminder-pop--month {
+  width: 220px;
+}
+
 .reminder-pop__input {
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -22,12 +27,82 @@
   padding: 6px 8px;
 }
 
+/* repeat picker (weekly / monthly) sits under the time picker */
+.reminder-pop__repeat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.reminder-pop__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+
+.reminder-pop__tab {
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.reminder-pop__tab.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .reminder-pop__days {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+}
+
+.reminder-pop__month {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.reminder-pop__month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.reminder-pop__mday {
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.reminder-pop__mday--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.reminder-pop__lastday {
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
 }
 
 /* both rows share a 4-column grid → every button is the same width
@@ -50,6 +125,33 @@
 }
 
 .reminder-pop__day--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* per-note "read aloud (AI)" toggle */
+.reminder-pop__speak {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
+.reminder-pop__speak svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.reminder-pop__speak.is-on {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;

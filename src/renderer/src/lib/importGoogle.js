@@ -46,16 +46,17 @@ export async function importGoogleEvent(ev, extra = null) {
   return { ok: true, day }
 }
 
-// import a recurring series as ONE note on the "everyday" board (with weekday
-// repeats + time). Returns { ok:false, unsupported:true } for recurrences our
-// everyday board can't express (monthly / every N weeks).
+// import a recurring series as ONE note on the "everyday" board (with its weekly
+// or monthly repeat + time). Returns { ok:false, unsupported:true } for
+// recurrences our everyday board can't express (yearly / every N weeks).
 export async function importGoogleEventEveryday(ev) {
   if (!ev.recurringEventId) return importGoogleEvent(ev) // not actually recurring
   const rec = await api.google?.eventRecurrence?.(ev.account, ev.calendarId, ev.recurringEventId)
   if (!rec || !rec.supported) return { ok: false, unsupported: true }
   const seriesGid = `${ev.account}:${ev.calendarId}:${ev.recurringEventId}`
   const time = ev.allDay ? null : rec.time || ev.time
-  const days = Array.isArray(rec.days) ? rec.days : []
+  const monthDays = Array.isArray(rec.monthDays) && rec.monthDays.length ? rec.monthDays : null
+  const days = monthDays ? null : Array.isArray(rec.days) ? rec.days : []
   const html = buildHtml(ev)
   const text = [ev.description, ev.location].filter(Boolean).join('\n')
   const arr = (await api.getItems?.('everyday')) || []
@@ -64,6 +65,7 @@ export async function importGoogleEventEveryday(ev) {
     title: ev.title || null,
     time: time || null,
     days,
+    monthDays,
     html,
     collapsed: true, // imported notes arrive folded — click the title to expand
     googleEventId: seriesGid, // the series id (not a single instance)
@@ -72,17 +74,56 @@ export async function importGoogleEventEveryday(ev) {
   }
   await api.saveItems?.('everyday', [...arr, item])
   if (time)
-    api.setReminder?.({ id: item.id, when: time, dayKey: 'everyday', title: ev.title || 'Calendar', body: text, days })
+    api.setReminder?.({ id: item.id, when: time, dayKey: 'everyday', title: ev.title || 'Calendar', body: text, days, monthDays })
   await api.google?.markImported?.({ gid: seriesGid, noteId: item.id, day: 'everyday' })
   return { ok: true, day: 'everyday' }
 }
 
-// auto-sync: if the Google event changed (title/time/description), update the
-// linked local note to match (Google is the source of truth here). Skips
-// recurring/everyday notes — their single-occurrence diff would be misleading.
+// compare two recurrence arrays ([] and null are the same "no explicit set")
+const sameList = (a, b) =>
+  (Array.isArray(a) && a.length ? a.join(',') : '') === (Array.isArray(b) && b.length ? b.join(',') : '')
+
+// auto-sync a recurring series imported as ONE "everyday" note: pull the master's
+// current time + recurrence (weekly days / monthly monthDays) and title/description,
+// so a change made by anyone on the shared calendar propagates to this subscriber.
+async function syncEverydaySeries(ev) {
+  const seriesGid = `${ev.account}:${ev.calendarId}:${ev.recurringEventId}`
+  const arr = (await api.getItems?.('everyday')) || []
+  const idx = arr.findIndex((i) => i.googleEventId === seriesGid)
+  if (idx < 0) return false
+  const it = arr[idx]
+  const rec = await api.google?.eventRecurrence?.(ev.account, ev.calendarId, ev.recurringEventId)
+  if (!rec || !rec.supported) return false // recurrence no longer expressible as everyday → leave as-is
+  const time = ev.allDay ? null : rec.time || ev.time
+  const monthDays = Array.isArray(rec.monthDays) && rec.monthDays.length ? rec.monthDays : null
+  const days = monthDays ? null : Array.isArray(rec.days) ? rec.days : []
+  const text = [ev.description, ev.location].filter(Boolean).join('\n')
+  const title = ev.title || null
+  const curTime = it.time ? String(it.time).split('T')[1] || it.time : null
+  if (
+    it.title === title &&
+    curTime === (time || null) &&
+    (it.text || '') === text &&
+    sameList(it.days, days) &&
+    sameList(it.monthDays, monthDays)
+  )
+    return false
+  arr[idx] = { ...it, title, time: time || null, days, monthDays, html: buildHtml(ev), text }
+  await api.saveItems?.('everyday', arr)
+  if (time)
+    api.setReminder?.({ id: it.id, when: time, dayKey: 'everyday', title: title || 'Calendar', body: text, days, monthDays })
+  else api.clearReminder?.(it.id)
+  return true
+}
+
+// auto-sync: reflect a Google event's change onto the linked local note (Google is
+// the source of truth). Handles a periodic "everyday" note (time + recurrence) and
+// a dated note (title/time/text) — and, for a dated note, MOVES it to the new day
+// when the event's date was changed. So edits by any subscriber propagate to all.
 export async function syncImportedNote(ev) {
   const day = ev.importedDay
-  if (!day || day === 'everyday') return false
+  if (!day) return false
+  if (day === 'everyday') return syncEverydaySeries(ev)
   const arr = (await api.getItems?.(day)) || []
   const idx = arr.findIndex((i) => i.googleEventId === ev.googleEventId)
   if (idx < 0) return false
@@ -93,10 +134,21 @@ export async function syncImportedNote(ev) {
   // compare meaningful fields; normalise the note's time to HH:mm so a Google
   // time change is detected regardless of how it's stored locally
   const curTime = it.time ? String(it.time).split('T')[1] || it.time : null
-  if (it.title === title && curTime === (time || null) && (it.text || '') === text) return false
-  arr[idx] = { ...it, title, time: time || null, html: buildHtml(ev), text }
-  await api.saveItems?.(day, arr)
-  if (time) api.setReminder?.({ id: it.id, when: time, dayKey: day, title: title || 'Calendar', body: text })
+  const moved = !!ev.day && ev.day !== day // the event was moved to another date on Google
+  if (!moved && it.title === title && curTime === (time || null) && (it.text || '') === text) return false
+  const patched = { ...it, title, time: time || null, html: buildHtml(ev), text }
+  if (moved) {
+    // pull the note out of its old day and drop it onto the event's new day
+    await api.saveItems?.(day, arr.filter((_, i) => i !== idx))
+    const dst = (await api.getItems?.(ev.day)) || []
+    await api.saveItems?.(ev.day, [...dst, patched])
+    await api.google?.markImported?.({ gid: ev.googleEventId, noteId: it.id, day: ev.day }) // keep the import mark's day in sync
+  } else {
+    arr[idx] = patched
+    await api.saveItems?.(day, arr)
+  }
+  const dayKey = moved ? ev.day : day
+  if (time) api.setReminder?.({ id: it.id, when: time, dayKey, title: title || 'Calendar', body: text })
   else api.clearReminder?.(it.id)
   return true
 }

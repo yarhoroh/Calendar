@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../../lib/api'
 import { useI18n } from '../../i18n/I18nContext'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
+import { dateKey, startOfToday } from '../../lib/dates'
 import { CheckIcon, CloseIcon, CalendarIcon, GoogleIcon, MicIcon } from '../icons'
 import ReminderPopover from './ReminderPopover'
 import RichEditor from './RichEditor'
@@ -29,6 +30,8 @@ export default function ItemEditor({
   initialHtml = '',
   initialTime = null,
   initialDays = null,
+  initialMonthDays = null,
+  initialSpeak = false,
   defaultDays = [],
   noteId = null,
   day = null,
@@ -49,6 +52,8 @@ export default function ItemEditor({
   const [title, setTitle] = useState(initialTitle)
   const [time, setTime] = useState(initialTime)
   const [days, setDays] = useState(initialDays)
+  const [monthDays, setMonthDays] = useState(initialMonthDays)
+  const [speak, setSpeak] = useState(initialSpeak)
   const [remOpen, setRemOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -83,20 +88,23 @@ export default function ItemEditor({
   }
   const voice = useVoiceInput(insertVoice)
 
-  // only dated notes (not the everyday / general boards) can become Google events
+  // dated notes become one-time Google events; everyday notes become RECURRING
+  // events (weekly BYDAY / monthly BYMONTHDAY). The general board can't sync.
   const isDateDay = /^\d{4}-\d{2}-\d{2}$/.test(day || '')
+  const isEveryday = day === 'everyday'
+  const canShareGoogle = isDateDay || isEveryday
   // a note we pushed to a shared calendar (vs one imported read-only from Google)
   const isShared = linked && googleShared
   // can deletion also remove the Google event? yes for notes we shared, and —
   // symmetric with editing, which pushes to any writable calendar — for imported
   // events on a calendar we can write to (owner/writer)
-  const canDeleteGoogle = isDateDay && linked && (googleShared || linkedWritable)
+  const canDeleteGoogle = canShareGoogle && linked && (googleShared || linkedWritable)
 
   // load the writable shared calendars once (cheap — main reads its cache). The
   // share button only shows if there's at least one, so it's hidden entirely
   // when no Google account / no editable calendar is connected.
   useEffect(() => {
-    if (!isDateDay || linked) return
+    if (!canShareGoogle || linked) return
     let alive = true
     Promise.resolve(api.google?.writableCalendars?.()).then((l) => alive && setShareCals(l || []))
     return () => {
@@ -109,7 +117,7 @@ export default function ItemEditor({
   // whether its source calendar is writable — so deletion can offer to also
   // remove the event from the shared calendar, mirroring how editing pushes up
   useEffect(() => {
-    if (!isDateDay || !linked || googleShared) return
+    if (!canShareGoogle || !linked || googleShared) return
     let alive = true
     Promise.resolve(api.google?.eventWritable?.(googleEventId)).then((w) => alive && setLinkedWritable(!!w))
     return () => {
@@ -127,11 +135,15 @@ export default function ItemEditor({
     busyRef.current = true
     setSharing(true) // dropdown shows a "syncing…" spinner; clicks are guarded
     const { text, html } = getContent()
+    // an everyday note has no date of its own — anchor the recurring series at
+    // today and let the weekly/monthly repeat carry it forward
     const r = await api.google?.createEvent?.(cal.account, cal.id, {
       title: title.trim() || '(no title)',
-      day,
+      day: isEveryday ? dateKey(startOfToday()) : day,
       time: time ? String(time).split('T')[1] || time : null,
-      description: text
+      description: text,
+      days: isEveryday && !(monthDays && monthDays.length) ? (days && days.length ? days : defaultDays) : undefined,
+      monthDays: isEveryday && monthDays && monthDays.length ? monthDays : undefined
     })
     busyRef.current = false
     setSharing(false)
@@ -147,6 +159,8 @@ export default function ItemEditor({
       html,
       time,
       days,
+      monthDays,
+      speak,
       google: {
         googleEventId: r.event.googleEventId,
         googleCalendar: r.event.calendarName,
@@ -176,6 +190,8 @@ export default function ItemEditor({
       html,
       time,
       days,
+      monthDays,
+      speak,
       google: { googleEventId: null, googleCalendar: null, googleAccount: null, googleShared: false }
     })
   }
@@ -195,7 +211,7 @@ export default function ItemEditor({
     const tt = title.trim()
     const { text, html, empty } = getContent()
     if (!tt && empty) onDelete({ deleteGoogle: isShared })
-    else onSave({ title: tt, text, html, time, days })
+    else onSave({ title: tt, text, html, time, days, monthDays, speak })
   }
 
   const askDelete = () => {
@@ -257,6 +273,10 @@ export default function ItemEditor({
                 showDays={timeOnly}
                 days={days && days.length ? days : defaultDays}
                 onDays={setDays}
+                monthDays={monthDays || []}
+                onMonthDays={setMonthDays}
+                speak={speak}
+                onSpeak={setSpeak}
                 onChange={setTime}
                 onClear={() => {
                   setTime(null)
@@ -269,7 +289,7 @@ export default function ItemEditor({
         )}
         {/* share button: for un-shared notes with a writable calendar (to share),
             or for notes WE shared (to un-share). NOT for read-only imports. */}
-        {isDateDay && ((!linked && shareCals && shareCals.length > 0) || isShared) && (
+        {canShareGoogle && ((!linked && shareCals && shareCals.length > 0) || isShared) && (
           <div className="item-editor__rem">
             <button
               ref={shareBtnRef}
@@ -345,7 +365,7 @@ export default function ItemEditor({
           // edits — so hand the live draft up so the parent can persist it first
           onMouseDown={noBlur(() => {
             const { text, html } = getContent()
-            const draft = { title, text, html, time, days }
+            const draft = { title, text, html, time, days, monthDays, speak }
             if (expanded) onCollapse?.(draft)
             else onExpand(draft)
           })}

@@ -13,7 +13,7 @@ import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperV
 import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
-import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
+import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { getGoogleFont } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
@@ -52,6 +52,7 @@ import {
   removeAttachment,
   attachmentById,
   importedMap,
+  allImports,
   markEventImported,
   getImport,
   unmarkImport,
@@ -71,12 +72,14 @@ import {
   createEvent as googleCreateEvent,
   updateEvent as googleUpdateEvent,
   deleteEvent as googleDeleteEvent,
+  eventExists as googleEventExists,
   eventWritable as googleEventWritable,
   writableCalendars as googleWritableCalendars,
   accountsSummary as googleAccountsSummary
 } from './google'
 import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, inlineHtmlImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail, sendMail, saveDraft, mailContacts } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
+import { recurs } from './recurrence'
 import { initMailWatch, scheduleAllMailTasks, scheduleMailTask, cancelMailTask } from './mailWatch'
 import {
   initNotify,
@@ -411,11 +414,10 @@ function scheduleStoredReminders() {
   const coveredByEveryday = (it) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(it.day)
     if (!m) return false
-    const dow = new Date(+m[1], +m[2] - 1, +m[3]).getDay()
+    const date = new Date(+m[1], +m[2] - 1, +m[3])
     return everyday.some((e) => {
       if ((e.title || '') !== (it.title || '') || (e.time || '') !== (it.time || '')) return false
-      const days = Array.isArray(e.days) && e.days.length ? e.days : wd
-      return days.includes(dow)
+      return recurs(date, e.days, e.monthDays, wd)
     })
   }
   const map = {}
@@ -427,8 +429,8 @@ function scheduleStoredReminders() {
 }
 
 // ---- reminders & notifications (see ./notify) --------------------------
-ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body, days }) => {
-  setReminder({ id, dayKey, title: title || 'Calendar', body: body || '', days }, when)
+ipcMain.on('reminder:set', (_e, { id, when, dayKey, title, body, days, monthDays, speak }) => {
+  setReminder({ id, dayKey, title: title || 'Calendar', body: body || '', days, monthDays, speak }, when)
 })
 ipcMain.on('reminder:clear', (_e, id) => clearReminder(id))
 ipcMain.on('notify:resize', (_e, height) => resizeToContent(height))
@@ -649,6 +651,10 @@ ipcMain.handle('google:list-events', async (_e, { from, to, email }) => {
 ipcMain.handle('google:event-recurrence', (_e, { email, calId, recurringEventId }) =>
   googleEventRecurrence(email, calId, recurringEventId)
 )
+// auto-sync deletion support: list all import marks, and confirm whether a single
+// event still exists on Google (only used to decide if a vanished note is deletable)
+ipcMain.handle('google:imports', () => allImports())
+ipcMain.handle('google:event-exists', (_e, gid) => googleEventExists(gid))
 // after we change anything ON Google, tell the renderer so the Appointments
 // agenda re-fetches that range (the new/updated/removed event shows at once)
 const broadcastGoogleChanged = () => mainWindow?.webContents?.send('google:changed')
@@ -1190,6 +1196,7 @@ ipcMain.handle('pdf:get-tree', () => getPdfTree())
 ipcMain.handle('pdf:set-tree', (_e, t) => setPdfTree(t))
 ipcMain.handle('pdf:pick-folder', () => pickPdfFolder())
 ipcMain.handle('pdf:pick-file', () => pickPdfFile())
+ipcMain.handle('pdf:save-dialog', (_e, defaultPath) => savePdfDialog(defaultPath))
 ipcMain.handle('pdf:scan', (_e, { path, mode } = {}) => (mode === 'flat' ? scanFolderFlat(path) : scanFolder(path)))
 ipcMain.handle('pdf:stat', (_e, path) => statPath(path))
 ipcMain.handle('pdf:open', (_e, path) => openPdfPath(path))

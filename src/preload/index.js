@@ -140,6 +140,7 @@ const api = {
     setTree: (t) => ipcRenderer.invoke('pdf:set-tree', t),
     pickFolder: () => ipcRenderer.invoke('pdf:pick-folder'),
     pickFile: () => ipcRenderer.invoke('pdf:pick-file'),
+    saveDialog: (defaultPath) => ipcRenderer.invoke('pdf:save-dialog', defaultPath),
     scan: (path, mode) => ipcRenderer.invoke('pdf:scan', { path, mode }),
     stat: (path) => ipcRenderer.invoke('pdf:stat', path),
     open: (path) => ipcRenderer.invoke('pdf:open', path),
@@ -228,6 +229,12 @@ const api = {
     ipcRenderer.on('reminder:open', h)
     return () => ipcRenderer.removeListener('reminder:open', h)
   },
+  // a fired reminder the user wants read aloud → { title, body } for the AI
+  onReminderSpeak: (cb) => {
+    const h = (_e, p) => cb(p)
+    ipcRenderer.on('reminder:speak', h)
+    return () => ipcRenderer.removeListener('reminder:speak', h)
+  },
   getReminderDuration: () => ipcRenderer.invoke('settings:get-reminder-duration'),
   setReminderDuration: (v) => ipcRenderer.send('settings:set-reminder-duration', v),
   notifyResize: (height) => ipcRenderer.send('notify:resize', height),
@@ -262,6 +269,8 @@ const api = {
       ipcRenderer.invoke('google:create-event', { email, calendarId, event }),
     updateEvent: (gid, event) => ipcRenderer.invoke('google:update-event', { gid, event }),
     deleteEvent: (gid) => ipcRenderer.invoke('google:delete-event', gid),
+    eventExists: (gid) => ipcRenderer.invoke('google:event-exists', gid),
+    imports: () => ipcRenderer.invoke('google:imports'),
     eventWritable: (gid) => ipcRenderer.invoke('google:event-writable', gid),
     writableCalendars: () => ipcRenderer.invoke('google:writable-calendars'),
     setAutoSync: (email, ids) => ipcRenderer.invoke('google:set-autosync', { email, ids }),

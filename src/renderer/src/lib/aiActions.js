@@ -185,18 +185,28 @@ export async function execAction(a, onCommand, channel) {
         if (!target && writable.length === 1) target = writable[0]
         if (!target)
           return { ok: false, error: `which calendar? writable: ${writable.map((c) => c.summary).join(', ')}` }
+        // recurrence (optional): weekly days [0-6] or monthly days-of-month
+        // [1-31] (32 = last day). Present → a RECURRING event; absent → one-time.
+        const days = Array.isArray(a.days) ? a.days : null
+        const monthDays = Array.isArray(a.monthDays) ? a.monthDays : null
+        const recurring = !!((days && days.length) || (monthDays && monthDays.length))
         const r = await api.google?.createEvent?.(target.account, target.id, {
           title: a.title,
           day,
           time: a.time || null,
           durationMin: a.durationMin,
           description: a.text || a.description || '',
-          location: a.location || ''
+          location: a.location || '',
+          days: monthDays ? undefined : days,
+          monthDays
         })
         if (!r?.ok) return { ok: false, error: r?.error || 'create failed' }
-        // mark the local note as shared (we created it on Google), so it can later
-        // be edited/deleted on Google too — same as the editor's share button
-        const imp = await importGoogleEvent(r.event, { googleShared: true })
+        // import it locally: a recurring event becomes one "everyday" note (weekly /
+        // monthly repeat); a one-time event lands on its date, marked shared so it
+        // can later be edited/deleted on Google too — same as the editor's share button
+        const imp = recurring
+          ? await importGoogleEventEveryday(r.event)
+          : await importGoogleEvent(r.event, { googleShared: true })
         return { ok: true, result: { calendar: target.summary, day: imp?.day } }
       }
       case 'remember':
@@ -229,13 +239,15 @@ export async function execAction(a, onCommand, channel) {
       case 'addReminder': {
         if (!a.date) return { ok: false, error: 'addNote needs a date' }
         const arr = (await api.getItems?.(a.date)) || []
-        const days = Array.isArray(a.days) ? a.days : null // weekdays for everyday notes
+        const days = Array.isArray(a.days) ? a.days : null // weekdays for everyday notes (weekly repeat)
+        const monthDays = Array.isArray(a.monthDays) ? a.monthDays : null // days of month for everyday notes (monthly repeat; 32 = last day)
+        const speak = a.speak === true // when true, the AI reads this reminder aloud when it fires
         const html = a.html || '' // optional rich (formatted) content
         const text = html ? stripHtml(html) : a.text || ''
-        const item = { ...newItem(text), title: a.title || null, time: a.time || null, folderId: a.folder || null, days, html }
+        const item = { ...newItem(text), title: a.title || null, time: a.time || null, folderId: a.folder || null, days, monthDays, speak, html }
         api.saveItems?.(a.date, [...arr, item])
         if (a.time)
-          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: text, days })
+          api.setReminder?.({ id: item.id, when: a.time, dayKey: a.date, title: a.title || 'Calendar', body: text, days, monthDays, speak })
         return { ok: true, result: { id: item.id } }
       }
       case 'edit':
@@ -258,12 +270,14 @@ export async function execAction(a, onCommand, channel) {
           time: a.time !== undefined ? a.time : it.time,
           status: a.status !== undefined ? a.status : it.status,
           folderId: a.folder !== undefined ? a.folder || null : it.folderId,
-          days: a.days !== undefined ? (Array.isArray(a.days) ? a.days : null) : it.days
+          days: a.days !== undefined ? (Array.isArray(a.days) ? a.days : null) : it.days,
+          monthDays: a.monthDays !== undefined ? (Array.isArray(a.monthDays) ? a.monthDays : null) : it.monthDays,
+          speak: a.speak !== undefined ? !!a.speak : it.speak
         }
         arr[idx] = patched
         api.saveItems?.(a.date, arr)
         if (patched.time)
-          api.setReminder?.({ id: it.id, when: patched.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '', days: patched.days })
+          api.setReminder?.({ id: it.id, when: patched.time, dayKey: a.date, title: patched.title || 'Calendar', body: patched.text || '', days: patched.days, monthDays: patched.monthDays, speak: patched.speak })
         else if (a.time !== undefined) api.clearReminder?.(it.id)
         // editing a Google-linked note on a real date → push the change up to
         // Google too (main skips read-only calendars). Same as the UI editor.

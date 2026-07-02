@@ -424,10 +424,31 @@ export async function writableCalendars() {
 
 // build a Google event resource body from our note shape
 // ev = { title, day:'YYYY-MM-DD', time:'HH:mm'|null, durationMin?, description?, location? }
+// weekday index (0=Sun..6=Sat) → Google BYDAY code
+const RRULE_DAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+
+// Build a Google RRULE for a recurring "everyday" note: monthly (byMonthDay,
+// 32 = last day → BYMONTHDAY=-1) or weekly (byDay). Returns the recurrence array
+// Google expects, or null when the note doesn't repeat.
+function recurrenceRule(days, monthDays) {
+  if (Array.isArray(monthDays) && monthDays.length) {
+    const md = [...new Set(monthDays.map((n) => (n >= 32 ? -1 : n)))].join(',')
+    return [`RRULE:FREQ=MONTHLY;BYMONTHDAY=${md}`]
+  }
+  if (Array.isArray(days) && days.length) {
+    const by = days.map((d) => RRULE_DAY[d]).filter(Boolean).join(',')
+    if (by) return [`RRULE:FREQ=WEEKLY;BYDAY=${by}`]
+  }
+  return null
+}
+
 function buildEventBody(ev) {
   const body = { summary: ev.title || '(no title)', description: ev.description || '', location: ev.location || '' }
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
   const p = (n) => String(n).padStart(2, '0')
+  // recurring event (from a shared "everyday" note): weekly or monthly RRULE
+  const rec = recurrenceRule(ev.days, ev.monthDays)
+  if (rec) body.recurrence = rec
   if (ev.time) {
     const dur = Number(ev.durationMin) > 0 ? Number(ev.durationMin) : 60
     const end = new Date(`${ev.day}T${ev.time}:00`)
@@ -487,8 +508,8 @@ export async function createEvent(email, calId, ev) {
       time,
       allDay,
       htmlLink: json.htmlLink || '',
-      recurring: false,
-      recurringEventId: null,
+      recurring: !!(json.recurrence && json.recurrence.length),
+      recurringEventId: json.recurrence && json.recurrence.length ? json.id : null,
       appCreated: true,
       taskId: json.extendedProperties?.shared?.taskId || null
     }
@@ -507,6 +528,15 @@ export async function updateEvent(gid, ev) {
   const cal = (calCache.get(g.email) || []).find((c) => c.id === g.calId)
   if (cal && !cal.writable) return { ok: true, skipped: true } // read-only → don't push, not an error
   const path = `/calendars/${encodeURIComponent(g.calId)}/events/${encodeURIComponent(g.eventId)}`
+  // a recurring "everyday" note has no real date of its own (ev.day = 'everyday').
+  // Read the series master's OWN start date and keep it, applying just the new
+  // time + recurrence — so editing a periodic note updates its Google series.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.day || '')) {
+    const cur = await apiGet(g.email, path)
+    const day = cur?.start?.date || (cur?.start?.dateTime ? localParts(cur.start).day : null)
+    if (!day) return { ok: false, error: 'could not read the recurring event to update it' }
+    ev = { ...ev, day }
+  }
   const { status, json } = await apiPatch(g.email, path, buildEventBody(ev))
   if (json?.error) return { ok: false, error: scopeError(status, json?.error?.message) }
   return { ok: true }
@@ -524,6 +554,23 @@ export async function eventWritable(gid) {
   }
   const cal = (calCache.get(g.email) || []).find((c) => c.id === g.calId)
   return !!(cal && cal.writable)
+}
+
+// Does a Google event still exist? Used by auto-sync to decide whether an
+// imported note whose event vanished should be removed. SAFE by design: returns
+// false ONLY when Google explicitly says the event is gone (404/410) or cancelled;
+// on any uncertainty (network/auth error, bad id) it returns true so the caller
+// never deletes a note on a transient failure.
+export async function eventExists(gid) {
+  const g = splitGid(gid)
+  if (!g) return true
+  try {
+    const r = await apiGet(g.email, `/calendars/${encodeURIComponent(g.calId)}/events/${encodeURIComponent(g.eventId)}`)
+    if (r?.error) return !(r.error.code === 404 || r.error.code === 410) // only 404/410 = truly gone
+    return r?.status !== 'cancelled'
+  } catch {
+    return true // network/other error → assume it still exists, do NOT delete
+  }
 }
 
 // Delete an event from its Google calendar (when a shared/imported note is
@@ -550,9 +597,9 @@ export async function deleteEvent(gid) {
   return { ok: false, error: scopeError(res.status, msg) }
 }
 
-// Parse a Google RRULE into our "everyday" weekday model. Returns
-// { supported, days:[0-6] } — days [] means the start weekday / fallback.
-// Anything our everyday board can't express (monthly, yearly, INTERVAL>1) is unsupported.
+// Parse a Google RRULE into our "everyday" recurrence model. Returns
+// { supported, days:[0-6] } for weekly/daily, or { supported, monthDays:[1-31|32] }
+// for monthly (32 = last day, from BYMONTHDAY=-1). Yearly / INTERVAL>1 is unsupported.
 const BYDAY = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 }
 function parseRecurrence(recurrence) {
   const rule = (recurrence || []).find((r) => String(r).startsWith('RRULE:'))
@@ -567,6 +614,15 @@ function parseRecurrence(recurrence) {
       .filter((n) => n !== undefined)
       .sort((a, b) => a - b)
     return { supported: true, days }
+  }
+  if (p.FREQ === 'MONTHLY') {
+    const monthDays = (p.BYMONTHDAY || '')
+      .split(',')
+      .map((s) => parseInt(s, 10))
+      .map((n) => (n === -1 ? 32 : n)) // Google's "last day" (-1) → our 32 sentinel
+      .filter((n) => n >= 1 && n <= 32)
+      .sort((a, b) => a - b)
+    if (monthDays.length) return { supported: true, monthDays: [...new Set(monthDays)] }
   }
   return { supported: false }
 }

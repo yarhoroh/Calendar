@@ -784,7 +784,9 @@ export default function PdfEditor({ source, path }) {
         for (const o of occs) {
           items.push({ type: 'text', bbox: o.chainBox || o.bbox, x: o.x, y: o.baseline })
           const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
-          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic, true); if (src) fonts[k] = src }
+          // reuse the run's OWN embedded font (exact, keeps weight) — fall back only if it can't
+          // encode; forcing the full system face here made everything render bold
+          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic); if (src) fonts[k] = src }
           const lh = (o.size || 10) * 1.25
           String(value).split('\n').forEach((line, li) => {
             if (line === '') return
@@ -1202,7 +1204,7 @@ export default function PdfEditor({ source, path }) {
       const value = joinRuns(texts).replace(/\s+/g, ' ').trim()
       const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
       const fonts = {}
-      const src = await fontSourceFor(o.family, o.bold, o.italic, true)
+      const src = await fontSourceFor(o.family, o.bold, o.italic) // the PDF's own font, not a system face
       if (src) fonts[k] = src
       const items = [{ type: 'text', bbox: o.chainBox || o.bbox, x: o.x, y: o.baseline }]
       const lh = (o.size || 10) * 1.25

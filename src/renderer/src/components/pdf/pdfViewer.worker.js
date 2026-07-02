@@ -1033,10 +1033,17 @@ function setDash(pageIndex, item, key) {
   let hit = false
   seg = seg.replace(/\[[^\]]*\]\s*[-\d.]+\s+d\b/g, () => { hit = true; return op })
   if (!hit) {
-    const re = /([\s>)\]])(S|s|f\*?|B\*?|b\*?)(?![A-Za-z*])/g
-    let last = null, m
-    while ((m = re.exec(seg))) last = m
-    if (last) seg = seg.slice(0, last.index + last[1].length) + `${op}\n` + seg.slice(last.index + last[1].length)
+    // `d` is graphics-STATE: it must come BEFORE the path construction starts — inserted after an
+    // `m`/`re` it is a syntax error the renderer silently drops ("the dropdown does nothing")
+    const CONSTR = new Set(['m', 'l', 'c', 'v', 'y', 're'])
+    let at = -1, numStart = -1
+    for (const mt of mask(seg).matchAll(TOKENS)) {
+      if (isNum(mt[0])) { if (numStart < 0) numStart = mt.index; continue }
+      if (CONSTR.has(mt[0])) { at = numStart >= 0 ? numStart : mt.index; break }
+      numStart = -1
+    }
+    if (at >= 0) seg = seg.slice(0, at) + `${op}\n` + seg.slice(at)
+    else seg = `\n${op}\n` + seg
   }
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
 }

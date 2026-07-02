@@ -1358,8 +1358,8 @@ export default function PdfEditor({ source, path }) {
       </div>
 
       {showInfo && (
-        <div className="pdfed__infowrap" onClick={() => setShowInfo(false)}>
-          <div className="pdfed__infobox" onClick={(e) => e.stopPropagation()}>
+        <div className="pdfed__infowrap" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowInfo(false) }}>
+          <div className="pdfed__infobox">
             <div className="pdfed__infohead">
               <b>{t('pdfed.helpTitle')}</b>
               <button className="pdfed__btn" onClick={() => setShowInfo(false)} title="Close">✕</button>
@@ -1505,8 +1505,8 @@ export default function PdfEditor({ source, path }) {
       </div>
 
       {varDraft && (
-        <div className="pdfed__infowrap" onClick={() => setVarDraft(null)}>
-          <div className="pdfed__varpop" onClick={(e) => e.stopPropagation()}>
+        <div className="pdfed__infowrap" onMouseDown={(e) => { if (e.target === e.currentTarget) setVarDraft(null) }}>
+          <div className="pdfed__varpop">
             <div className="pdfed__infohead"><b>Create variable</b><button className="pdfed__btn" onClick={() => setVarDraft(null)}>✕</button></div>
             {variables.length > 0 && (
               <label className="pdfed__varpop-lbl">Add to an existing variable

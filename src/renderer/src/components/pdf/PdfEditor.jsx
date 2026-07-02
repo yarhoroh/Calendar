@@ -964,6 +964,7 @@ export default function PdfEditor({ source, path }) {
                     defaultValue={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
                     onChange={(e) => deferMutation(() => recolorSelected({ stroke: e.target.value }))}
                   />
+                  <button className="pdfed__btn pdfed__btn--none" title="No stroke (transparent)" onClick={() => recolorSelected({ stroke: 'none' })}>∅</button>
                 </label>
                 <label className="pdfed__mini" title="Fill colour">
                   Fill
@@ -973,6 +974,7 @@ export default function PdfEditor({ source, path }) {
                     defaultValue={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
                     onChange={(e) => deferMutation(() => recolorSelected({ fill: e.target.value }))}
                   />
+                  <button className="pdfed__btn pdfed__btn--none" title="No fill (transparent)" onClick={() => recolorSelected({ fill: 'none' })}>∅</button>
                 </label>
               </>
             )}

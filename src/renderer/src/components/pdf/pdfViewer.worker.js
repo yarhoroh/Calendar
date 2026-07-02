@@ -904,17 +904,22 @@ function recolorVector(pageIndex, item, colors) {
       else seg = `\n${col} ${ops[0]}\n` + seg
     }
   }
-  if (colors.stroke) apply(colors.stroke, ['RG', 'G', 'K'])
-  if (colors.fill) apply(colors.fill, ['rg', 'g', 'k'])
-  // a stroke-only path can't SHOW a fill (and vice versa) — upgrade the LAST paint op to stroke+fill
-  const upgradePaint = (from, to) => {
-    const re = new RegExp(`([\\s>)\\]])${from.replace('*', '\\*')}(?![A-Za-z*])`, 'g')
+  const hasStroke = colors.stroke && colors.stroke !== 'none'
+  const hasFill = colors.fill && colors.fill !== 'none'
+  if (hasStroke) apply(colors.stroke, ['RG', 'G', 'K'])
+  if (hasFill) apply(colors.fill, ['rg', 'g', 'k'])
+  // the paint op decides WHAT is drawn: upgrade it when a colour is added to a side that wasn't
+  // painted, downgrade it for 'none' (transparent stroke/fill)
+  const setPaint = (map) => {
+    const re = /([\s>)\]])(S|s|f\*?|B\*?|b\*?)(?![A-Za-z*])/g
     let last = null, m
     while ((m = re.exec(seg))) last = m
-    if (last) seg = seg.slice(0, last.index) + last[1] + to + seg.slice(last.index + last[0].length)
+    if (last && map[last[2]]) seg = seg.slice(0, last.index) + last[1] + map[last[2]] + seg.slice(last.index + last[0].length)
   }
-  if (colors.fill) { upgradePaint('S', 'B'); upgradePaint('s', 'b') }
-  if (colors.stroke) { upgradePaint('f*', 'B*'); upgradePaint('f', 'B') }
+  if (hasFill) setPaint({ S: 'B', s: 'b' })
+  if (hasStroke) setPaint({ 'f*': 'B*', f: 'B' })
+  if (colors.stroke === 'none') setPaint({ S: 'n', s: 'n', B: 'f', 'B*': 'f*', b: 'f', 'b*': 'f*' })
+  if (colors.fill === 'none') setPaint({ f: 'n', 'f*': 'n', B: 'S', 'B*': 'S', b: 's', 'b*': 's' })
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
 }
 
@@ -1026,6 +1031,40 @@ function moveObjectsImpl(pageIndex, items) {
   return jobs.length
 }
 
+// Duplicate objects INSIDE the stream: each matched unit's bytes are re-inserted after the original
+// (same graphics state, so fonts/colors carry over), coordinates shifted by dx/dy (screen-down pt).
+function copyObjectsImpl(pageIndex, items, dx, dy) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const found = new Set()
+  for (const it of items || []) {
+    const best = matchUnit(units, it)
+    if (best) found.add(best)
+  }
+  const byStream = {}
+  for (const u of found) (byStream[u.stream] = byStream[u.stream] || []).push(u)
+  for (const sk of Object.keys(byStream)) {
+    const s = Number(sk)
+    let cs = readStream(pageObj, s)
+    const list = byStream[sk].sort((a, b) => b.end - a.end) // right-to-left keeps offsets valid
+    for (const u of list) {
+      // the copy must land AFTER the original's closing Q's — inserting right after the paint op
+      // would put it INSIDE the original's q-blocks, and a self-wrapped unit (our inserted shapes
+      // carry their own anti-flip cm) would apply that transform TWICE (copy came out 4-17x the
+      // size). segEnd also makes the copied segment self-contained (q's + their Q's).
+      const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+      // balance the copy (an unmatched Q inside would cancel any wrapper and leak state), then
+      // shift its own coordinates — same operator surgery as moveObjects
+      const copy = shiftSeg(u, balanceSeg(cs.slice(u.start, segEnd)), dx, dy)
+      cs = cs.slice(0, segEnd) + '\n' + copy + '\n' + cs.slice(segEnd)
+    }
+    writeStream(pageObj, s, cs)
+  }
+  return found.size
+}
+
 // physically remove objects from the page stream: text — surgically (blank its own show op);
 // images/vectors and unmatched text — via redaction, grouped by type so each pass only touches
 // its own kind (text redaction won't eat an image underneath, etc.)
@@ -1057,6 +1096,7 @@ export const __test = {
   getModel: (...a) => getModel(...a),
   collectUnits,
   moveObjectsImpl: (...a) => moveObjectsImpl(...a),
+  copyObjectsImpl: (...a) => copyObjectsImpl(...a),
   deleteObjectsImpl: (...a) => deleteObjectsImpl(...a),
   insertShape: (...a) => insertShape(...a),
   insertImage: (...a) => insertImage(...a),
@@ -1118,34 +1158,8 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       const bytes = new Uint8Array(doc.saveToBuffer('').asUint8Array())
       self.postMessage({ id, result: { bytes: bytes.buffer } }, [bytes.buffer])
     } else if (type === 'copyObjects') {
-      // duplicate objects INSIDE the stream: each matched unit's bytes are re-inserted right after
-      // the original (same graphics state, so fonts/colors carry over) wrapped in q..cm..Q with an
-      // offset. items: [{ type, bbox }], dx/dy in pt (screen-down).
       if (!doc) throw new Error('no document open')
-      const lp2 = doc.loadPage(params.pageIndex)
-      const H2 = lp2.getBounds()[3]; lp2.destroy()
-      const pageObj2 = doc.findPage(params.pageIndex)
-      const units2 = collectUnits(pageObj2, H2)
-      const found = new Set()
-      for (const it of params.items || []) {
-        const best = matchUnit(units2, it)
-        if (best) found.add(best)
-      }
-      const byStream2 = {}
-      for (const u of found) (byStream2[u.stream] = byStream2[u.stream] || []).push(u)
-      for (const sk of Object.keys(byStream2)) {
-        const s = Number(sk)
-        let cs = readStream(pageObj2, s)
-        const list = byStream2[sk].sort((a, b) => b.end - a.end) // right-to-left keeps offsets valid
-        for (const u of list) {
-          // balance the copy (an unmatched Q inside would cancel any wrapper and leak state), then
-          // shift its own coordinates — same operator surgery as moveObjects
-          const copy = shiftSeg(u, balanceSeg(cs.slice(u.start, u.end)), params.dx || 0, params.dy || 0)
-          cs = cs.slice(0, u.end) + '\n' + copy + '\n' + cs.slice(u.end)
-        }
-        writeStream(pageObj2, s, cs)
-      }
-      self.postMessage({ id, result: { ok: true, copied: found.size } })
+      self.postMessage({ id, result: { ok: true, copied: copyObjectsImpl(params.pageIndex, params.items, params.dx || 0, params.dy || 0) } })
     } else if (type === 'deleteObjects') {
       if (!doc) throw new Error('no document open')
       deleteObjectsImpl(params.pageIndex, params.items)

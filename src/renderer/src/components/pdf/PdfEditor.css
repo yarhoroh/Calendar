@@ -358,6 +358,13 @@
   background: transparent;
   cursor: move;
 }
+/* "transparent" button next to the stroke/fill pickers */
+.pdfed__btn--none {
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  line-height: 1;
+}
 /* small colour input in the object panel (vector stroke/fill) */
 .pdfed__colin {
   width: 28px;

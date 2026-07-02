@@ -673,20 +673,39 @@ export default function PdfEditor({ source, path }) {
     setTextEdit({ page: pageIndex, x, y })
   }
 
-  // ---- insert image: pick a PNG/JPEG, then click the page where it goes ----
+  // ---- insert image: pick a PNG/JPEG/SVG, then click the page where it goes ----
+  // PDF has no native SVG — an SVG is rasterised to PNG at 3x for headroom before embedding
+  const svgToPng = (svgBytes) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob([svgBytes], { type: 'image/svg+xml' }))
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth || 300, h = img.naturalHeight || 300
+      const c = document.createElement('canvas')
+      c.width = Math.round(w * 3); c.height = Math.round(h * 3)
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(url)
+      c.toBlob((b) => (b ? b.arrayBuffer().then(resolve) : reject(new Error('svg rasterise failed'))), 'image/png')
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('svg load failed')) }
+    img.src = url
+  })
   const pickImageFile = () => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = 'image/png,image/jpeg'
+    input.accept = 'image/png,image/jpeg,image/svg+xml,.svg'
     input.onchange = async () => {
       const f = input.files?.[0]
       if (!f) return
-      const bytes = await f.arrayBuffer()
-      const bmp = await createImageBitmap(new Blob([bytes]))
-      const scale = Math.min(1, 300 / bmp.width, 300 / bmp.height) // sane default size, keeps ratio
-      const w = +(bmp.width * scale).toFixed(2), h = +(bmp.height * scale).toFixed(2)
-      bmp.close?.()
-      setInsertMode({ image: { bytes, w, h } })
+      try {
+        let bytes = await f.arrayBuffer()
+        if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) bytes = await svgToPng(bytes)
+        const bmp = await createImageBitmap(new Blob([bytes]))
+        const px = /svg/i.test(f.type) || /\.svg$/i.test(f.name) ? 3 : 1 // undo the 3x headroom for the on-page size
+        const scale = Math.min(1 / px, 300 / bmp.width, 300 / bmp.height) // sane default size, keeps ratio
+        const w = +(bmp.width * scale).toFixed(2), h = +(bmp.height * scale).toFixed(2)
+        bmp.close?.()
+        setInsertMode({ image: { bytes, w, h } })
+      } catch (err) { console.error('[pdf] image pick failed:', err) }
     }
     input.click()
   }

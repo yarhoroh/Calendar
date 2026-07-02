@@ -85,17 +85,25 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     // ask for a clean sprite of ONLY the dragged objects (until it lands, per-object raster windows serve)
     onSprite?.(pageIndex, objs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
     const u0 = unionOf(objs)
+    // Ctrl while dragging → the move is locked to the axis of the FIRST significant displacement
+    let axis = null
+    const lock = (dx, dy, ctrl) => {
+      if (!ctrl) { axis = null; return [dx, dy] }
+      if (!axis && Math.hypot(dx, dy) > 3) axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+      return axis === 'x' ? [dx, 0] : axis === 'y' ? [0, dy] : [dx, dy]
+    }
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
-      setGhost({ dx: mx - sx, dy: my - sy })
-      if (u0) onLiveGeo?.({ x: u0.x + (mx - sx), y: u0.y + (my - sy), w: u0.w, h: u0.h }) // live X/Y in the panel
+      const [dx, dy] = lock(mx - sx, my - sy, ev.ctrlKey)
+      setGhost({ dx, dy })
+      if (u0) onLiveGeo?.({ x: u0.x + dx, y: u0.y + dy, w: u0.w, h: u0.h }) // live X/Y in the panel
     }
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       onLiveGeo?.(null)
       const [ux, uy] = toPt(ev, el)
-      const dx = ux - sx, dy = uy - sy
+      const [dx, dy] = lock(ux - sx, uy - sy, ev.ctrlKey)
       if (Math.hypot(dx, dy) >= 1) {
         // keep the ghost parked at the drop spot while the worker re-renders the page — the object
         // looks like it's already there instead of vanishing and "jumping" seconds later

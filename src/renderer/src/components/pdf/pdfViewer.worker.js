@@ -841,9 +841,12 @@ function insertTextWithRecs(pageIndex, spec, recs) {
   const pageObj = doc.findPage(pageIndex)
   for (const k of Object.keys(recs)) registerInsFont(pageIndex, recs[k]) // AFTER any redaction, right before writing
   console.log('[pdf worker] insert:', JSON.stringify((spec.lines || []).map((l) => l.map((s) => ({ t: s.text, x: s.x, b: s.baseline, ls: s.ls || 0 })))))
-  let ops = '\n'
+  // ONE BT..ET block for the whole insertion, lines positioned with relative Td — exactly how
+  // native PDFs write paragraphs, so the lines read back as ONE block (bN.l0, bN.l1, …) and
+  // block-selection / future editing treats them as one object
+  let body = ''
+  let curX = null, curY = null
   for (const line of spec.lines || []) {
-    let body = ''
     for (const s of line) {
       const rec = recs[s.fontKey]
       if (!rec || !s.text) continue
@@ -859,10 +862,13 @@ function insertTextWithRecs(pageIndex, spec, recs) {
       if ((ls === undefined || ls === null) && s.fitW > 0 && s.text.length > 1) {
         ls = Math.max(-3, Math.min(10, (s.fitW - nat * (s.size || 12)) / (s.text.length - 1)))
       }
-      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc 1 0 0 1 ${n2(s.x)} ${n2(H - s.baseline)} Tm <${hex}> Tj\n`
+      const tx = s.x, ty = H - s.baseline
+      const pos = curX === null ? `1 0 0 1 ${n2(tx)} ${n2(ty)} Tm` : `${n2(tx - curX)} ${n2(ty - curY)} Td`
+      curX = tx; curY = ty
+      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc ${pos} <${hex}> Tj\n`
     }
-    if (body) ops += 'q BT\n' + body + 'ET Q\n'
   }
+  const ops = body ? '\nq BT\n' + body + 'ET Q\n' : '\n'
   // (ToUnicode is complete since font creation — no post-hoc updates: mupdf would never re-read them)
   const cs = readStream(pageObj, 0)
   // neutralise whatever graphics state the stream ends in: close every open q, then undo any

@@ -94,6 +94,19 @@ function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGra
   )
 }
 
+// selection-mode icons: single arrow — pick one element; double arrow — pick whole blocks
+const CursorOneIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+    <path d="M6 3l12 9-6 1 3.5 7-2.8 1.3L9.4 14 6 18z" />
+  </svg>
+)
+const CursorBlockIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+    <path d="M4 2l9 7-4.5 0.8 2.6 5.2-2.2 1L6.6 11 4 14z" />
+    <path d="M12 9l9 7-4.5 0.8 2.6 5.2-2.2 1-2.3-5.2L12 21z" opacity="0.55" />
+  </svg>
+)
+
 const InfoIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <circle cx="12" cy="12" r="9" />
@@ -182,6 +195,7 @@ export default function PdfEditor({ source, path }) {
   const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
   const [liveGeo, setLiveGeo] = useState(null) // geometry readout while dragging/resizing (from PdfPage)
   const [showInfo, setShowInfo] = useState(false) // the quick-guide overlay
+  const [selMode, setSelMode] = useState('block') // 'single' — pick one element; 'block' — whole text blocks
   const rteRef = useRef(null)
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -954,6 +968,10 @@ export default function PdfEditor({ source, path }) {
         <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(10, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
         <span className="pdfed__sep" />
+        {/* selection mode: exactly one of the two is always on */}
+        <button className={'pdfed__btn' + (selMode === 'single' ? ' is-active' : '')} onClick={() => setSelMode('single')} title="Select single elements (lines)"><CursorOneIcon /></button>
+        <button className={'pdfed__btn' + (selMode === 'block' ? ' is-active' : '')} onClick={() => setSelMode('block')} title="Select whole text blocks"><CursorBlockIcon /></button>
+        <span className="pdfed__sep" />
         {/* insert section: arm a mode (text / image; shapes coming), then click the page */}
         <button
           className={'pdfed__btn' + (insertMode === 'text' ? ' is-active' : '')}
@@ -1258,6 +1276,7 @@ export default function PdfEditor({ source, path }) {
                 image={imgOf(p.pageIndex)}
                 scale={scale}
                 selected={selected}
+                selMode={selMode}
                 showAll={showAll}
                 nudge={nudge && nudge.page === p.pageIndex ? nudge : null}
                 insertMode={insertMode}

@@ -53,7 +53,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -152,13 +152,26 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     // insert text/image mode: the click just places it
     if (insertMode) { onInsertAt(pageIndex, x, y); return }
 
+    // In 'block' mode a click on any line of a multi-line text BLOCK (bN.l0, bN.l1, …) selects the
+    // whole block — it is ONE object in the PDF. 'single' mode (and the rubber-band) picks lines.
+    const blockOf = (o) => (o.type === 'text' ? String(o.id).split('.')[0] : null)
+    const groupHit = (h) => {
+      if (selMode !== 'block') return [h]
+      const b = blockOf(h)
+      if (!b) return [h]
+      const grp = objects.filter((o) => blockOf(o) === b)
+      return grp.length ? grp : [h]
+    }
+
     // Shift/Ctrl + click: add objects to the selection one by one (click a selected one → remove it).
     // Same result as the rubber-band, just piecewise. Never starts a drag or a marquee.
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       const hit = hitTest(objects, x, y)
       if (hit) {
-        const has = selObjs.some((o) => o.id === hit.id)
-        onSelect(pageIndex, has ? selObjs.filter((o) => o.id !== hit.id) : [...selObjs, hit])
+        const grp = groupHit(hit)
+        const ids = new Set(grp.map((o) => o.id))
+        const has = selObjs.some((o) => ids.has(o.id))
+        onSelect(pageIndex, has ? selObjs.filter((o) => !ids.has(o.id)) : [...selObjs, ...grp.filter((o) => !selObjs.some((s) => s.id === o.id))])
       }
       return // empty additive click keeps the selection as is
     }
@@ -172,7 +185,7 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     if (onSel) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 
     const hit = hitTest(objects, x, y)
-    if (hit) { onSelect(pageIndex, [hit]); startMoveDrag(el, x, y, [hit]); return } // select AND move in one gesture
+    if (hit) { const grp = groupHit(hit); onSelect(pageIndex, grp); startMoveDrag(el, x, y, grp); return } // select AND move in one gesture (whole text block)
 
     // empty space → rubber-band
     onSelect(pageIndex, null)

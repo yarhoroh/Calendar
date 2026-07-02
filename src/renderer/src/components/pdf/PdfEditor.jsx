@@ -1086,7 +1086,7 @@ export default function PdfEditor({ source, path }) {
       if (i > 0) out += Math.abs(sorted[i].y - sorted[i - 1].y) > 3 ? '\n' : ' '
       out += sorted[i].text || ''
     }
-    navigator.clipboard?.writeText(out).catch((e) => console.warn('[pdf] copy text failed:', e?.message))
+    api.writeClipboard?.(out) // native Electron clipboard (navigator.clipboard is blocked in Electron)
   }
 
   // double-click on the selection → physically remove the selected objects from the PDF stream.

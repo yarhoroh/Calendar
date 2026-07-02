@@ -13,3 +13,11 @@ resources/asr/
 
 # CodeGraph local code index (per-machine, rebuilt on demand)
 .codegraph/
+
+# SQLite databases — all auto-created at runtime in userData; never commit personal data
+# (notes calendar.db, pdf-index.db, …) even if one ever lands inside the project folder
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3

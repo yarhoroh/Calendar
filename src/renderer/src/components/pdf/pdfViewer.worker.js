@@ -609,10 +609,9 @@ function tightenBboxes(page, runs) {
     const [above, below] = nb.get(r)
     if (isFinite(above)) hardTop = Math.max(hardTop, Math.round(((above + r.y) / 2) * S))
     if (isFinite(below)) hardBot = Math.min(hardBot, Math.round(((r.y + below) / 2) * S))
-    // …and never past the span's own metric box: art painted UNDER the text is solid ink that the
-    // growth would climb ("frame inflates over a filled cell until re-selected on empty ground")
-    if (r.sy0 !== undefined) hardTop = Math.max(hardTop, Math.round(r.sy0 * S))
-    if (r.sy1 !== undefined) hardBot = Math.min(hardBot, Math.round(r.sy1 * S))
+    // (span y-limits were tried here and REVERTED: their metric top sits below real ascenders in
+    // some fonts — capitals got clipped. The text-only raster already excludes underlying art, so
+    // the glyph ink itself is the trustworthy boundary.)
     delete r.sy0
     delete r.sy1
     top = Math.max(top, hardTop)

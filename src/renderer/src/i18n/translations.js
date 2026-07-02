@@ -29,7 +29,8 @@ export const translations = {
       flat: 'flat', tree: 'tree', empty: 'Empty. Add a folder, or link a real folder / PDF.',
       search: 'Filter files…', clear: 'Clear', noMatch: 'Nothing matches.',
       collapse: 'Collapse', expand: 'Expand', resize: 'Drag to resize',
-      placeholderTitle: 'PDF editor', placeholderSub: 'Pick a PDF on the left. The editor lands here.'
+      placeholderTitle: 'PDF editor', placeholderSub: 'Pick a PDF on the left. The editor lands here.',
+      openFromDisk: 'Open a PDF from disk…'
     },
     pdfed: {
       save: 'Save', saveCurrent: 'Save current (Ctrl+S)', saveAsNew: 'Save as new…', fileName: 'File name', create: 'Create',
@@ -314,7 +315,8 @@ export const translations = {
       flat: 'плоско', tree: 'дерево', empty: 'Порожньо. Додай папку або підключи реальну папку / PDF.',
       search: 'Фільтр файлів…', clear: 'Очистити', noMatch: 'Нічого не знайдено.',
       collapse: 'Згорнути', expand: 'Розгорнути', resize: 'Потягни, щоб змінити ширину',
-      placeholderTitle: 'Редактор PDF', placeholderSub: 'Обери PDF зліва. Редактор зʼявиться тут.'
+      placeholderTitle: 'Редактор PDF', placeholderSub: 'Обери PDF зліва. Редактор зʼявиться тут.',
+      openFromDisk: 'Відкрити PDF з диска…'
     },
     pdfed: {
       save: 'Зберегти', saveCurrent: 'Зберегти поточний (Ctrl+S)', saveAsNew: 'Зберегти як новий…', fileName: 'Імʼя файлу', create: 'Створити',

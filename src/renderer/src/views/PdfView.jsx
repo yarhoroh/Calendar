@@ -587,13 +587,8 @@ export default function PdfView() {
       )}
 
       <main className="pdf__center">
-        {tabs.length === 0 ? (
-          <div className="pdf__placeholder">
-            <PdfIcon />
-            <div className="pdf__placeholder-title">{t('pdf.placeholderTitle')}</div>
-            <div className="pdf__placeholder-sub">{t('pdf.placeholderSub')}</div>
-          </div>
-        ) : (
+        {/* the tab strip is ALWAYS there — its ＋ is how you open a PDF when nothing is open yet */}
+        {(
           <div className="pdf__tabs-wrap">
             <div className="pdf__tabs">
               {scroll.left && (
@@ -640,6 +635,14 @@ export default function PdfView() {
               )}
             </div>
             <div className="pdf__tab-body">
+              {tabs.length === 0 && (
+                <div className="pdf__placeholder">
+                  <PdfIcon />
+                  <div className="pdf__placeholder-title">{t('pdf.placeholderTitle')}</div>
+                  <div className="pdf__placeholder-sub">{t('pdf.placeholderSub')}</div>
+                  <button className="pdf__placeholder-open" onClick={addTab}>{t('pdf.openFromDisk')}</button>
+                </div>
+              )}
               {/* one editor instance per open tab; only the active one is shown, so each PDF keeps its state */}
               {tabs.map((p) => (
                 <div key={p} className="pdf__tab-pane" style={{ display: p === activePath ? undefined : 'none' }}>

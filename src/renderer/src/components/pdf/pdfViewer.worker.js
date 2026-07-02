@@ -1425,8 +1425,11 @@ function copyObjectsImpl(pageIndex, items, dx, dy) {
 // physically remove objects from the page stream: text — surgically (blank its own show op);
 // images/vectors and unmatched text — via redaction, grouped by type so each pass only touches
 // its own kind (text redaction won't eat an image underneath, etc.)
-function deleteObjectsImpl(pageIndex, items) {
+function deleteObjectsImpl(pageIndex, items, textOnly = false) {
   const textLeftovers = blankTextShows(pageIndex, items)
+  // variables re-apply blanks a chain whose extra pieces were ALREADY blanked on a prior edit — those
+  // "leftovers" must be dropped silently, never redacted (redaction would paint boxes over the page)
+  if (textOnly) return
   const page = doc.loadPage(pageIndex)
   try {
     const groups = { text: [], image: [], vector: [] }
@@ -1560,7 +1563,7 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       // operation throws here and nothing has been deleted
       if (!doc) throw new Error('no document open')
       const recs = prepareInsFonts(params.pageIndex, params.fonts, params.fallback, samplesOf(params.spec))
-      deleteObjectsImpl(params.pageIndex, params.items)
+      deleteObjectsImpl(params.pageIndex, params.items, params.textOnly)
       insertTextWithRecs(params.pageIndex, params.spec, recs)
       self.postMessage({ id, result: { ok: true } })
     } else throw new Error('unknown request: ' + type)

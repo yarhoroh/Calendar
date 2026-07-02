@@ -40,7 +40,7 @@ export function createPdfEngine() {
     copyObjects: (pageIndex, items, dx, dy) => call('copyObjects', { pageIndex, items, dx, dy }), // duplicate units in the stream at an offset
     getFontsInfo: () => call('getFontsInfo', {}), // → { fonts:[{name, embedded, subset}] } — document font inventory
     insertText: (pageIndex, spec, fonts, fallback) => call('insertText', { pageIndex, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // write new rich text into the stream (fonts validated first)
-    replaceText: (pageIndex, items, spec, fonts, fallback) => call('replaceText', { pageIndex, items, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // ATOMIC: validate fonts → delete → insert
+    replaceText: (pageIndex, items, spec, fonts, fallback, textOnly = false) => call('replaceText', { pageIndex, items, spec, fonts, fallback, textOnly }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // ATOMIC: validate fonts → delete → insert (textOnly: no redaction of unmatched)
     insertImage: (pageIndex, bytes, x, y, w, h) => call('insertImage', { pageIndex, bytes, x, y, w, h }, [bytes]), // place a PNG/JPEG at x/y (pt, top-left)
     resizeObject: (pageIndex, item, nb) => call('resizeObject', { pageIndex, item, nb }), // stretch an image/vector to the new bbox
     insertShape: (pageIndex, kind, geo, style) => call('insertShape', { pageIndex, kind, geo, style }), // rect (radius) / line / ellipse

@@ -661,35 +661,80 @@ export default function PdfEditor({ source, path }) {
   }, [variables])
 
   // ---- variables ----
-  // resolve a model run into a durable occurrence (styles by VALUE, not palette index — indices
-  // shift when the model is rebuilt; anchor x/baseline stays put across value edits)
-  const occFromRun = (page, r) => {
-    const pg = model.find((p) => p.pageIndex === page)
-    const f = pg?.fonts?.[r.f] || {}
-    return { page, x: r.x, baseline: r.y, bbox: r.bbox, family: f.name || 'Arial', bold: !!f.bold, italic: !!f.italic, size: r.size, color: pg?.colors?.[r.c] || '#000000', ls: r.ls || 0, enabled: true }
+  const vnorm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  // reconstruct the text of a chain of runs, inserting a space only where there's a real gap
+  const joinRuns = (runs) => {
+    const s = [...runs].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    let out = ''
+    for (let i = 0; i < s.length; i++) {
+      if (i > 0) {
+        const p = s[i - 1], c = s[i]
+        if (Math.abs(c.y - p.y) > 3) out += '\n'
+        else if (c.x - (p.x + p.bbox.w) > (c.size || 10) * 0.25) out += ' '
+      }
+      out += s[i].text || ''
+    }
+    return out
   }
-  // right-click "Create variable": open the popup with the selected text as the initial value/name
+  // one occurrence = a CHAIN of adjacent runs whose combined text is the value. styles by VALUE (not
+  // palette index — those shift); parts[] holds every piece's anchor (all blanked on change), the
+  // FIRST piece is where the single new value is inserted → the chain collapses to one clean text.
+  const occFromRuns = (page, runs) => {
+    const s = [...runs].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    const first = s[0]
+    const pg = model.find((p) => p.pageIndex === page)
+    const f = pg?.fonts?.[first.f] || {}
+    return {
+      page, x: first.x, baseline: first.y, bbox: first.bbox,
+      family: f.name || 'Arial', bold: !!f.bold, italic: !!f.italic, size: first.size,
+      color: pg?.colors?.[first.c] || '#000000', ls: first.ls || 0,
+      parts: s.map((r) => ({ x: r.x, baseline: r.y })),
+      enabled: true
+    }
+  }
+  const occParts = (o) => o.parts || [{ x: o.x, baseline: o.baseline }]
+  // find every chain of adjacent same-line runs whose combined text equals the value (also single
+  // runs) — so "2 000 EUR" split across 3 pieces and an unsplit "2000 EUR" both match
+  const findChains = (target) => {
+    const T = vnorm(target)
+    if (!T) return []
+    const out = []
+    for (const pg of model) {
+      const lines = new Map()
+      for (const r of pg.runs) { const key = Math.round(r.y / 2); (lines.get(key) || lines.set(key, []).get(key)).push(r) }
+      for (const line of lines.values()) {
+        line.sort((a, b) => a.x - b.x)
+        let i = 0
+        while (i < line.length) {
+          let acc = '', matched = false
+          for (let j = i; j < line.length && j < i + 14; j++) {
+            if (j > i) { const p = line[j - 1], c = line[j]; if (c.x - (p.x + p.bbox.w) > (c.size || 10) * 0.25) acc += ' ' }
+            acc += line[j].text || ''
+            const na = vnorm(acc)
+            if (na === T) { out.push({ page: pg.pageIndex, runs: line.slice(i, j + 1) }); i = j + 1; matched = true; break }
+            if (!T.startsWith(na)) break
+          }
+          if (!matched) i++
+        }
+      }
+    }
+    return out
+  }
+  // right-click "Create variable": open the popup with the selected chain's text as value/name
   const startCreateVariable = () => {
     if (!selected) return
     const texts = selected.objs.filter((o) => o.type === 'text')
     if (!texts.length) return
-    const value = texts.map((o) => o.text).join(' ').replace(/\s+/g, ' ').trim()
+    const value = joinRuns(texts).replace(/\s+/g, ' ').trim()
     setVarDraft({ value, name: value, existing: '', page: selected.page, objs: texts })
   }
-  // popup buttons: "add this" = only the selected run(s); "find identical" = every run in the doc
-  // whose text equals the value (case-insensitive, whitespace-normalized)
+  // popup buttons: "add this" = the selected chain only; "find identical" = every matching chain
   const finishCreate = (findAll) => {
     const d = varDraft
     if (!d) return
-    let picks = d.objs.map((o) => ({ page: d.page, r: o }))
-    if (findAll) {
-      const target = d.value.replace(/\s+/g, ' ').trim().toLowerCase()
-      picks = []
-      for (const pg of model) for (const r of pg.runs) {
-        if ((r.text || '').replace(/\s+/g, ' ').trim().toLowerCase() === target) picks.push({ page: pg.pageIndex, r })
-      }
-    }
-    const occurrences = picks.map(({ page, r }) => occFromRun(page, r))
+    const occurrences = findAll
+      ? findChains(d.value).map((c) => occFromRuns(c.page, c.runs))
+      : [occFromRuns(d.page, d.objs)]
     if (!occurrences.length) { setVarDraft(null); return }
     const name = (d.existing || d.name || '').trim() || d.value.trim() || 'var'
     setVariables((vs) => {
@@ -722,11 +767,12 @@ export default function PdfEditor({ source, path }) {
         const lines = []
         for (const o of occs) {
           const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
-          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic); if (src) fonts[k] = src }
-          items.push({ type: 'text', bbox: o.bbox, x: o.x, y: o.baseline })
+          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic, true); if (src) fonts[k] = src }
+          // blank EVERY piece of the chain, insert ONE new value at the first piece's position
+          for (const p of occParts(o)) items.push({ type: 'text', bbox: o.bbox, x: p.x, y: p.baseline })
           lines.push([{ text: value, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline, ls: o.ls || 0 }])
         }
-        await engineRef.current.replaceText(pageIndex, items, { lines }, fonts, await getFallback())
+        await engineRef.current.replaceText(pageIndex, items, { lines }, fonts, await getFallback(), true) // textOnly: don't redact already-blanked pieces
         await refreshPage(pageIndex)
       }
     } catch (e) { console.error('[pdf][variable] apply failed:', e) } finally { busyRef.current = false }
@@ -739,8 +785,8 @@ export default function PdfEditor({ source, path }) {
   const toggleOcc = (id, i) =>
     setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
   const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); setExpandedVars((s) => { const n = new Set(s); n.delete(id); return n }) }
-  // does an occurrence sit at this selected text object's anchor?
-  const occMatches = (o, page, objs) => o.page === page && objs.some((t) => t.type === 'text' && Math.abs(t.x - o.x) < 1.5 && Math.abs(t.y - o.baseline) < 1.5)
+  // does an occurrence (any piece of its chain) sit at a selected text object's anchor?
+  const occMatches = (o, page, objs) => o.page === page && occParts(o).some((p) => objs.some((t) => t.type === 'text' && Math.abs(t.x - p.x) < 1.5 && Math.abs(t.y - p.baseline) < 1.5))
   // right-click "Remove from variable": drop the selected place(s) from every variable holding them
   // (a variable left with no places is removed entirely — so the last one takes the variable with it)
   const removeSelectionFromVars = () => {
@@ -750,11 +796,16 @@ export default function PdfEditor({ source, path }) {
       .map((v) => ({ ...v, occurrences: v.occurrences.filter((o) => !occMatches(o, page, objs)) }))
       .filter((v) => v.occurrences.length))
   }
-  // click an occurrence → select the run currently at its anchor (text may have changed)
+  // click an occurrence → select every run currently at its chain's anchors (text may have changed)
   const highlightOcc = (o) => {
     const pg = model.find((p) => p.pageIndex === o.page)
-    const r = pg?.runs.find((rr) => Math.abs(rr.x - o.x) < 1.5 && Math.abs(rr.y - o.baseline) < 1.5)
-    if (r) onSelect(o.page, [r])
+    if (!pg) return
+    const runs = []
+    for (const p of occParts(o)) {
+      const r = pg.runs.find((rr) => Math.abs(rr.x - p.x) < 1.5 && Math.abs(rr.y - p.baseline) < 1.5)
+      if (r) runs.push(r)
+    }
+    if (runs.length) onSelect(o.page, runs)
   }
   const startVarsResize = (e) => {
     e.preventDefault()
@@ -1120,7 +1171,7 @@ export default function PdfEditor({ source, path }) {
         setVariables((vs) => vs
           .map((v) => ({
             ...v,
-            occurrences: v.occurrences.filter((o) => !(o.page === page && deletedTexts.some((d) => Math.abs(d.x - o.x) < 1.5 && Math.abs(d.y - o.baseline) < 1.5)))
+            occurrences: v.occurrences.filter((o) => !(o.page === page && occParts(o).some((p) => deletedTexts.some((d) => Math.abs(d.x - p.x) < 1.5 && Math.abs(d.y - p.baseline) < 1.5))))
           }))
           .filter((v) => v.occurrences.length))
       }

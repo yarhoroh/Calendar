@@ -21,13 +21,20 @@ const FolderGlyph = ({ link }) => (
   </svg>
 )
 
-// full-text index status: a filled dot — grey (queued), yellow (indexing), green (done), red !
+// right of a file row: a "{ }" mark if it has template variables, plus the index-status ring
+// (grey queued / yellow indexing / green done / red error)
 const IndexBadge = ({ st, pages }) => {
-  if (st?.status === 'error') return <span className="pdf-idx pdf-idx--error" title="Indexing failed">!</span>
-  const cls = st?.status === 'done' ? 'is-done' : st?.status === 'indexing' ? 'is-busy' : 'is-pending'
-  const title = st?.status === 'done' ? `Indexed${pages ? ` · ${pages} p.` : ''} — searchable`
-    : st?.status === 'indexing' ? 'Indexing…' : 'Queued for indexing'
-  return <span className={'pdf-idx'} title={title}><span className={'pdf-idx__dot ' + cls} /></span>
+  const vars = st?.vars || 0
+  const cls = st?.status === 'error' ? 'is-error' : st?.status === 'done' ? 'is-done' : st?.status === 'indexing' ? 'is-busy' : 'is-pending'
+  const title = st?.status === 'error' ? 'Indexing failed'
+    : st?.status === 'done' ? `Indexed${pages ? ` · ${pages} p.` : ''} — searchable`
+      : st?.status === 'indexing' ? 'Indexing…' : 'Queued for indexing'
+  return (
+    <span className="pdf-idx">
+      {vars > 0 && <span className="pdf-idx__vars" title={`${vars} template variable${vars > 1 ? 's' : ''}`}>{'{ }'}</span>}
+      <span className={'pdf-idx__dot ' + cls} title={title} />
+    </span>
+  )
 }
 
 // A virtual node is { id, type:'folder'|'linkFolder'|'linkFile', name, path?, mode?, children? }.

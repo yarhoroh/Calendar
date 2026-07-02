@@ -50,6 +50,8 @@ export function createPdfEngine() {
     setOpacity: (pageIndex, item, alpha) => call('setOpacity', { pageIndex, item, alpha }), // 0..1, vectors and images
     setDash: (pageIndex, item, dash) => call('setDash', { pageIndex, item, dash }), // solid|dashed|dotted|dashdot
     setLineGeo: (pageIndex, item, geo) => call('setLineGeo', { pageIndex, item, geo }), // move a line/arrow endpoint {x1,y1,x2,y2}
+    writeVariables: (json) => call('writeVariables', { json }), // embed template-variable defs in the PDF catalog
+    readVariables: () => call('readVariables', {}), // → { json } from the catalog (or null)
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

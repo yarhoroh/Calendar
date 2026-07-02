@@ -212,6 +212,8 @@ export default function PdfEditor({ source, path }) {
   const [varsCollapsed, setVarsCollapsed] = useState(() => localStorage.getItem('pdfedVarsCol') === '1')
   const [varsWidth, setVarsWidth] = useState(() => Math.min(Math.max(Number(localStorage.getItem('pdfedVarsW')) || 280, 180), 520))
   const varsWidthRef = useRef(varsWidth); varsWidthRef.current = varsWidth
+  const varsRestoredRef = useRef(false) // guard: don't persist until we've loaded the stored vars
+  const varsSaveRef = useRef(null) // debounce timer for persisting variables
   const [selMode, setSelMode] = useState('block') // 'single' — pick one element; 'block' — whole text blocks
   const rteRef = useRef(null)
   const engineRef = useRef(null)
@@ -614,6 +616,35 @@ export default function PdfEditor({ source, path }) {
       onSelect(selected.page, changed)
     } catch (err) { console.error('[pdf] restyle failed (nothing deleted):', err) } finally { busyRef.current = false }
   }
+
+  // ---- variables: persistence (Phase 2) ----
+  // restore once, when the model first loads: prefer the DB mirror (by path), fall back to the
+  // definitions baked into the PDF catalog (so a file with variables restores even without our DB)
+  useEffect(() => {
+    if (varsRestoredRef.current || !model.length || !engineRef.current) return
+    varsRestoredRef.current = true
+    ;(async () => {
+      try {
+        let json = path ? await api.pdf?.varsGet?.(path) : null
+        if (!json) { const r = await engineRef.current.readVariables(); json = r?.json || null }
+        const list = json ? JSON.parse(json) : null
+        if (Array.isArray(list) && list.length) { setVariables(list); console.log(`[pdf][vars] restored ${list.length} variable(s)`) }
+      } catch (e) { console.warn('[pdf][vars] restore failed:', e?.message) }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model])
+  // persist on change (debounced): mirror to the DB (by path) AND embed in the in-memory PDF
+  // catalog so the next Save bakes them into the file
+  useEffect(() => {
+    if (!varsRestoredRef.current) return
+    clearTimeout(varsSaveRef.current)
+    varsSaveRef.current = setTimeout(() => {
+      const json = variables.length ? JSON.stringify(variables) : ''
+      try { engineRef.current?.writeVariables(json) } catch {}
+      if (path) api.pdf?.varsSet?.(path, json, variables.length)
+    }, 500)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variables])
 
   // ---- variables ----
   // resolve a model run into a durable occurrence (styles by VALUE, not palette index — indices

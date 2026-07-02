@@ -14,7 +14,7 @@ import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } 
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
-import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex } from './pdfIndex'
+import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex, getVariables, setVariables } from './pdfIndex'
 import { getGoogleFont } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
@@ -1213,6 +1213,8 @@ ipcMain.handle('pdf:index-states', (_e, paths) => indexStates(paths))
 ipcMain.handle('pdf:index-sync', () => syncIndex(getPdfTree))
 ipcMain.handle('pdf:index-summary', () => indexSummary())
 ipcMain.handle('pdf:search', (_e, q) => searchIndex(q))
+ipcMain.handle('pdf:vars-get', (_e, path) => getVariables(path))
+ipcMain.handle('pdf:vars-set', (_e, { path, json, count } = {}) => setVariables(path, json, count))
 
 // Fonts — available families (for the FORMAT dropdown) and PDF-font substitution.
 ipcMain.handle('fonts:list', () => {

@@ -96,6 +96,13 @@ export function initPdfIndex(notifyFn) {
       text, key UNINDEXED, page UNINDEXED,
       tokenize = 'unicode61 remove_diacritics 2'
     );
+    CREATE TABLE IF NOT EXISTS variables (
+      key     TEXT PRIMARY KEY,   -- normalized path (same key as docs)
+      path    TEXT NOT NULL,
+      json    TEXT,               -- the variable definitions (mirror of the PDF catalog)
+      count   INTEGER DEFAULT 0,  -- how many variables (for the tree badge)
+      updated REAL
+    );
   `)
   try { db.prepare("UPDATE docs SET status='pending' WHERE status='indexing'").run() } catch {}
 }
@@ -294,12 +301,32 @@ function writeResult(key, path, result) {
 export function indexStates(paths) {
   if (!db) return {}
   const get = db.prepare('SELECT status, pages FROM docs WHERE key=?')
+  const gv = db.prepare('SELECT count FROM variables WHERE key=?')
   const out = {}
   for (const p of paths || []) {
-    const r = get.get(norm(p))
-    out[p] = r ? { status: r.status, pages: r.pages || 0 } : { status: 'none' }
+    const k = norm(p)
+    const r = get.get(k)
+    const v = gv.get(k)
+    out[p] = { status: r ? r.status : 'none', pages: r ? r.pages || 0 : 0, vars: v ? v.count || 0 : 0 }
   }
   return out
+}
+
+// Template variables mirror (keyed by path). The PDF catalog is the source of truth; this DB copy
+// powers the tree badge and lets us restore without opening the file.
+export function getVariables(path) {
+  if (!db) return null
+  const r = db.prepare('SELECT json FROM variables WHERE key=?').get(norm(path))
+  return r ? r.json : null
+}
+export function setVariables(path, json, count) {
+  if (!db) return
+  const key = norm(path)
+  if (!json || !count) { db.prepare('DELETE FROM variables WHERE key=?').run(key); notify?.(); return }
+  db.prepare(`INSERT INTO variables (key, path, json, count, updated) VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(key) DO UPDATE SET path=excluded.path, json=excluded.json, count=excluded.count, updated=excluded.updated`)
+    .run(key, path, json, count, Date.now())
+  notify?.()
 }
 
 // FTS query builder: quote each token (punctuation-safe), prefix-match, AND them together.

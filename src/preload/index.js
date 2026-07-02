@@ -158,6 +158,8 @@ const api = {
     indexSync: () => ipcRenderer.invoke('pdf:index-sync'),
     indexSummary: () => ipcRenderer.invoke('pdf:index-summary'),
     search: (q) => ipcRenderer.invoke('pdf:search', q), // { results: [{path,name,pages:[{page,snippet}],rank}] }
+    varsGet: (path) => ipcRenderer.invoke('pdf:vars-get', path), // → json string or null
+    varsSet: (path, json, count) => ipcRenderer.invoke('pdf:vars-set', { path, json, count }),
     onIndexChanged: (cb) => {
       const h = () => cb()
       ipcRenderer.on('pdf:index-changed', h)

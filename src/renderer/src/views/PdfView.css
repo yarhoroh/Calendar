@@ -254,23 +254,28 @@
   padding-left: 6px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 16px;
+  gap: 5px;
   height: 16px;
   font-size: 11px;
   line-height: 1;
 }
-.pdf-idx--error {
-  color: #d9534f;
+/* "{ }" mark when the file has template variables */
+.pdf-idx__vars {
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: -1.5px;
+  color: var(--accent, #1473e6);
 }
-/* hollow status ring: grey = queued, yellow = indexing, green = indexed (outline only) */
+/* hollow status ring: grey = queued, yellow = indexing, green = indexed, red = error */
 .pdf-idx__dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
   background: transparent;
   border: 1.6px solid var(--muted);
+}
+.pdf-idx__dot.is-error {
+  border-color: #d9534f;
 }
 .pdf-idx__dot.is-pending {
   border-color: #b8b8b8;

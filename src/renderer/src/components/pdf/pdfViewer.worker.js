@@ -1287,6 +1287,23 @@ function insertShape(pageIndex, kind, geo, style) {
   writeStream(po, 0, cs + '\n' + prefix + ops + suffix)
 }
 
+// Variable definitions (the PDF template fields) live in the document catalog under a private key
+// /EFVariables as a JSON string — so they travel inside the file and survive save/reopen.
+function pdfDoc() { return doc.asPDF ? (doc.asPDF() || doc) : doc }
+function writeVariables(json) {
+  const pdf = pdfDoc()
+  const root = pdf.getTrailer().get('Root')
+  if (json && json.length) root.put('EFVariables', pdf.newString(json))
+  else { try { root.delete('EFVariables') } catch (_) {} }
+}
+function readVariables() {
+  try {
+    const o = pdfDoc().getTrailer().get('Root').get('EFVariables')
+    if (o && !(o.isNull && o.isNull())) return o.asString()
+  } catch (_) {}
+  return null
+}
+
 // Insert a raster image (PNG/JPEG bytes) at x/y (pt, top-left) with the given size. Same
 // end-of-stream neutralisation as text, so a leftover flipped CTM can't mirror or displace it.
 let insImgSeq = 0
@@ -1519,6 +1536,13 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       const fonts = getFontsInfo()
       self.postMessage({ id, result: { fonts } }, fonts.map((f) => f.bytes).filter(Boolean))
+    } else if (type === 'writeVariables') {
+      if (!doc) throw new Error('no document open')
+      writeVariables(params.json)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'readVariables') {
+      if (!doc) throw new Error('no document open')
+      self.postMessage({ id, result: { json: readVariables() } })
     } else if (type === 'save') {
       // serialise the in-memory working copy (with all moves/deletes applied) back to PDF bytes
       if (!doc) throw new Error('no document open')

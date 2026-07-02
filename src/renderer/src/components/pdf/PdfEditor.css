@@ -410,13 +410,24 @@
   align-items: center;
   gap: 5px;
 }
-.pdfed__var-exp {
+/* the whole arrow+name is one toggle button (big hit area) */
+.pdfed__var-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   border: none;
   background: transparent;
-  color: var(--muted);
+  color: var(--text);
   cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.pdfed__var-exp {
+  flex: 0 0 auto;
+  color: var(--muted);
   font-size: 11px;
-  padding: 0 2px;
 }
 .pdfed__var-name {
   flex: 1 1 auto;

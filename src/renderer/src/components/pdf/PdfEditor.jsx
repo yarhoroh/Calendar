@@ -207,7 +207,8 @@ export default function PdfEditor({ source, path }) {
   const [variables, setVariables] = useState([]) // [{ id, name, value, occurrences:[{page,x,baseline,bbox,family,bold,italic,size,color,ls,enabled}] }]
   const variablesRef = useRef(variables); variablesRef.current = variables
   const [varDraft, setVarDraft] = useState(null) // create popup: { value, name, page, objs }
-  const [expandedVar, setExpandedVar] = useState(null) // which variable's occurrences are shown
+  const [expandedVars, setExpandedVars] = useState(() => new Set()) // ids whose occurrence list is open (hidden by default)
+  const toggleVarExpand = (id) => setExpandedVars((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const [varsCollapsed, setVarsCollapsed] = useState(() => localStorage.getItem('pdfedVarsCol') === '1')
   const [varsWidth, setVarsWidth] = useState(() => Math.min(Math.max(Number(localStorage.getItem('pdfedVarsW')) || 280, 180), 520))
   const varsWidthRef = useRef(varsWidth); varsWidthRef.current = varsWidth
@@ -648,7 +649,6 @@ export default function PdfEditor({ source, path }) {
     const name = (d.name || '').trim() || d.value.trim() || 'var'
     const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
     setVariables((vs) => [...vs, { id, name, value: d.value, occurrences }])
-    setExpandedVar(id)
     setVarDraft(null)
     setVarsCollapsed(false)
   }
@@ -683,7 +683,7 @@ export default function PdfEditor({ source, path }) {
   }
   const toggleOcc = (id, i) =>
     setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
-  const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); if (expandedVar === id) setExpandedVar(null) }
+  const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); setExpandedVars((s) => { const n = new Set(s); n.delete(id); return n }) }
   // click an occurrence → select the run currently at its anchor (text may have changed)
   const highlightOcc = (o) => {
     const pg = model.find((p) => p.pageIndex === o.page)
@@ -1433,32 +1433,37 @@ export default function PdfEditor({ source, path }) {
               {variables.length === 0 ? (
                 <div className="pdfed__vars-empty">Select text on the page, right-click → <b>Create variable</b>. Editing a variable's value updates every linked place in the document.</div>
               ) : (
-                variables.map((v) => (
-                  <div key={v.id} className="pdfed__var">
-                    <div className="pdfed__var-row">
-                      <button className="pdfed__var-exp" onClick={() => setExpandedVar((e) => (e === v.id ? null : v.id))} title="Show places">{expandedVar === v.id ? '▾' : '▸'}</button>
-                      <span className="pdfed__var-name" title={v.name}>{v.name}</span>
-                      <span className="pdfed__var-count" title="linked places">{v.occurrences.filter((o) => o.enabled !== false).length}</span>
-                      <button className="pdfed__btn pdfed__var-del" title="Remove variable" onClick={() => removeVariable(v.id)}>✕</button>
-                    </div>
-                    <input
-                      className="pdfed__var-value"
-                      value={v.value}
-                      onChange={(e) => changeVarValue(v.id, e.target.value)}
-                      placeholder="value…"
-                    />
-                    {expandedVar === v.id && (
-                      <div className="pdfed__var-occs">
-                        {v.occurrences.map((o, i) => (
-                          <label key={i} className="pdfed__occ">
-                            <input type="checkbox" checked={o.enabled !== false} onChange={() => toggleOcc(v.id, i)} />
-                            <button className="pdfed__occ-go" onClick={() => highlightOcc(o)} title="Show on page">p.{o.page + 1} · {Math.round(o.x)},{Math.round(o.baseline)}</button>
-                          </label>
-                        ))}
+                variables.map((v) => {
+                  const open = expandedVars.has(v.id)
+                  return (
+                    <div key={v.id} className="pdfed__var">
+                      <div className="pdfed__var-row">
+                        <button className="pdfed__var-toggle" onClick={() => toggleVarExpand(v.id)} title={open ? 'Hide places' : 'Show places'}>
+                          <span className="pdfed__var-exp">{open ? '▾' : '▸'}</span>
+                          <span className="pdfed__var-name" title={v.name}>{v.name}</span>
+                        </button>
+                        <span className="pdfed__var-count" title="linked places">{v.occurrences.filter((o) => o.enabled !== false).length}</span>
+                        <button className="pdfed__btn pdfed__var-del" title="Remove variable" onClick={() => removeVariable(v.id)}>✕</button>
                       </div>
-                    )}
-                  </div>
-                ))
+                      <input
+                        className="pdfed__var-value"
+                        value={v.value}
+                        onChange={(e) => changeVarValue(v.id, e.target.value)}
+                        placeholder="value…"
+                      />
+                      {open && (
+                        <div className="pdfed__var-occs">
+                          {v.occurrences.map((o, i) => (
+                            <label key={i} className="pdfed__occ">
+                              <input type="checkbox" checked={o.enabled !== false} onChange={() => toggleOcc(v.id, i)} />
+                              <button className="pdfed__occ-go" onClick={() => highlightOcc(o)} title="Show on page">p.{o.page + 1} · {Math.round(o.x)},{Math.round(o.baseline)}</button>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </div>
           </aside>

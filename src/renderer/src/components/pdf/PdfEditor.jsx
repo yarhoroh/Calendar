@@ -331,7 +331,9 @@ export default function PdfEditor({ source, path }) {
   // a single selected TEXT object shows ITS font/size/colour (and B/I light up) in the toolbar;
   // any wider selection locks the style controls instead
   const singleText = !textEdit && selected?.objs.length === 1 && selected.objs[0].type === 'text' ? selected.objs[0] : null
-  const styleLocked = !textEdit && !!selected && !singleText
+  // style controls (font, size, B/I, LS, colour) are live whenever ANY text is selected — a change
+  // applies to EVERY selected text object; locked only for non-text (images/vectors) or empty
+  const styleLocked = !textEdit && !selected?.objs.some((o) => o.type === 'text')
   const selPg = selected ? model.find((p) => p.pageIndex === selected.page) : null
   useEffect(() => {
     if (!singleText || !selPg) return

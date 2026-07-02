@@ -868,8 +868,6 @@ export default function PdfEditor({ source, path }) {
           ? selected.objs[0].type
           : 'mixed'
   const selObj1 = selected?.objs.length === 1 ? selected.objs[0] : null
-  const pickObjX = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, v - selObj1.bbox.x, 0)) }
-  const pickObjY = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, 0, v - selObj1.bbox.y)) }
 
   return (
     <div className="pdfed">
@@ -1054,17 +1052,6 @@ export default function PdfEditor({ source, path }) {
              radius land here next */
           <>
             <span className="pdfed__sblabel">{selKind === 'image' ? 'Image' : 'Vector'}</span>
-            <label className="pdfed__mini" title="X (pt)">
-              X
-              <ComboNum value={selObj1.bbox.x} onPick={pickObjX} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
-            </label>
-            <label className="pdfed__mini" title="Y (pt)">
-              Y
-              <ComboNum value={selObj1.bbox.y} onPick={pickObjY} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
-            </label>
-            {selObj1.line
-              ? <span className="pdfed__sbinfo">L {Math.round(Math.hypot(selObj1.line.x2 - selObj1.line.x1, selObj1.line.y2 - selObj1.line.y1) * 10) / 10}</span>
-              : <span className="pdfed__sbinfo">W {selObj1.bbox.w} · H {selObj1.bbox.h}</span>}
             <label className="pdfed__mini" title="Opacity, % — vectors and images (PDF ExtGState alpha)">
               Op
               <ComboNum value={selObj1.opacity ?? 100} onPick={(v) => deferMutation(() => opacitySelected(v ?? 100))} opts={[10, 25, 50, 75, 100]} step={5} min={0} max={100} width={60} />
@@ -1109,6 +1096,13 @@ export default function PdfEditor({ source, path }) {
                 </select>
               </>
             )}
+            {/* read-only geometry at the very end — the frame/handles are the editing tools */}
+            <span className="pdfed__spacer" />
+            <span className="pdfed__sbinfo">
+              {selObj1.line
+                ? `X ${Math.round(Math.min(selObj1.line.x1, selObj1.line.x2) * 10) / 10} · Y ${Math.round(Math.min(selObj1.line.y1, selObj1.line.y2) * 10) / 10} · L ${Math.round(Math.hypot(selObj1.line.x2 - selObj1.line.x1, selObj1.line.y2 - selObj1.line.y1) * 10) / 10}`
+                : `X ${selObj1.bbox.x} · Y ${selObj1.bbox.y} · W ${selObj1.bbox.w} · H ${selObj1.bbox.h}`}
+            </span>
           </>
         )}
         {!insertMode?.shape && selKind === 'mixed' && <span className="pdfed__sbinfo">{selected.objs.length} objects selected</span>}

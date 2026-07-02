@@ -130,6 +130,14 @@ const AlignLeftIcon = () => (
     <rect x="7" y="14" width="8" height="4" fill="currentColor" stroke="none" />
   </svg>
 )
+// distribute rows — three bars at equal vertical spacing
+const DistributeRowsIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <rect x="4" y="4" width="16" height="3" fill="currentColor" stroke="none" />
+    <rect x="4" y="10.5" width="16" height="3" fill="currentColor" stroke="none" />
+    <rect x="4" y="17" width="16" height="3" fill="currentColor" stroke="none" />
+  </svg>
+)
 const AlignTopIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <path d="M3 4h18" />
@@ -974,6 +982,36 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] align failed:', err) } finally { busyRef.current = false }
   }
 
+  // distribute the selected objects into rows at an EQUAL vertical step — the step is the gap
+  // between the first two (by current top): row i lands at firstTop + i * step (x untouched)
+  const distributeRows = async () => {
+    if (!selected || selected.objs.length < 3 || busyRef.current) return
+    busyRef.current = true
+    try {
+      const objs = [...selected.objs].sort((a, b) => a.bbox.y - b.bbox.y)
+      const step = objs[1].bbox.y - objs[0].bbox.y // the gap between the first and second
+      const targetY = (i) => objs[0].bbox.y + i * step
+      const dyOf = new Map(objs.map((o, i) => [o, targetY(i) - o.bbox.y]))
+      const items = objs
+        .map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, dx: 0, dy: dyOf.get(o) }))
+        .filter((it) => Math.abs(it.dy) > 0.01)
+      if (items.length) {
+        await engineRef.current.moveObjects(selected.page, items)
+        await refreshPage(selected.page)
+        const shifted = selected.objs.map((o) => {
+          const dy = dyOf.get(o) || 0
+          return {
+            ...o,
+            bbox: { ...o.bbox, y: o.bbox.y + dy },
+            y: o.y + dy,
+            line: o.line ? { ...o.line, y1: o.line.y1 + dy, y2: o.line.y2 + dy } : undefined
+          }
+        })
+        onSelect(selected.page, shifted)
+      }
+    } catch (err) { console.error('[pdf] distribute failed:', err) } finally { busyRef.current = false }
+  }
+
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {
     if (busyRef.current) return
@@ -1308,6 +1346,7 @@ export default function PdfEditor({ source, path }) {
           <>
             <button className="pdfed__btn" onClick={() => alignSelected('left')} title="Align left edges (to the leftmost object)"><AlignLeftIcon /></button>
             <button className="pdfed__btn" onClick={() => alignSelected('top')} title="Align top edges (to the topmost object)"><AlignTopIcon /></button>
+            <button className="pdfed__btn" disabled={(selected?.objs.length || 0) < 3} onClick={distributeRows} title="Distribute into rows at equal spacing (the gap between the first two)"><DistributeRowsIcon /></button>
             <span className="pdfed__sep" />
           </>
         )}

@@ -694,6 +694,17 @@ export default function PdfEditor({ source, path }) {
   const toggleOcc = (id, i) =>
     setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
   const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); setExpandedVars((s) => { const n = new Set(s); n.delete(id); return n }) }
+  // does an occurrence sit at this selected text object's anchor?
+  const occMatches = (o, page, objs) => o.page === page && objs.some((t) => t.type === 'text' && Math.abs(t.x - o.x) < 1.5 && Math.abs(t.y - o.baseline) < 1.5)
+  // right-click "Remove from variable": drop the selected place(s) from every variable holding them
+  // (a variable left with no places is removed entirely — so the last one takes the variable with it)
+  const removeSelectionFromVars = () => {
+    if (!selected) return
+    const { page, objs } = selected
+    setVariables((vs) => vs
+      .map((v) => ({ ...v, occurrences: v.occurrences.filter((o) => !occMatches(o, page, objs)) }))
+      .filter((v) => v.occurrences.length))
+  }
   // click an occurrence → select the run currently at its anchor (text may have changed)
   const highlightOcc = (o) => {
     const pg = model.find((p) => p.pageIndex === o.page)
@@ -1068,6 +1079,8 @@ export default function PdfEditor({ source, path }) {
           ? selected.objs[0].type
           : 'mixed'
   const selObj1 = selected?.objs.length === 1 ? selected.objs[0] : null
+  // is the current selection already part of some variable? (drives the "Remove from variable" item)
+  const selInVar = !!selected && variables.some((v) => v.occurrences.some((o) => occMatches(o, selected.page, selected.objs)))
   // read-only geometry readout at the end of the panel; live during drag/resize/endpoint-drag.
   // Whole numbers — the readout is orientation, not a measuring tool.
   const r1 = (n) => Math.round(n)
@@ -1519,6 +1532,7 @@ export default function PdfEditor({ source, path }) {
               ? [
                   { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><VariableIcon /> Create variable</span>, onClick: startCreateVariable }] : []),
+                  ...(selInVar ? [{ label: <span className="pdfed__mi"><VariableIcon /> Remove from variable</span>, onClick: removeSelectionFromVars }] : []),
                   { label: <span className="pdfed__mi"><TrashIcon /> Delete</span>, onClick: deleteSelected }
                 ]
               : [

@@ -258,12 +258,9 @@
   background: var(--bg);
 }
 .pdf__placeholder {
-  position: absolute; /* centres inside the tab body (the strip stays on top) */
-  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   color: var(--muted);
 }

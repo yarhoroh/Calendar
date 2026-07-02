@@ -107,6 +107,14 @@ const CursorBlockIcon = () => (
   </svg>
 )
 
+// a variable — braces {x}
+const VariableIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8 4c-2 0-3 1-3 3v2c0 1-1 2-2 2 1 0 2 1 2 2v2c0 2 1 3 3 3" />
+    <path d="M16 4c2 0 3 1 3 3v2c0 1 1 2 2 2-1 0-2 1-2 2v2c0 2-1 3-3 3" />
+  </svg>
+)
+
 const InfoIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <circle cx="12" cy="12" r="9" />
@@ -195,6 +203,14 @@ export default function PdfEditor({ source, path }) {
   const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
   const [liveGeo, setLiveGeo] = useState(null) // geometry readout while dragging/resizing (from PdfPage)
   const [showInfo, setShowInfo] = useState(false) // the quick-guide overlay
+  // ---- variables (PDF templating): named groups of identical text; editing the value updates every occurrence ----
+  const [variables, setVariables] = useState([]) // [{ id, name, value, occurrences:[{page,x,baseline,bbox,family,bold,italic,size,color,ls,enabled}] }]
+  const variablesRef = useRef(variables); variablesRef.current = variables
+  const [varDraft, setVarDraft] = useState(null) // create popup: { value, name, page, objs }
+  const [expandedVar, setExpandedVar] = useState(null) // which variable's occurrences are shown
+  const [varsCollapsed, setVarsCollapsed] = useState(() => localStorage.getItem('pdfedVarsCol') === '1')
+  const [varsWidth, setVarsWidth] = useState(() => Math.min(Math.max(Number(localStorage.getItem('pdfedVarsW')) || 280, 180), 520))
+  const varsWidthRef = useRef(varsWidth); varsWidthRef.current = varsWidth
   const [selMode, setSelMode] = useState('block') // 'single' — pick one element; 'block' — whole text blocks
   const rteRef = useRef(null)
   const engineRef = useRef(null)
@@ -597,6 +613,93 @@ export default function PdfEditor({ source, path }) {
       onSelect(selected.page, changed)
     } catch (err) { console.error('[pdf] restyle failed (nothing deleted):', err) } finally { busyRef.current = false }
   }
+
+  // ---- variables ----
+  // resolve a model run into a durable occurrence (styles by VALUE, not palette index — indices
+  // shift when the model is rebuilt; anchor x/baseline stays put across value edits)
+  const occFromRun = (page, r) => {
+    const pg = model.find((p) => p.pageIndex === page)
+    const f = pg?.fonts?.[r.f] || {}
+    return { page, x: r.x, baseline: r.y, bbox: r.bbox, family: f.name || 'Arial', bold: !!f.bold, italic: !!f.italic, size: r.size, color: pg?.colors?.[r.c] || '#000000', ls: r.ls || 0, enabled: true }
+  }
+  // right-click "Create variable": open the popup with the selected text as the initial value/name
+  const startCreateVariable = () => {
+    if (!selected) return
+    const texts = selected.objs.filter((o) => o.type === 'text')
+    if (!texts.length) return
+    const value = texts.map((o) => o.text).join(' ').replace(/\s+/g, ' ').trim()
+    setVarDraft({ value, name: value, page: selected.page, objs: texts })
+  }
+  // popup buttons: "add this" = only the selected run(s); "find identical" = every run in the doc
+  // whose text equals the value (case-insensitive, whitespace-normalized)
+  const finishCreate = (findAll) => {
+    const d = varDraft
+    if (!d) return
+    let picks = d.objs.map((o) => ({ page: d.page, r: o }))
+    if (findAll) {
+      const target = d.value.replace(/\s+/g, ' ').trim().toLowerCase()
+      picks = []
+      for (const pg of model) for (const r of pg.runs) {
+        if ((r.text || '').replace(/\s+/g, ' ').trim().toLowerCase() === target) picks.push({ page: pg.pageIndex, r })
+      }
+    }
+    const occurrences = picks.map(({ page, r }) => occFromRun(page, r))
+    if (!occurrences.length) { setVarDraft(null); return }
+    const name = (d.name || '').trim() || d.value.trim() || 'var'
+    const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
+    setVariables((vs) => [...vs, { id, name, value: d.value, occurrences }])
+    setExpandedVar(id)
+    setVarDraft(null)
+    setVarsCollapsed(false)
+  }
+  // apply a new value to every ENABLED occurrence — blank the old text at each anchor, insert the
+  // new value with the occurrence's own style (reuses the atomic replaceText engine)
+  const applyVariable = async (occurrences, value) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      const byPage = {}
+      for (const o of occurrences) { if (o.enabled === false) continue; (byPage[o.page] = byPage[o.page] || []).push(o) }
+      for (const pageIndex of Object.keys(byPage).map(Number)) {
+        const occs = byPage[pageIndex]
+        const fonts = {}
+        const items = []
+        const lines = []
+        for (const o of occs) {
+          const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
+          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic); if (src) fonts[k] = src }
+          items.push({ type: 'text', bbox: o.bbox, x: o.x, y: o.baseline })
+          lines.push([{ text: value, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline, ls: o.ls || 0 }])
+        }
+        await engineRef.current.replaceText(pageIndex, items, { lines }, fonts, await getFallback())
+        await refreshPage(pageIndex)
+      }
+    } catch (e) { console.error('[pdf][variable] apply failed:', e) } finally { busyRef.current = false }
+  }
+  const changeVarValue = (id, val) => {
+    setVariables((vs) => vs.map((v) => (v.id === id ? { ...v, value: val } : v)))
+    const v = variablesRef.current.find((x) => x.id === id)
+    if (v) deferMutation(() => applyVariable(v.occurrences, val))
+  }
+  const toggleOcc = (id, i) =>
+    setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
+  const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); if (expandedVar === id) setExpandedVar(null) }
+  // click an occurrence → select the run currently at its anchor (text may have changed)
+  const highlightOcc = (o) => {
+    const pg = model.find((p) => p.pageIndex === o.page)
+    const r = pg?.runs.find((rr) => Math.abs(rr.x - o.x) < 1.5 && Math.abs(rr.y - o.baseline) < 1.5)
+    if (r) onSelect(o.page, [r])
+  }
+  const startVarsResize = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = varsWidthRef.current
+    const onMove = (ev) => setVarsWidth(Math.min(Math.max(startW - (ev.clientX - startX), 180), 520)) // grows leftward
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); localStorage.setItem('pdfedVarsW', String(varsWidthRef.current)) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+  const toggleVarsCollapsed = () => setVarsCollapsed((c) => { localStorage.setItem('pdfedVarsCol', c ? '0' : '1'); return !c })
 
   // CSS family for a font name: a document font falls back to its system lookalike, so the editor
   // previews something sensible even when the embedded face couldn't be loaded into the browser
@@ -1313,7 +1416,73 @@ export default function PdfEditor({ source, path }) {
             ))}
           </div>
         </div>
+
+        {/* right panel: the document's variables (template fields) — collapsible + resizable */}
+        {varsCollapsed ? (
+          <button className="pdfed__vars-open" title="Variables" onClick={toggleVarsCollapsed}>
+            <VariableIcon />
+            {variables.length > 0 && <span className="pdfed__vars-badge">{variables.length}</span>}
+          </button>
+        ) : (
+          <aside className="pdfed__vars" style={{ width: varsWidth }}>
+            <div className="pdfed__vars-resize" onMouseDown={startVarsResize} title="Drag to resize" />
+            <div className="pdfed__vars-head">
+              <b><VariableIcon /> Variables</b>
+              <button className="pdfed__btn" title="Collapse" onClick={toggleVarsCollapsed}>›</button>
+            </div>
+            <div className="pdfed__vars-body">
+              {variables.length === 0 ? (
+                <div className="pdfed__vars-empty">Select text on the page, right-click → <b>Create variable</b>. Editing a variable's value updates every linked place in the document.</div>
+              ) : (
+                variables.map((v) => (
+                  <div key={v.id} className="pdfed__var">
+                    <div className="pdfed__var-row">
+                      <button className="pdfed__var-exp" onClick={() => setExpandedVar((e) => (e === v.id ? null : v.id))} title="Show places">{expandedVar === v.id ? '▾' : '▸'}</button>
+                      <span className="pdfed__var-name" title={v.name}>{v.name}</span>
+                      <span className="pdfed__var-count" title="linked places">{v.occurrences.filter((o) => o.enabled !== false).length}</span>
+                      <button className="pdfed__btn pdfed__var-del" title="Remove variable" onClick={() => removeVariable(v.id)}>✕</button>
+                    </div>
+                    <input
+                      className="pdfed__var-value"
+                      value={v.value}
+                      onChange={(e) => changeVarValue(v.id, e.target.value)}
+                      placeholder="value…"
+                    />
+                    {expandedVar === v.id && (
+                      <div className="pdfed__var-occs">
+                        {v.occurrences.map((o, i) => (
+                          <label key={i} className="pdfed__occ">
+                            <input type="checkbox" checked={o.enabled !== false} onChange={() => toggleOcc(v.id, i)} />
+                            <button className="pdfed__occ-go" onClick={() => highlightOcc(o)} title="Show on page">p.{o.page + 1} · {Math.round(o.x)},{Math.round(o.baseline)}</button>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        )}
       </div>
+
+      {varDraft && (
+        <div className="pdfed__infowrap" onClick={() => setVarDraft(null)}>
+          <div className="pdfed__varpop" onClick={(e) => e.stopPropagation()}>
+            <div className="pdfed__infohead"><b>Create variable</b><button className="pdfed__btn" onClick={() => setVarDraft(null)}>✕</button></div>
+            <label className="pdfed__varpop-lbl">Name
+              <input className="pdfed__var-value" autoFocus value={varDraft.name} onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })} />
+            </label>
+            <label className="pdfed__varpop-lbl">Value
+              <input className="pdfed__var-value" value={varDraft.value} onChange={(e) => setVarDraft({ ...varDraft, value: e.target.value })} />
+            </label>
+            <div className="pdfed__varpop-btns">
+              <button className="pdfed__btn pdfed__btn--txt" onClick={() => finishCreate(false)}>Add this</button>
+              <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={() => finishCreate(true)}>Find identical &amp; add</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {menu && (
         <ContextMenu
@@ -1323,6 +1492,7 @@ export default function PdfEditor({ source, path }) {
             menu.kind === 'sel'
               ? [
                   { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
+                  ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><VariableIcon /> Create variable</span>, onClick: startCreateVariable }] : []),
                   { label: <span className="pdfed__mi"><TrashIcon /> Delete</span>, onClick: deleteSelected }
                 ]
               : [

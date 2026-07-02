@@ -316,6 +316,184 @@
   min-height: 0;
   display: flex;
 }
+
+/* right variables panel (template fields) — mirror of the left tree: collapsible + resizable */
+.pdfed__vars {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+}
+.pdfed__vars-resize {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.pdfed__vars-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.pdfed__vars-head b {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.pdfed__vars-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+.pdfed__vars-empty {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  padding: 6px 2px;
+}
+/* collapsed handle on the right edge */
+.pdfed__vars-open {
+  flex: 0 0 auto;
+  width: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 10px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.pdfed__vars-open:hover {
+  color: var(--text);
+}
+.pdfed__vars-badge {
+  font-size: 10px;
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  background: var(--accent, #1473e6);
+  color: #fff;
+}
+/* one variable card */
+.pdfed__var {
+  padding: 7px;
+  margin-bottom: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.pdfed__var-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.pdfed__var-exp {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+}
+.pdfed__var-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfed__var-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  min-width: 16px;
+  text-align: center;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--muted);
+}
+.pdfed__var-del {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+.pdfed__var-value {
+  width: 100%;
+  margin-top: 6px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0 7px;
+  outline: none;
+}
+.pdfed__var-value:focus {
+  border-color: var(--accent, #1473e6);
+}
+.pdfed__var-occs {
+  margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pdfed__occ {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.pdfed__occ-go {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.pdfed__occ-go:hover {
+  color: var(--accent, #1473e6);
+}
+/* create-variable popup (uses the info overlay backdrop) */
+.pdfed__varpop {
+  width: min(420px, calc(100vw - 48px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  padding: 4px 16px 14px;
+}
+.pdfed__varpop-lbl {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pdfed__varpop-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
 .pdfed__viewport {
   flex: 1 1 auto;
   min-width: 0;

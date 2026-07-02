@@ -33,7 +33,9 @@ function mask(s) {
   const a = s.split(''); let i = 0
   while (i < a.length) { const c = a[i]
     if (c === '(') { let d = 1, j = i + 1; while (j < a.length && d > 0) { if (a[j] === '\\') { a[j] = 'X'; if (j + 1 < a.length) a[j + 1] = 'X'; j += 2; continue } if (a[j] === '(') d++; else if (a[j] === ')') { d--; if (d === 0) break } a[j] = 'X'; j++ } i = j + 1 }
-    else if (c === '<') { let j = i + 1; while (j < a.length && a[j] !== '>') { a[j] = 'X'; j++ } i = j + 1 } else i++ }
+    else if (c === '<') { let j = i + 1; while (j < a.length && a[j] !== '>') { a[j] = 'X'; j++ } i = j + 1 }
+    else if (c === '%') { let j = i; while (j < a.length && a[j] !== '\n' && a[j] !== '\r') { a[j] = ' '; j++ } i = j } // comments (incl. our %EFR metadata) must not feed the tokenizer
+    else i++ }
   return a.join('')
 }
 const TOKENS = /<<|>>|\/[^\s()<>[\]{}/%]*|<[^>]*>|\([^)]*\)|[[\]]|[-+]?(?:\d+\.?\d*|\.\d+)|[A-Za-z]+\*?|['"]|\S/g
@@ -111,7 +113,7 @@ function buildUnits(cs, streamNum, H) {
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }); start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined }) } start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend }); start = end; reset() }
     num.length = 0
   }
@@ -487,6 +489,18 @@ function getModel(pageIndex) {
               text += cp ? String.fromCodePoint(cp) : '�'
             }
             if (text) r.text = text
+          }
+        }
+      }
+      // vectors: read back the %EFR (corner radius) metadata and the stroke width from their units
+      for (const v of vectors) {
+        const cx = (v.bbox.x + v.bbox.w / 2), cy = (v.bbox.y + v.bbox.h / 2)
+        for (const u of units) {
+          if (u.type !== 'path' || (u.efr === undefined && u.strw === undefined)) continue
+          if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
+            if (u.efr !== undefined) v.radius = u.efr
+            if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
+            break
           }
         }
       }
@@ -1014,7 +1028,12 @@ function setVectorRadius(pageIndex, item, radius) {
     numStart = -1
   }
   if (first < 0) throw new Error('no path found in the unit')
-  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg.slice(0, first) + path + seg.slice(last) + cs.slice(segEnd))
+  let seg2 = seg.slice(0, first) + path + seg.slice(last)
+  // persist the radius as a %EFR comment INSIDE the unit — PDF has no "corner radius" property
+  // (only the curves), so this is what the model reads back into the panel
+  if (/%EFR [\d.]+/.test(seg2)) seg2 = seg2.replace(/%EFR [\d.]+/, `%EFR ${n2(radius)}`)
+  else seg2 = `\n%EFR ${n2(radius)}\n` + seg2
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg2 + cs.slice(segEnd))
 }
 function insertShape(pageIndex, kind, geo, style) {
   const lp = doc.loadPage(pageIndex)
@@ -1029,7 +1048,9 @@ function insertShape(pageIndex, kind, geo, style) {
     prefix += `q ${iv.map((v) => +v.toFixed(6)).join(' ')} cm\n`
     suffix = 'Q\n'
   }
-  writeStream(po, 0, cs + '\n' + prefix + shapeOps(kind, geo, style, H) + suffix)
+  let ops = shapeOps(kind, geo, style, H)
+  if (kind === 'rect' && style.radius > 0) ops = `%EFR ${n2(style.radius)}\n` + ops // readable back as the vector's radius
+  writeStream(po, 0, cs + '\n' + prefix + ops + suffix)
 }
 
 // Insert a raster image (PNG/JPEG bytes) at x/y (pt, top-left) with the given size. Same

@@ -238,7 +238,7 @@
 .pdfed__mini {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 10.5px;
   color: var(--muted);
   flex: 0 0 auto;
@@ -287,7 +287,7 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-height: 40px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);

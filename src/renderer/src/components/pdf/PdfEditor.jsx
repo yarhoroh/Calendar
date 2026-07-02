@@ -8,10 +8,17 @@ import './PdfEditor.css'
 
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
-const LS_OPTS = [0, 0.25, 0.5, 1, 1.5, 2, 3, 5]
+const LS_OPTS = [-2, -1.5, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 1.5, 2, 3, 5]
 
-// number input + a dropdown of standard values sharing one box
+// Number input + a dropdown of standard values sharing one box. The input keeps a local draft so
+// partial entries ("-", "1.", "") survive typing — the parent is only notified on valid numbers.
 function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGrab, disabled }) {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => { setDraft(String(value)) }, [value])
+  const push = (raw) => {
+    const v = parseFloat(raw)
+    if (!isNaN(v)) onPick(Math.min(max, Math.max(min, v)))
+  }
   return (
     <span className={'pdfed__combo' + (disabled ? ' is-locked' : '')} style={width ? { width } : undefined} title={title}>
       <input
@@ -20,10 +27,12 @@ function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGra
         step={step}
         min={min}
         max={max}
-        value={value}
+        value={draft}
         disabled={disabled}
         onMouseDown={onGrab}
-        onChange={(e) => onPick(parseFloat(e.target.value))}
+        onChange={(e) => { setDraft(e.target.value); push(e.target.value) }}
+        onBlur={() => setDraft(String(value))}
+        onKeyDown={(e) => { if (e.key === 'Enter') push(e.currentTarget.value) }}
       />
       <select className="pdfed__combosel" value="" disabled={disabled} onMouseDown={onGrab} onChange={(e) => onPick(parseFloat(e.target.value))}>
         <option value="" hidden></option>
@@ -194,6 +203,7 @@ export default function PdfEditor({ source, path }) {
     if (f) { setFontSel(f.name); setBoldSel(!!f.bold); setItalicSel(!!f.italic) }
     if (singleText.c !== undefined && selPg.colors?.[singleText.c]) setColorSel(selPg.colors[singleText.c])
     if (singleText.size) setFontSize(singleText.size)
+    setLetterS(singleText.ls || 0) // the run's ORIGINAL Tc from the stream (e.g. -1.1)
     // …and the values STAY after deselection — a new text starts with the last clicked style
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -429,7 +439,18 @@ export default function PdfEditor({ source, path }) {
           const src = await fontSourceFor(family, bold, italic)
           if (src) fonts[k] = src
         }
-        lines.push([{ text: o.text, size: patch.size || o.size, color: patch.color || pg.colors?.[o.c] || '#000000', fontKey: k, x: o.x, baseline: o.y, ls: patch.ls !== undefined ? patch.ls : 0 }])
+        lines.push([{
+          text: o.text,
+          size: patch.size || o.size,
+          color: patch.color || pg.colors?.[o.c] || '#000000',
+          fontKey: k,
+          x: o.x,
+          baseline: o.y,
+          // explicit LS change → user's value; otherwise the worker FITS Tc to the run's original
+          // width — spacing baked in as Tc, TJ kerning or per-glyph positions all survive
+          ls: patch.ls !== undefined ? patch.ls : undefined,
+          fitW: patch.ls !== undefined ? undefined : o.bbox.w * (patch.size ? patch.size / (o.size || patch.size) : 1)
+        }])
       }
       const before = new Set(allOf(pg).map(sigOf))
       // ATOMIC replace: the worker validates every font against the actual text FIRST — if a font
@@ -455,10 +476,15 @@ export default function PdfEditor({ source, path }) {
     return df?.match ? `"${family}", "${df.match}"` : `"${family}"`
   }
 
+  // typing into a number box fires per keystroke — batch the page-mutations into ONE (450ms after
+  // the last change); the open rich-editor is styled immediately (cheap, local)
+  const deferRef = useRef(null)
+  const deferMutation = (fn) => { clearTimeout(deferRef.current); deferRef.current = setTimeout(fn, 450) }
+
   // toolbar controls: an open rich-editor gets the command; otherwise the page selection is restyled
   const pickFont = (family) => { setFontSel(family); if (textEdit) rteRef.current?.exec('fontName', cssFontFor(family)); else restyleSelected({ family }) }
   const pickColor = (hex) => { setColorSel(hex); if (textEdit) rteRef.current?.exec('foreColor', hex); else restyleSelected({ color: hex }) }
-  const pickSize = (v) => { const s = Math.max(4, Math.min(200, v || 12)); setFontSize(s); if (textEdit) rteRef.current?.exec('size', s); else restyleSelected({ size: s }) }
+  const pickSize = (v) => { const s = Math.max(4, Math.min(200, v || 12)); setFontSize(s); if (textEdit) rteRef.current?.exec('size', s); else deferMutation(() => restyleSelected({ size: s })) }
   const allBold = () => { const pg = model.find((p) => p.pageIndex === selected?.page); return !!pg && selected.objs.filter((o) => o.type === 'text').every((o) => pg.fonts?.[o.f]?.bold) }
   const allItalic = () => { const pg = model.find((p) => p.pageIndex === selected?.page); return !!pg && selected.objs.filter((o) => o.type === 'text').every((o) => pg.fonts?.[o.f]?.italic) }
   const toggleBold = () => {
@@ -474,16 +500,16 @@ export default function PdfEditor({ source, path }) {
 
   // LS on a selection: re-insert the runs with the letter spacing written as Tc
   const pickLS = (v) => {
-    const ls = v || 0
+    const ls = isNaN(v) ? 0 : v
     setLetterS(ls)
-    if (!textEdit && selected) restyleSelected({ ls })
+    if (!textEdit && selected) deferMutation(() => restyleSelected({ ls }))
   }
   // LH on a selection of SEVERAL text lines: respace their baselines (top line stays put,
   // every next baseline lands at prev + LH × its size) — plain per-item vertical moves
   const pickLH = (v) => {
     const lh = v || 1.25
     setLineH(lh)
-    if (!textEdit && selected) applyLineHeight(lh)
+    if (!textEdit && selected) deferMutation(() => applyLineHeight(lh))
   }
   const applyLineHeight = async (lh) => {
     if (busyRef.current || !selected) return
@@ -672,7 +698,7 @@ export default function PdfEditor({ source, path }) {
         </label>
         <label className="pdfed__mini" title="Letter spacing, pt (Tc): applies to the selected text / the insert editor">
           LS
-          <ComboNum value={letterS} onPick={pickLS} opts={LS_OPTS} step={0.1} min={-2} max={20} width={64} disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} />
+          <ComboNum value={letterS} onPick={pickLS} opts={LS_OPTS} step={0.1} min={-10} max={20} width={64} disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} />
         </label>
         <div className="pdfed__colorwrap">
           <button

@@ -62,7 +62,7 @@ function buildUnits(cs, streamNum, H) {
   const toks = [...mask(cs).matchAll(TOKENS)]
   const units = []
   let start = 0, ctm = [1, 0, 0, 1, 0, 0]; const stk = []
-  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0, pend = null, fontSize = 0
+  let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0, pend = null, fontSize = 0, tc = 0, fontRes = null
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hasP = false, tPos = null
   let cmPre = null // ctm scale just BEFORE the unit's last cm — moving an image edits that cm's e/f, which live in the OUTER space (the cm itself carries the image size!)
   let shows = [] // every show op in the current text unit: { start (operand), end, px, py } — lets a delete blank ONE show surgically
@@ -83,7 +83,8 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
     else if (t === 'cm') { const m = N(6); if (m.length === 6) { cmPre = { sa: ctm[0] || 1, sd: ctm[3] || 1 }; ctm = matMul(m, ctm) } }
     else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
-    else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0] }
+    else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0]; fontRes = pend }
+    else if (t === 'Tc') { const v = N(1); if (v.length) tc = v[0] } // letter spacing — read back into the model as run.ls
     else if (t === 'Tm') { const m = N(6); if (m.length === 6) { tlm = m.slice(); tm = m.slice() } }
     else if (t === 'Td') { const [x, y] = N(2); tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
     else if (t === 'TD') { const [x, y] = N(2); L = -y; tlm = matMul([1, 0, 0, 1, x, y], tlm); tm = tlm.slice() }
@@ -96,7 +97,7 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'n') { start = end; reset() } // clip finaliser (re W n): keep clip paths OUT of paint units so a move never shifts a clip
     else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
       const d = dev(tm[4], tm[5])
-      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1] })
+      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1], tc, font: fontRes, stream: streamNum })
       operandStart = null
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
@@ -409,6 +410,57 @@ function getModel(pageIndex) {
       })
     } finally { stext.destroy?.() }
 
+    // Per-run stream metadata: the ORIGINAL letter spacing (Tc), and — for OUR inserted runs — the
+    // TRUE text decoded straight from the hex show operand. stext synthesizes spaces into spaced-out
+    // text ("L e o n…"), and re-inserting that on the next restyle made runs grow WIDER every cycle.
+    try {
+      const pageObj = doc.findPage(pageIndex)
+      const units = collectUnits(pageObj, H)
+      const efByName = {}
+      for (const k of Object.keys(insFonts)) efByName[insFonts[k].name] = insFonts[k]
+      const csCache = {}
+      let read = 0
+      for (const r of runs) {
+        let best = null, bestD = 3
+        for (const u of units) {
+          if (u.type !== 'text' || !u.shows) continue
+          for (const sh of u.shows) {
+            const d = Math.hypot(sh.px - r.x, sh.py - r.y)
+            if (d < bestD) { bestD = d; best = sh }
+          }
+        }
+        if (!best) {
+          // split pieces / merged lines: their anchor is mid-show — fall back to "the show whose
+          // baseline matches and whose x starts at-or-before the run"
+          let bx = -Infinity
+          for (const u of units) {
+            if (u.type !== 'text' || !u.shows) continue
+            for (const sh of u.shows) {
+              if (Math.abs(sh.py - r.y) < 2 && sh.px <= r.x + 1 && sh.px > bx) { bx = sh.px; best = sh }
+            }
+          }
+        }
+        if (best) read++
+        r.ls = best && best.tc ? n2(best.tc) : 0
+        // our own run → decode the true text from the stream (gid→char via the font's own map)
+        const rec = best && best.font ? efByName[best.font] : null
+        if (rec) {
+          const cs = (csCache[best.stream] ||= readStream(pageObj, best.stream))
+          const m = cs.slice(best.start, best.end).match(/<([0-9A-Fa-f\s]*)>/)
+          if (m) {
+            const hx = m[1].replace(/\s+/g, '')
+            let text = ''
+            for (let i = 0; i + 4 <= hx.length; i += 4) {
+              const cp = rec.uni.get(parseInt(hx.slice(i, i + 4), 16))
+              text += cp ? String.fromCodePoint(cp) : '�'
+            }
+            if (text) r.text = text
+          }
+        }
+      }
+      console.log(`[pdf worker] Tc read: ${read}/${runs.length} runs matched, ${runs.filter((r) => r.ls).length} with ls≠0`)
+    } catch (e) { console.warn('[pdf worker] Tc read failed:', e?.message) }
+
     tightenBboxes(page, runs) // hug the real glyphs: catch diacritics above and descenders below
     return { width: W, height: H, fonts, colors, runs, images, vectors }
   } finally { page.destroy() }
@@ -667,9 +719,19 @@ function insertTextWithRecs(pageIndex, spec, recs) {
     for (const s of line) {
       const rec = recs[s.fontKey]
       if (!rec || !s.text) continue
-      let hex = ''
-      for (const ch of s.text) hex += (rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff).toString(16).padStart(4, '0')
-      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(s.ls || 0)} Tc 1 0 0 1 ${n2(s.x)} ${n2(H - s.baseline)} Tm <${hex}> Tj\n`
+      let hex = '', nat = 0
+      for (const ch of s.text) {
+        const gid = rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
+        nat += rec.font.advanceGlyph(gid, 0)
+        hex += gid.toString(16).padStart(4, '0')
+      }
+      // no explicit LS but a target width → fit Tc so the new run spans EXACTLY the original width
+      // (covers spacing baked in as TJ kerning / per-glyph positions, which can't be read as one number)
+      let ls = s.ls
+      if ((ls === undefined || ls === null) && s.fitW > 0 && s.text.length > 1) {
+        ls = Math.max(-3, Math.min(10, (s.fitW - nat * (s.size || 12)) / (s.text.length - 1)))
+      }
+      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc 1 0 0 1 ${n2(s.x)} ${n2(H - s.baseline)} Tm <${hex}> Tj\n`
     }
     if (body) ops += 'q BT\n' + body + 'ET Q\n'
   }

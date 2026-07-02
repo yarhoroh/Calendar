@@ -1508,12 +1508,23 @@ export default function PdfEditor({ source, path }) {
         <div className="pdfed__infowrap" onClick={() => setVarDraft(null)}>
           <div className="pdfed__varpop" onClick={(e) => e.stopPropagation()}>
             <div className="pdfed__infohead"><b>Create variable</b><button className="pdfed__btn" onClick={() => setVarDraft(null)}>✕</button></div>
-            <label className="pdfed__varpop-lbl">Name (type new, or pick an existing to merge into it)
-              <input className="pdfed__var-value" autoFocus list="pdfed-var-names" value={varDraft.name} onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })} />
-              <datalist id="pdfed-var-names">{variables.map((v) => <option key={v.id} value={v.name} />)}</datalist>
+            {variables.length > 0 && (
+              <label className="pdfed__varpop-lbl">Add to an existing variable
+                <select className="pdfed__var-value" value={variables.some((v) => v.name === varDraft.name) ? varDraft.name : ''} onChange={(e) => e.target.value && setVarDraft({ ...varDraft, name: e.target.value })}>
+                  <option value="">— new variable —</option>
+                  {variables.map((v) => <option key={v.id} value={v.name}>{v.name} ({v.occurrences.length})</option>)}
+                </select>
+              </label>
+            )}
+            <label className="pdfed__varpop-lbl">Name (for a new variable)
+              <input className="pdfed__var-value" autoFocus value={varDraft.name}
+                onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') finishCreate(false); if (e.key === 'Escape') setVarDraft(null) }} />
             </label>
             <label className="pdfed__varpop-lbl">Value
-              <input className="pdfed__var-value" value={varDraft.value} onChange={(e) => setVarDraft({ ...varDraft, value: e.target.value })} />
+              <input className="pdfed__var-value" value={varDraft.value}
+                onChange={(e) => setVarDraft({ ...varDraft, value: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') finishCreate(false); if (e.key === 'Escape') setVarDraft(null) }} />
             </label>
             <div className="pdfed__varpop-btns">
               <button className="pdfed__btn pdfed__btn--txt" onClick={() => finishCreate(false)}>Add this</button>

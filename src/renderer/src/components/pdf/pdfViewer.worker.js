@@ -740,6 +740,13 @@ function registerInsFont(pageIndex, rec) {
   if (!res || res.isNull()) { res = doc.newDictionary(); po.put('Resources', res) }
   let fd = res.get('Font')
   if (fd.isNull()) { fd = doc.newDictionary(); res.put('Font', fd) }
+  // A prior save may have baked EF0, EF1… into the file. insFontSeq restarts at 0 each session, so a
+  // new font can be named "EF0" while a DIFFERENT (stale, possibly bold) EF0 already sits in the dict
+  // — reusing that name would make our text render in the wrong face. Take a genuinely free name.
+  if (!rec.registered) {
+    while (!fd.get(rec.name).isNull()) rec.name = 'EF' + insFontSeq++
+    rec.registered = true
+  }
   if (fd.get(rec.name).isNull()) fd.put(rec.name, rec.ref)
 }
 
@@ -1469,7 +1476,12 @@ export const __test = {
   setLineGeo: (...a) => setLineGeo(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n),
   textOnlyPixmap: (...a) => textOnlyPixmap(...a),
-  matchUnit
+  matchUnit,
+  replaceTextImpl: (pageIndex, items, spec, fonts, fallback, textOnly) => {
+    const recs = prepareInsFonts(pageIndex, fonts, fallback, samplesOf(spec))
+    deleteObjectsImpl(pageIndex, items, textOnly)
+    insertTextWithRecs(pageIndex, spec, recs)
+  }
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })

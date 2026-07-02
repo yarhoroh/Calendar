@@ -538,16 +538,49 @@ function getModel(pageIndex) {
 
 // Grow each run's bbox to the real ink from a 2x grayscale raster, but stop at a blank gap and cap
 // the growth (~0.25em) so it catches THIS line's diacritics/descenders without swallowing neighbours.
+// Raster of ONLY the text (paths/images/shades muted, clips kept): the ink here is purely glyphs,
+// so the frame tighten sees the letters themselves — art painted under the text doesn't exist.
+function textOnlyPixmap(page, S) {
+  const b = page.getBounds()
+  const rect = [Math.floor(b[0] * S), Math.floor(b[1] * S), Math.ceil(b[2] * S), Math.ceil(b[3] * S)]
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, rect, true)
+  pix.clear() // transparent — ink test reads the alpha channel
+  const draw = new mupdf.DrawDevice(mupdf.Matrix.scale(S, S), pix)
+  const dev = new mupdf.Device({
+    fillText: (...a) => draw.fillText(...a),
+    strokeText: (...a) => draw.strokeText(...a),
+    clipPath: (...a) => draw.clipPath(...a),
+    clipStrokePath: (...a) => draw.clipStrokePath(...a),
+    clipText: (...a) => draw.clipText(...a),
+    clipImageMask: (...a) => draw.clipImageMask(...a),
+    popClip: () => draw.popClip(),
+    beginMask: (...a) => draw.beginMask(...a),
+    endMask: () => draw.endMask(),
+    beginGroup: (...a) => draw.beginGroup(...a),
+    endGroup: () => draw.endGroup(),
+    beginTile: (...a) => { try { return draw.beginTile(...a) } catch (_) { return 0 } },
+    endTile: () => draw.endTile(),
+    beginLayer: (...a) => draw.beginLayer(...a),
+    endLayer: () => draw.endLayer(),
+    close: () => {}
+  })
+  try { page.run(dev, mupdf.Matrix.identity) } finally {
+    try { dev.close() } catch (_) {} try { dev.destroy() } catch (_) {}
+    try { draw.close() } catch (_) {} try { draw.destroy() } catch (_) {}
+  }
+  return pix
+}
 function tightenBboxes(page, runs) {
   if (!runs.length) return
   const S = 2
   let pix
-  try { pix = page.toPixmap(mupdf.Matrix.scale(S, S), mupdf.ColorSpace.DeviceGray, false) } catch { return }
+  try { pix = textOnlyPixmap(page, S) } catch { return }
   const px = pix.getPixels(), stride = pix.getStride(), pw = pix.getWidth(), ph = pix.getHeight(), nc = pix.getNumberOfComponents()
+  const ai = nc - 1 // alpha channel: any glyph coverage = ink (colour-independent — white text counts too)
   const ink = (x0, x1, y) => {
     if (y < 0 || y >= ph) return false
     const base = y * stride
-    for (let x = Math.max(0, x0); x < Math.min(pw, x1); x++) if (px[base + x * nc] < 250) return true
+    for (let x = Math.max(0, x0); x < Math.min(pw, x1); x++) if (px[base + x * nc + ai] > 16) return true
     return false
   }
   // nearest X-overlapping baselines above/below each run: with TIGHT leading the lines' ink touches

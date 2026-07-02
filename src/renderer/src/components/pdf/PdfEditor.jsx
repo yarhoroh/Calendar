@@ -1074,6 +1074,21 @@ export default function PdfEditor({ source, path }) {
     return doPaste(x - x0, y - y0)
   }
 
+  // copy the TEXT of every selected text object to the OS clipboard (reading order: top-to-bottom,
+  // then left-to-right; a new line when the baseline drops, a space within a line)
+  const copyTextSelected = () => {
+    if (!selected) return
+    const texts = selected.objs.filter((o) => o.type === 'text')
+    if (!texts.length) return
+    const sorted = [...texts].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    let out = ''
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0) out += Math.abs(sorted[i].y - sorted[i - 1].y) > 3 ? '\n' : ' '
+      out += sorted[i].text || ''
+    }
+    navigator.clipboard?.writeText(out).catch((e) => console.warn('[pdf] copy text failed:', e?.message))
+  }
+
   // double-click on the selection → physically remove the selected objects from the PDF stream.
   // (The file on disk is untouched; reopening the tab restores everything.)
   const deleteSelected = async () => {
@@ -1569,6 +1584,7 @@ export default function PdfEditor({ source, path }) {
             menu.kind === 'sel'
               ? [
                   { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
+                  ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><CopyIcon /> Copy text</span>, onClick: copyTextSelected }] : []),
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><VariableIcon /> Create variable</span>, onClick: startCreateVariable }] : []),
                   ...(selInVar ? [{ label: <span className="pdfed__mi"><VariableIcon /> Remove from variable</span>, onClick: removeSelectionFromVars }] : []),
                   { label: <span className="pdfed__mi"><TrashIcon /> Delete</span>, onClick: deleteSelected }

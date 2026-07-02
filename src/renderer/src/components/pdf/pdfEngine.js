@@ -34,8 +34,10 @@ export function createPdfEngine() {
     open: (data) => { lastOpen = data; return call('open', { data }) },
     getModel: (pageIndex) => call('getModel', { pageIndex }), // → { width, height, fonts, colors, runs, images, vectors }
     renderImage: (pageIndex, scale) => call('renderImage', { pageIndex, scale }), // → { png, width, height } — raster visual
+    renderObjects: (pageIndex, zs, bbox, scale) => call('renderObjects', { pageIndex, zs, bbox, scale }), // → transparent sprite of ONLY these objects
     deleteObjects: (pageIndex, items) => call('deleteObjects', { pageIndex, items }), // items:[{type,bbox}] — remove from the stream
     moveObjects: (pageIndex, items) => call('moveObjects', { pageIndex, items }), // items:[{type,bbox,dx,dy}] — shift coords in the stream
+    copyObjects: (pageIndex, items, dx, dy) => call('copyObjects', { pageIndex, items, dx, dy }), // duplicate units in the stream at an offset
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

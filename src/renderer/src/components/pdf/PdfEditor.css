@@ -41,14 +41,23 @@
   opacity: 0.4;
   cursor: default;
 }
-/* the Save button carries text, not an icon */
-.pdfed__btn--save {
+/* text buttons (Copy / Paste / Save) */
+.pdfed__btn--txt {
   width: auto;
-  padding: 0 12px;
-  margin-left: 6px;
+  padding: 0 10px;
   font-size: 12.5px;
   font-weight: 600;
+}
+.pdfed__btn--save {
+  margin-left: 6px;
   color: var(--accent, #1473e6);
+}
+.pdfed__sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
 }
 .pdfed__zoom {
   flex: 0 0 auto;
@@ -108,28 +117,14 @@
   inset: 0;
   cursor: default; /* plain arrow while we're not editing text */
 }
-/* frame drawn only for the current selection (computed on click, not pre-rendered per object).
-   The frame itself is the drag zone: over it the mouse becomes the 4-arrow move cursor. */
+/* selection frame — the same light dashed box for one object or a group (computed on click, not
+   pre-rendered). The frame itself is the drag zone: over it the mouse is the 4-arrow move cursor.
+   Double-click inside it → delete. */
 .pdfed__frame {
   position: absolute;
-  outline: 2px solid #1473e6; /* text — blue */
-  background: rgba(20, 115, 230, 0.12);
-  cursor: move;
-}
-/* image — green */
-.pdfed__frame.is-image {
-  outline-color: #1b9e77;
-  background: rgba(27, 158, 119, 0.1);
-}
-/* vector art (lines, table rules, shapes) — amber */
-.pdfed__frame.is-vector {
-  outline-color: #e08a00;
-  background: rgba(224, 138, 0, 0.1);
-}
-/* group selection: dashed union frame around everything selected (double-click it → delete) */
-.pdfed__frame.is-union {
   outline: 1.5px dashed #1473e6;
   background: transparent;
+  cursor: move;
 }
 /* rubber-band rectangle while dragging over empty space */
 .pdfed__marquee {
@@ -138,11 +133,11 @@
   background: rgba(20, 115, 230, 0.08);
   pointer-events: none;
 }
-/* ghost while moving the selection — a window into the live page raster (crisp at any zoom) */
+/* ghost while moving — per-object windows into the live page raster (crisp at any zoom); the shared
+   dashed selection frame travels alongside, so the windows themselves carry no outline */
 .pdfed__ghost {
   position: absolute;
   opacity: 0.75;
-  outline: 1.5px dashed #1473e6;
   background-repeat: no-repeat;
   pointer-events: none;
   z-index: 5;

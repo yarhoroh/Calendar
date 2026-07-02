@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // One page: a raster <img> (the exact visual) + a SINGLE transparent overlay that captures the mouse.
 // Everything is computed from the JSON model — no per-object divs:
@@ -32,22 +32,53 @@ const unionOf = (objs) => {
 }
 const inside = (r, x, y) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
 
-export default function PdfPage({ page, image, scale, selected, onSelect, onDelete, onMove }) {
+export default function PdfPage({ page, image, scale, selected, nudge, onSelect, onDelete, onMove, onSprite }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
   const H = (image?.height ?? page.height) * scale
   const [marquee, setMarquee] = useState(null) // {x,y,w,h} in pt while rubber-banding
   const [ghost, setGhost] = useState(null) // {dx,dy} in pt while moving the selection
+  const [sprite, setSprite] = useState(null) // transparent render of ONLY the dragged objects
   const dragRef = useRef(null)
 
-  const selIds = selected && selected.page === pageIndex ? selected.ids : null
-  const selObjs = selIds ? objects.filter((o) => selIds.includes(o.id)) : []
+  // the selection carries the resolved objects themselves — nothing is re-filtered from the model
+  const selObjs = selected && selected.page === pageIndex ? selected.objs : []
   const union = unionOf(selObjs)
+
+  const dropSprite = () => setSprite((s) => { if (s) URL.revokeObjectURL(s.url); return null })
+
+  // a ghost parked after a drop dissolves as soon as the freshly rendered page image arrives
+  useEffect(() => { setGhost((g) => { if (!g?.pending) return g; dropSprite(); return null }) }, [image?.url]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toPt = (e, el) => {
     const r = el.getBoundingClientRect()
     return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]
+  }
+
+  // press-and-drag: ghost follows the cursor, the PDF changes once, on drop; a plain click (<1pt)
+  // just leaves the selection in place (double-click on it → delete)
+  const startMoveDrag = (el, sx, sy, objs) => {
+    // ask for a clean sprite of ONLY the dragged objects (until it lands, per-object raster windows serve)
+    onSprite?.(pageIndex, objs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
+    const move = (ev) => {
+      const [mx, my] = toPt(ev, el)
+      setGhost({ dx: mx - sx, dy: my - sy })
+    }
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      const [ux, uy] = toPt(ev, el)
+      const dx = ux - sx, dy = uy - sy
+      if (Math.hypot(dx, dy) >= 1) {
+        // keep the ghost parked at the drop spot while the worker re-renders the page — the object
+        // looks like it's already there instead of vanishing and "jumping" seconds later
+        setGhost({ dx, dy, pending: true })
+        onMove(pageIndex, objs, dx, dy)
+      } else { setGhost(null); dropSprite() }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   }
 
   const onDown = (e) => {
@@ -55,28 +86,10 @@ export default function PdfPage({ page, image, scale, selected, onSelect, onDele
     const [x, y] = toPt(e, el)
     e.stopPropagation()
 
-    if (inside(union, x, y)) {
-      // drag the whole selection — PDF changes once, on drop
-      const start = { x, y }
-      const move = (ev) => {
-        const [mx, my] = toPt(ev, el)
-        setGhost({ dx: mx - start.x, dy: my - start.y })
-      }
-      const up = (ev) => {
-        window.removeEventListener('mousemove', move)
-        window.removeEventListener('mouseup', up)
-        setGhost(null)
-        const [ux, uy] = toPt(ev, el)
-        const dx = ux - start.x, dy = uy - start.y
-        if (Math.hypot(dx, dy) >= 1) onMove(dx, dy) // a plain click keeps the selection (double-click → delete)
-      }
-      window.addEventListener('mousemove', move)
-      window.addEventListener('mouseup', up)
-      return
-    }
+    if (inside(union, x, y)) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 
     const hit = hitTest(objects, x, y)
-    if (hit) { onSelect(pageIndex, [hit.id]); return }
+    if (hit) { onSelect(pageIndex, [hit]); startMoveDrag(el, x, y, [hit]); return } // select AND move in one gesture
 
     // empty space → rubber-band
     onSelect(pageIndex, null)
@@ -97,10 +110,8 @@ export default function PdfPage({ page, image, scale, selected, onSelect, onDele
       const [ux, uy] = toPt(ev, el)
       const box = { x: Math.min(d.x, ux), y: Math.min(d.y, uy), w: Math.abs(ux - d.x), h: Math.abs(uy - d.y) }
       if (box.w < 3 / scale && box.h < 3 / scale) return // just a click on empty space
-      const ids = objects
-        .filter((o) => o.bbox.x < box.x + box.w && o.bbox.x + o.bbox.w > box.x && o.bbox.y < box.y + box.h && o.bbox.y + o.bbox.h > box.y)
-        .map((o) => o.id)
-      onSelect(pageIndex, ids)
+      const objs = objects.filter((o) => o.bbox.x < box.x + box.w && o.bbox.x + o.bbox.w > box.x && o.bbox.y < box.y + box.h && o.bbox.y + o.bbox.h > box.y)
+      onSelect(pageIndex, objs)
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -117,26 +128,55 @@ export default function PdfPage({ page, image, scale, selected, onSelect, onDele
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
       <div className="pdfed__overlay" onMouseDown={onDown} onDoubleClick={onDouble}>
-        {selObjs.length === 1 && <div className={`pdfed__frame is-${selObjs[0].type}`} style={px(selObjs[0].bbox)} />}
-        {selObjs.length > 1 && union && <div className="pdfed__frame is-union" style={px({ x: union.x - 2, y: union.y - 2, w: union.w + 4, h: union.h + 4 })} />}
+        {/* selection frame — the same light dashed box for one object or a whole group; while a
+            ghost is up it travels with it */}
+        {union && (
+          <div
+            className="pdfed__frame"
+            style={px({
+              x: union.x - 2 + (ghost?.dx || 0) + (nudge?.dx || 0),
+              y: union.y - 2 + (ghost?.dy || 0) + (nudge?.dy || 0),
+              w: union.w + 4,
+              h: union.h + 4
+            })}
+          />
+        )}
         {ghost && union && image && (
           <>
-            {/* alignment guides: faint green lines running from the ghost's edges across the whole
-                page, to line the selection up with other content */}
-            <div className="pdfed__guide is-h" style={{ top: (union.y + ghost.dy) * scale }} />
-            <div className="pdfed__guide is-h" style={{ top: (union.y + union.h + ghost.dy) * scale }} />
-            <div className="pdfed__guide is-v" style={{ left: (union.x + ghost.dx) * scale }} />
-            <div className="pdfed__guide is-v" style={{ left: (union.x + union.w + ghost.dx) * scale }} />
-            {/* a window into the live raster: crisp at any zoom because the raster itself re-renders per scale */}
-            <div
-              className="pdfed__ghost"
-              style={{
-                ...px({ x: union.x + ghost.dx, y: union.y + ghost.dy, w: union.w, h: union.h }),
-                backgroundImage: `url(${image.url})`,
-                backgroundSize: `${W}px ${H}px`,
-                backgroundPosition: `${-union.x * scale}px ${-union.y * scale}px`
-              }}
-            />
+            {/* alignment guides while actively dragging: faint green lines from the ghost's edges
+                across the whole page, to line the selection up with other content */}
+            {!ghost.pending && (
+              <>
+                <div className="pdfed__guide is-h" style={{ top: (union.y + ghost.dy) * scale }} />
+                <div className="pdfed__guide is-h" style={{ top: (union.y + union.h + ghost.dy) * scale }} />
+                <div className="pdfed__guide is-v" style={{ left: (union.x + ghost.dx) * scale }} />
+                <div className="pdfed__guide is-v" style={{ left: (union.x + union.w + ghost.dx) * scale }} />
+              </>
+            )}
+            {/* the dragged content: a transparent sprite of ONLY the selected objects (nothing around
+                them, no clipped neighbours). Until it arrives, per-object raster windows fill in. */}
+            {sprite ? (
+              <img
+                className="pdfed__ghost"
+                src={sprite.url}
+                style={px({ x: sprite.x + ghost.dx, y: sprite.y + ghost.dy, w: sprite.w, h: sprite.h })}
+                draggable={false}
+                alt=""
+              />
+            ) : (
+              selObjs.map((o) => (
+                <div
+                  key={o.id}
+                  className="pdfed__ghost"
+                  style={{
+                    ...px({ x: o.bbox.x + ghost.dx, y: o.bbox.y + ghost.dy, w: o.bbox.w, h: o.bbox.h }),
+                    backgroundImage: `url(${image.url})`,
+                    backgroundSize: `${W}px ${H}px`,
+                    backgroundPosition: `${-o.bbox.x * scale}px ${-o.bbox.y * scale}px`
+                  }}
+                />
+              ))
+            )}
           </>
         )}
         {marquee && <div className="pdfed__marquee" style={px(marquee)} />}

@@ -17,8 +17,11 @@ export default function PdfEditor({ source, path }) {
   const [status, setStatus] = useState('idle')
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
-  const [selected, setSelected] = useState(null) // { page, ids: [...] } — single click or marquee group
+  const [selected, setSelected] = useState(null) // { page, objs: [...] } — the resolved objects themselves (no re-filtering per action)
   const [saving, setSaving] = useState(false)
+  const [nudge, setNudge] = useState(null) // accumulated arrow-key shift (pt), not yet committed
+  const nudgeRef = useRef(null)
+  const [clip, setClip] = useState(null) // clipboard: { page, items:[{type,bbox}] } for copy/paste duplication
   const engineRef = useRef(null)
   const urlsRef = useRef([])
   const viewportRef = useRef(null)
@@ -56,7 +59,13 @@ export default function PdfEditor({ source, path }) {
     return () => { alive = false }
   }, [pageCount])
 
-  // render page images whenever the doc opens or the zoom changes
+  // Raster resolution is capped: above RENDER_CAP× the same bitmap is stretched by CSS. A full A4 at
+  // 7× would be ~25 Mpx per re-render (seconds of rasterise+PNG-encode on every move/zoom step);
+  // at 4× it stays ~8 Mpx, and zooming past the cap doesn't touch the worker at all.
+  const RENDER_CAP = 4
+  const renderScale = Math.min(scale, RENDER_CAP)
+
+  // render page images whenever the doc opens or the (capped) render scale changes
   useEffect(() => {
     if (!pageCount || !engineRef.current) return
     let alive = true
@@ -64,7 +73,7 @@ export default function PdfEditor({ source, path }) {
     ;(async () => {
       const out = []
       for (let i = 0; i < pageCount; i++) {
-        const r = await engineRef.current.renderImage(i, scale)
+        const r = await engineRef.current.renderImage(i, renderScale)
         if (!alive) return
         out.push({ pageIndex: i, url: URL.createObjectURL(new Blob([r.png], { type: 'image/png' })), width: r.width, height: r.height })
       }
@@ -72,7 +81,7 @@ export default function PdfEditor({ source, path }) {
       revoke(); urlsRef.current = out.map((p) => p.url); setImgs(out); setStatus('ready')
     })().catch(() => alive && setStatus('error'))
     return () => { alive = false }
-  }, [pageCount, scale])
+  }, [pageCount, renderScale])
 
   // Ctrl + wheel zoom (non-passive so we cancel the browser zoom). Anchor on the point under the cursor.
   useEffect(() => {
@@ -104,6 +113,38 @@ export default function PdfEditor({ source, path }) {
     zoomAnchorRef.current = null
   }, [scale])
 
+  // Keyboard: arrows nudge the selection by one screen pixel (page scroll suppressed) — the frame
+  // moves instantly, the accumulated shift is committed to the stream after a short pause. Ctrl+C
+  // copies the selection to the internal clipboard, Ctrl+V duplicates it into the stream.
+  useEffect(() => {
+    const isField = (n) => n instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName) || n.isContentEditable)
+    const onKey = (e) => {
+      if (isField(e.target)) return
+      // physical keys (e.code), so the shortcuts work in any keyboard layout (RU gives e.key='с'/'м')
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') { if (selected) { e.preventDefault(); copySelected() } return }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') { if (clip) { e.preventDefault(); pasteClip() } return }
+      const K = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]
+      if (!K || !selected || e.ctrlKey || e.metaKey) return
+      e.preventDefault() // keep the viewport from scrolling
+      const step = (e.shiftKey ? 10 : 1) / scale // one screen pixel per press, 10 with Shift
+      const cur = nudgeRef.current || { dx: 0, dy: 0, page: selected.page, objs: selected.objs }
+      cur.dx += K[0] * step
+      cur.dy += K[1] * step
+      nudgeRef.current = cur
+      setNudge({ page: cur.page, dx: cur.dx, dy: cur.dy })
+      clearTimeout(cur.timer)
+      cur.timer = setTimeout(() => {
+        const n = nudgeRef.current
+        nudgeRef.current = null
+        setNudge(null)
+        if (n && (n.dx || n.dy)) moveSelected(n.page, n.objs, n.dx, n.dy)
+      }, 350)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, clip, model, scale])
+
   // Hold Space to pan the view like a hand tool
   useEffect(() => {
     const isField = (n) => n instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(n.tagName)
@@ -131,8 +172,29 @@ export default function PdfEditor({ source, path }) {
     window.addEventListener('mouseup', upp)
   }
 
-  const onSelect = (pageIndex, ids) => setSelected(ids && ids.length ? { page: pageIndex, ids } : null)
+  // debug: one compact line per object, so selection/copy/paste lists can be compared
+  const dbg = (o) => `${o.id} ${o.type} z${o.z} [${o.bbox.x},${o.bbox.y},${o.bbox.w},${o.bbox.h}]${o.text ? ' "' + o.text.slice(0, 30) + '"' : ''}`
+
+  const onSelect = (pageIndex, objs) => {
+    // any selection change discards an uncommitted arrow-key nudge — its timer must never fire
+    // against a selection that no longer exists
+    if (nudgeRef.current) { clearTimeout(nudgeRef.current.timer); nudgeRef.current = null; setNudge(null) }
+    console.log(`[pdf][select] page ${pageIndex}, ${objs?.length || 0} objs:\n` + (objs || []).map(dbg).join('\n'))
+    setSelected(objs && objs.length ? { page: pageIndex, objs } : null)
+  }
   const imgOf = (i) => imgs.find((im) => im.pageIndex === i)
+
+  // transparent sprite of ONLY the given objects (for the drag ghost) — nothing around them leaks in
+  const spriteFor = async (pageIndex, objs) => {
+    const zs = objs.map((o) => o.z).filter((z) => z >= 0)
+    if (!zs.length) return null
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const o of objs) { x0 = Math.min(x0, o.bbox.x); y0 = Math.min(y0, o.bbox.y); x1 = Math.max(x1, o.bbox.x + o.bbox.w); y1 = Math.max(y1, o.bbox.y + o.bbox.h) }
+    try {
+      const r = await engineRef.current.renderObjects(pageIndex, zs, { x: x0 - 1, y: y0 - 1, w: x1 - x0 + 2, h: y1 - y0 + 2 }, renderScale)
+      return { url: URL.createObjectURL(new Blob([r.png], { type: 'image/png' })), x: r.x, y: r.y, w: r.w, h: r.h }
+    } catch (err) { console.error('[pdf] sprite failed:', err); return null }
+  }
 
   // Save: OS save dialog starting at the source file (same name → the OS confirms the overwrite,
   // a new name → a copy), then write the worker's edited document to disk.
@@ -149,42 +211,72 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] save failed:', err) } finally { setSaving(false) }
   }
 
-  // re-render one page's image + model after a mutation
+  // re-render one page's image + model after a mutation; returns the fresh model
   const refreshPage = async (pageIndex) => {
     const [im, m] = await Promise.all([engineRef.current.renderImage(pageIndex, scale), engineRef.current.getModel(pageIndex)])
     const url = URL.createObjectURL(new Blob([im.png], { type: 'image/png' }))
     urlsRef.current.push(url)
     setImgs((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, url, width: im.width, height: im.height } : p)))
     setModel((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, ...m } : p)))
+    return m
   }
 
-  // drag the selection → shift the objects' coordinates inside the PDF stream, then re-render
-  const moveSelected = async (dx, dy) => {
-    if (!selected) return
-    const pg = model.find((p) => p.pageIndex === selected.page)
-    if (!pg) return
-    const items = [...pg.runs, ...(pg.images || []), ...(pg.vectors || [])]
-      .filter((o) => selected.ids.includes(o.id))
-      .map((o) => ({ type: o.type, bbox: o.bbox, dx, dy }))
-    if (!items.length) return
-    setSelected(null)
+  // drag → shift the objects' coordinates inside the PDF stream, then re-render. The objects arrive
+  // as an argument (not from state) so press-and-drag works in ONE gesture, before the state lands.
+  const moveSelected = async (pageIndex, objs, dx, dy) => {
+    if (!objs?.length) return
+    const items = objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, dx, dy })) // x/y = exact text anchor
     try {
-      await engineRef.current.moveObjects(selected.page, items)
-      await refreshPage(selected.page)
+      // same diff trick as paste: snapshot signatures before, re-select whatever is NEW after —
+      // the moved objects are exactly the ones whose signature changed (no geometric guessing)
+      const before = new Set(allOf(model.find((p) => p.pageIndex === pageIndex) || { runs: [] }).map(sigOf))
+      await engineRef.current.moveObjects(pageIndex, items)
+      const m = await refreshPage(pageIndex)
+      const moved = allOf(m).filter((o) => !before.has(sigOf(o)))
+      console.log(`[pdf][move] d=(${dx.toFixed(1)},${dy.toFixed(1)}), moved (${moved.length} of ${items.length})`)
+      onSelect(pageIndex, moved) // re-select through the ONE selection entry point — as if just selected by hand
     } catch (err) { console.error('[pdf] move failed:', err) }
   }
 
+  // object signature that survives a re-parse: for text — stext metrics + the string itself (the
+  // raster bbox tightening can shift y/h when a copy overlaps a neighbour, so those stay out of it)
+  const sigOf = (o) => (o.type === 'text'
+    ? `t|${o.bbox.x.toFixed(1)}|${o.bbox.w.toFixed(1)}|${o.size}|${o.text}`
+    : `${o.type}|${o.bbox.x.toFixed(1)},${o.bbox.y.toFixed(1)},${o.bbox.w.toFixed(1)},${o.bbox.h.toFixed(1)}|${o.kind || ''}`)
+  const allOf = (pg) => [...pg.runs, ...(pg.images || []), ...(pg.vectors || [])]
+
+  // ---- copy / paste: duplicate the selected objects straight into the PDF stream ----
+  const copySelected = () => {
+    if (!selected) return
+    const items = selected.objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })) // x/y = exact text anchor
+    console.log(`[pdf][copy] page ${selected.page}, ${items.length} items to clipboard:\n` + selected.objs.map(dbg).join('\n'))
+    if (items.length) setClip({ page: selected.page, items })
+  }
+  const pasteClip = async () => {
+    if (!clip) return
+    const OFF = 24 / scale // paste lands 24 SCREEN pixels down-right at any zoom — always visibly offset
+    try {
+      const before = new Set(allOf(model.find((p) => p.pageIndex === clip.page) || { runs: [] }).map(sigOf))
+      await engineRef.current.copyObjects(clip.page, clip.items, OFF, OFF)
+      const m = await refreshPage(clip.page)
+      // the pasted copies are EXACTLY the objects that didn't exist before the paste — no
+      // geometric guessing, so the selection can't grab neighbouring originals
+      const pasted = allOf(m).filter((o) => !before.has(sigOf(o)))
+      console.log(`[pdf][paste] page ${clip.page}, OFF=${OFF.toFixed(2)}pt, pasted ${pasted.length} of ${clip.items.length}`)
+      // the paste re-numbers/re-parses everything, so the clipboard's stored geometry is stale —
+      // clear it (copy again to paste again); the pasted objects themselves come out selected
+      setClip(null)
+      onSelect(clip.page, pasted) // re-select through the ONE selection entry point — as if just selected by hand
+    } catch (err) { console.error('[pdf] paste failed:', err) }
+  }
+
   // double-click on the selection → physically remove the selected objects from the PDF stream.
-  // (The file on disk is untouched — there is no save yet; reopening the tab restores everything.)
+  // (The file on disk is untouched; reopening the tab restores everything.)
   const deleteSelected = async () => {
     if (!selected) return
-    const pg = model.find((p) => p.pageIndex === selected.page)
-    if (!pg) return
-    const items = [...pg.runs, ...(pg.images || []), ...(pg.vectors || [])]
-      .filter((o) => selected.ids.includes(o.id))
-      .map((o) => ({ type: o.type, bbox: o.bbox }))
+    const items = selected.objs.map((o) => ({ type: o.type, bbox: o.bbox }))
     if (!items.length) return
-    setSelected(null)
+    onSelect(selected.page, null) // selection (and any pending nudge) is gone with the objects
     try {
       await engineRef.current.deleteObjects(selected.page, items)
       await refreshPage(selected.page)
@@ -197,7 +289,10 @@ export default function PdfEditor({ source, path }) {
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.max(0.3, s / 1.15))} title="Zoom out"><ZoomOutIcon /></button>
         <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(10, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
-        <button className="pdfed__btn pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
+        <span className="pdfed__sep" />
+        <button className="pdfed__btn pdfed__btn--txt" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)">Copy</button>
+        <button className="pdfed__btn pdfed__btn--txt" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)">Paste</button>
+        <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
         <span className="pdfed__spacer" />
         <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
       </div>
@@ -217,9 +312,11 @@ export default function PdfEditor({ source, path }) {
                 image={imgOf(p.pageIndex)}
                 scale={scale}
                 selected={selected}
+                nudge={nudge && nudge.page === p.pageIndex ? nudge : null}
                 onSelect={onSelect}
                 onDelete={deleteSelected}
                 onMove={moveSelected}
+                onSprite={spriteFor}
               />
             ))}
           </div>

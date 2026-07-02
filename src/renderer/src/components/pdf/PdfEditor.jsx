@@ -728,7 +728,10 @@ export default function PdfEditor({ source, path }) {
           x1: drag.x1, y1: drag.y1, x2: drag.x2, y2: drag.y2
         }
       } else {
-        geo = { x, y, w: 120, h: kind === 'line' ? 0 : 80, x1: x, y1: y, x2: x + 120, y2: y + (kind === 'line' ? 0 : 80) }
+        // sensible click-defaults: marks are small (16pt), boxes 120x80, a line 120 long
+        const dw = kind === 'check' || kind === 'cross' ? 16 : 120
+        const dh = kind === 'line' ? 0 : kind === 'check' || kind === 'cross' ? 16 : 80
+        geo = { x, y, w: dw, h: dh, x1: x, y1: y, x2: x + dw, y2: y + dh }
       }
       if (kind === 'line') {
         // a line snaps to the drag's dominant axis: strictly horizontal or strictly vertical
@@ -1058,7 +1061,9 @@ export default function PdfEditor({ source, path }) {
           items={[
             { label: 'Rectangle', onClick: () => setInsertMode({ shape: { kind: 'rect' } }) },
             { label: 'Line', onClick: () => setInsertMode({ shape: { kind: 'line' } }) },
-            { label: 'Ellipse', onClick: () => setInsertMode({ shape: { kind: 'ellipse' } }) }
+            { label: 'Ellipse', onClick: () => setInsertMode({ shape: { kind: 'ellipse' } }) },
+            { label: 'Check ✓', onClick: () => setInsertMode({ shape: { kind: 'check' } }) },
+            { label: 'Cross ✕', onClick: () => setInsertMode({ shape: { kind: 'cross' } }) }
           ]}
           onClose={() => setShapeMenu(null)}
         />

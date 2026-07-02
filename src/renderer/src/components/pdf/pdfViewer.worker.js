@@ -976,6 +976,13 @@ function shapeOps(kind, g, style, H) {
       `${n2(cx - rx * K)} ${n2(cy + ry)} ${n2(cx - rx)} ${n2(cy + ry * K)} ${n2(cx - rx)} ${n2(cy)} c ` +
       `${n2(cx - rx)} ${n2(cy - ry * K)} ${n2(cx - rx * K)} ${n2(cy - ry)} ${n2(cx)} ${n2(cy - ry)} c ` +
       `${n2(cx + rx * K)} ${n2(cy - ry)} ${n2(cx + rx)} ${n2(cy - ry * K)} ${n2(cx + rx)} ${n2(cy)} c h`
+  } else if (kind === 'check') { // ✓ two strokes across the box
+    const x = g.x, yB = H - g.y - g.h, w = g.w, h = g.h
+    p = `${n2(x + 0.12 * w)} ${n2(yB + 0.5 * h)} m ${n2(x + 0.4 * w)} ${n2(yB + 0.18 * h)} l ${n2(x + 0.88 * w)} ${n2(yB + 0.82 * h)} l`
+  } else if (kind === 'cross') { // ✕ two diagonals
+    const x = g.x, yB = H - g.y - g.h, w = g.w, h = g.h
+    p = `${n2(x + 0.15 * w)} ${n2(yB + 0.85 * h)} m ${n2(x + 0.85 * w)} ${n2(yB + 0.15 * h)} l ` +
+      `${n2(x + 0.85 * w)} ${n2(yB + 0.85 * h)} m ${n2(x + 0.15 * w)} ${n2(yB + 0.15 * h)} l`
   } else { // rect, optionally rounded
     p = roundRectPath(g.x, H - g.y - g.h, g.w, g.h, style.radius || 0)
   }

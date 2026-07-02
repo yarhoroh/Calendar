@@ -41,12 +41,95 @@
   opacity: 0.4;
   cursor: default;
 }
-/* text buttons (Copy / Paste / Save) */
+/* text buttons (Save) */
 .pdfed__btn--txt {
   width: auto;
   padding: 0 10px;
   font-size: 12.5px;
   font-weight: 600;
+}
+/* font dropdown: the document's own fonts first (subset/non-embedded show "→ lookalike"), then system */
+.pdfed__fontsel {
+  flex: 0 1 190px;
+  min-width: 90px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0 6px;
+  outline: none;
+  cursor: pointer;
+}
+/* colour dropdown: current swatch on the button + a grid of every colour used in the document */
+.pdfed__colorwrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.pdfed__swatch {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.pdfed__colorpanel {
+  position: fixed; /* escapes the toolbar's overflow clipping; coords come from the button */
+  z-index: 200;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+.pdfed__swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 20px);
+  gap: 5px;
+}
+/* free colour choice below the document palette */
+.pdfed__custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pdfed__custom input[type='color'] {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.pdfed__swatchbtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+}
+.pdfed__swatchbtn.is-on {
+  outline: 2px solid var(--accent, #1473e6);
+}
+
+/* context-menu item content: icon + label. Block flex — an inline box would sit on the text
+   baseline and leave extra descender space below the row. */
+.pdfed__mi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
 }
 .pdfed__btn--save {
   margin-left: 6px;

@@ -38,6 +38,7 @@ export function createPdfEngine() {
     deleteObjects: (pageIndex, items) => call('deleteObjects', { pageIndex, items }), // items:[{type,bbox}] — remove from the stream
     moveObjects: (pageIndex, items) => call('moveObjects', { pageIndex, items }), // items:[{type,bbox,dx,dy}] — shift coords in the stream
     copyObjects: (pageIndex, items, dx, dy) => call('copyObjects', { pageIndex, items, dx, dy }), // duplicate units in the stream at an offset
+    getFontsInfo: () => call('getFontsInfo', {}), // → { fonts:[{name, embedded, subset}] } — document font inventory
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

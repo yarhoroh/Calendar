@@ -405,6 +405,30 @@ function tightenBboxes(page, runs) {
   pix.destroy()
 }
 
+// Font inventory of the document: clean name + whether a font file is embedded (FontFile/2/3) and
+// whether it's a subset (ABCDEF+ prefix). The UI pairs non-embedded ones with a similar system font.
+function getFontsInfo() {
+  const out = [], seen = {}
+  let count = 0
+  try { count = doc.countObjects() } catch { return out }
+  for (let i = 1; i < count; i++) {
+    let o; try { o = doc.newIndirect(i).resolve() } catch { continue }
+    if (!o || !o.isDictionary || !o.isDictionary()) continue
+    let ty; try { ty = o.get('Type') } catch { continue }
+    if (!ty || ty.isNull() || ty.asName() !== 'Font') continue
+    let d = o.get('FontDescriptor')
+    if (d.isNull()) { const df = o.get('DescendantFonts'); if (df.isArray() && df.length) d = df.get(0).resolve().get('FontDescriptor') }
+    const bf = o.get('BaseFont'); const raw = bf.isNull() ? '' : bf.asName()
+    const name = cleanName(raw)
+    if (!name || seen[name]) continue
+    seen[name] = 1
+    let embedded = false
+    if (d && !d.isNull()) embedded = !d.get('FontFile2').isNull() || !d.get('FontFile3').isNull() || !d.get('FontFile').isNull()
+    out.push({ name, embedded, subset: /^[A-Z]{6}\+/.test(raw) })
+  }
+  return out
+}
+
 self.postMessage({ ready: true })
 self.onmessage = (e) => {
   const { id, type, params } = e.data
@@ -452,6 +476,9 @@ self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       const r = renderObjects(params.pageIndex, params.zs, params.bbox, params.scale)
       self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'getFontsInfo') {
+      if (!doc) throw new Error('no document open')
+      self.postMessage({ id, result: { fonts: getFontsInfo() } })
     } else if (type === 'save') {
       // serialise the in-memory working copy (with all moves/deletes applied) back to PDF bytes
       if (!doc) throw new Error('no document open')

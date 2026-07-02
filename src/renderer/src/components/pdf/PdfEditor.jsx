@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ZoomInIcon, ZoomOutIcon } from '../icons'
+import { ZoomInIcon, ZoomOutIcon, CopyIcon, PasteIcon, TrashIcon } from '../icons'
 import api from '../../lib/api'
+import ContextMenu from '../ContextMenu'
 import { createPdfEngine } from './pdfEngine'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
@@ -22,6 +23,12 @@ export default function PdfEditor({ source, path }) {
   const [nudge, setNudge] = useState(null) // accumulated arrow-key shift (pt), not yet committed
   const nudgeRef = useRef(null)
   const [clip, setClip] = useState(null) // clipboard: { page, items:[{type,bbox}] } for copy/paste duplication
+  const [menu, setMenu] = useState(null) // right-click menu: { page, kind:'sel'|'empty', sx, sy, x?, y? }
+  const [docFonts, setDocFonts] = useState([]) // PDF fonts: { name, embedded, subset, match } (match = similar system font)
+  const [sysFonts, setSysFonts] = useState([]) // system/bundled font families
+  const [fontSel, setFontSel] = useState('')
+  const [colorSel, setColorSel] = useState('#000000')
+  const [colorOpen, setColorOpen] = useState(false)
   const engineRef = useRef(null)
   const urlsRef = useRef([])
   const viewportRef = useRef(null)
@@ -82,6 +89,58 @@ export default function PdfEditor({ source, path }) {
     })().catch(() => alive && setStatus('error'))
     return () => { alive = false }
   }, [pageCount, renderScale])
+
+  // Font inventory for the dropdown: the document's own fonts first (each non-embedded or subset one
+  // paired with the most similar installed family), then every system font.
+  useEffect(() => {
+    if (!pageCount || !engineRef.current) return
+    let alive = true
+    ;(async () => {
+      const [info, sys] = await Promise.all([
+        engineRef.current.getFontsInfo().catch(() => ({ fonts: [] })),
+        Promise.resolve(api.fonts?.list?.()).catch(() => [])
+      ])
+      if (!alive) return
+      const families = (Array.isArray(sys) ? sys : []).map((f) => f?.family || f).filter(Boolean)
+      const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '')
+      const nf = families.map((f) => [norm(f), f])
+      const similar = (name) => {
+        const n = norm(name)
+        const hit = nf.find(([k]) => k === n) || nf.find(([k]) => k.length > 3 && (n.includes(k) || k.includes(n)))
+        if (hit) return hit[1]
+        if (/times|roman|serif|georgia|garamond|book/i.test(name)) return 'Times New Roman'
+        if (/courier|mono/i.test(name)) return 'Courier New'
+        return 'Arial'
+      }
+      // a fully embedded font is self-sufficient; non-embedded or subset ones get a lookalike
+      const fonts = (info.fonts || []).map((f) => ({ ...f, match: f.embedded && !f.subset ? null : similar(f.name) }))
+      setDocFonts(fonts)
+      setSysFonts(families)
+      if (fonts.length) setFontSel((v) => v || fonts[0].name)
+    })()
+    return () => { alive = false }
+  }, [pageCount])
+
+  // every colour used in the document (text + art), merged across pages — the colour dropdown
+  const docColors = [...new Set(model.flatMap((p) => p.colors || []))]
+
+  // a single selected object shows ITS font/colour in the dropdowns
+  useEffect(() => {
+    if (!selected || selected.objs.length !== 1) return
+    const pg = model.find((p) => p.pageIndex === selected.page)
+    if (!pg) return
+    const o = selected.objs[0]
+    if (o.type === 'text' && pg.fonts?.[o.f]) setFontSel(pg.fonts[o.f].name)
+    if (o.c !== undefined && pg.colors?.[o.c]) setColorSel(pg.colors[o.c])
+  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the colour panel closes on any press outside it (capture — overlays stop propagation)
+  useEffect(() => {
+    if (!colorOpen) return
+    const close = (e) => { if (!(e.target instanceof Element) || !e.target.closest('.pdfed__colorwrap')) setColorOpen(null) }
+    window.addEventListener('mousedown', close, true)
+    return () => window.removeEventListener('mousedown', close, true)
+  }, [colorOpen])
 
   // Ctrl + wheel zoom (non-passive so we cancel the browser zoom). Anchor on the point under the cursor.
   useEffect(() => {
@@ -144,6 +203,15 @@ export default function PdfEditor({ source, path }) {
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, clip, model, scale])
+
+  // While the context menu is open, ANY mousedown outside it closes it. Capture phase — the page
+  // overlays stopPropagation their mousedowns, so the menu's own document listener never sees them.
+  useEffect(() => {
+    if (!menu) return
+    const close = (e) => { if (!(e.target instanceof Element) || !e.target.closest('.ctx-menu')) setMenu(null) }
+    window.addEventListener('mousedown', close, true)
+    return () => window.removeEventListener('mousedown', close, true)
+  }, [menu])
 
   // Hold Space to pan the view like a hand tool
   useEffect(() => {
@@ -252,22 +320,30 @@ export default function PdfEditor({ source, path }) {
     console.log(`[pdf][copy] page ${selected.page}, ${items.length} items to clipboard:\n` + selected.objs.map(dbg).join('\n'))
     if (items.length) setClip({ page: selected.page, items })
   }
-  const pasteClip = async () => {
+  const doPaste = async (dx, dy) => {
     if (!clip) return
-    const OFF = 24 / scale // paste lands 24 SCREEN pixels down-right at any zoom — always visibly offset
     try {
       const before = new Set(allOf(model.find((p) => p.pageIndex === clip.page) || { runs: [] }).map(sigOf))
-      await engineRef.current.copyObjects(clip.page, clip.items, OFF, OFF)
+      await engineRef.current.copyObjects(clip.page, clip.items, dx, dy)
       const m = await refreshPage(clip.page)
       // the pasted copies are EXACTLY the objects that didn't exist before the paste — no
       // geometric guessing, so the selection can't grab neighbouring originals
       const pasted = allOf(m).filter((o) => !before.has(sigOf(o)))
-      console.log(`[pdf][paste] page ${clip.page}, OFF=${OFF.toFixed(2)}pt, pasted ${pasted.length} of ${clip.items.length}`)
+      console.log(`[pdf][paste] page ${clip.page}, d=(${dx.toFixed(1)},${dy.toFixed(1)}), pasted ${pasted.length} of ${clip.items.length}`)
       // the paste re-numbers/re-parses everything, so the clipboard's stored geometry is stale —
       // clear it (copy again to paste again); the pasted objects themselves come out selected
       setClip(null)
       onSelect(clip.page, pasted) // re-select through the ONE selection entry point — as if just selected by hand
     } catch (err) { console.error('[pdf] paste failed:', err) }
+  }
+  // Ctrl+V / toolbar: 24 screen pixels down-right — always visibly offset from the original
+  const pasteClip = () => doPaste(24 / scale, 24 / scale)
+  // context menu on empty space: paste AT the clicked point (the copies' top-left corner lands there)
+  const pasteClipAt = (x, y) => {
+    if (!clip) return
+    const x0 = Math.min(...clip.items.map((it) => it.bbox.x))
+    const y0 = Math.min(...clip.items.map((it) => it.bbox.y))
+    return doPaste(x - x0, y - y0)
   }
 
   // double-click on the selection → physically remove the selected objects from the PDF stream.
@@ -290,8 +366,54 @@ export default function PdfEditor({ source, path }) {
         <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(10, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
         <span className="pdfed__sep" />
-        <button className="pdfed__btn pdfed__btn--txt" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)">Copy</button>
-        <button className="pdfed__btn pdfed__btn--txt" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)">Paste</button>
+        <select className="pdfed__fontsel" value={fontSel} onChange={(e) => setFontSel(e.target.value)} title="Font">
+          {docFonts.length > 0 && (
+            <optgroup label="PDF">
+              {docFonts.map((f) => (
+                <option key={f.name} value={f.name}>{f.name + (f.match ? ` → ${f.match}` : '')}</option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="System">
+            {sysFonts.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+          </optgroup>
+        </select>
+        <div className="pdfed__colorwrap">
+          <button
+            className="pdfed__btn"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setColorOpen((v) => (v ? null : { x: r.left, y: r.bottom + 4 })) // fixed coords — the toolbar's overflow can't clip it
+            }}
+            title="Color"
+          >
+            <span className="pdfed__swatch" style={{ background: colorSel }} />
+          </button>
+          {colorOpen && (
+            <div className="pdfed__colorpanel" style={{ left: colorOpen.x, top: colorOpen.y }}>
+              <div className="pdfed__swatches">
+                {docColors.map((c) => (
+                  <button
+                    key={c}
+                    className={'pdfed__swatchbtn' + (c === colorSel ? ' is-on' : '')}
+                    style={{ background: c }}
+                    title={c}
+                    onClick={() => { setColorSel(c); setColorOpen(null) }}
+                  />
+                ))}
+              </div>
+              {/* any colour beyond the document palette — the native picker */}
+              <label className="pdfed__custom">
+                Custom
+                <input type="color" value={colorSel} onChange={(e) => setColorSel(e.target.value)} />
+              </label>
+            </div>
+          )}
+        </div>
+        <span className="pdfed__sep" />
+        <button className="pdfed__btn" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)"><CopyIcon /></button>
+        <button className="pdfed__btn" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)"><PasteIcon /></button>
+        <button className="pdfed__btn" onClick={deleteSelected} disabled={!selected} title="Delete"><TrashIcon /></button>
         <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
         <span className="pdfed__spacer" />
         <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
@@ -314,14 +436,30 @@ export default function PdfEditor({ source, path }) {
                 selected={selected}
                 nudge={nudge && nudge.page === p.pageIndex ? nudge : null}
                 onSelect={onSelect}
-                onDelete={deleteSelected}
                 onMove={moveSelected}
                 onSprite={spriteFor}
+                onMenu={setMenu}
               />
             ))}
           </div>
         </div>
       </div>
+
+      {menu && (menu.kind === 'sel' || clip) && (
+        <ContextMenu
+          x={menu.sx}
+          y={menu.sy}
+          items={
+            menu.kind === 'sel'
+              ? [
+                  { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
+                  { label: <span className="pdfed__mi"><TrashIcon /> Delete</span>, onClick: deleteSelected }
+                ]
+              : [{ label: <span className="pdfed__mi"><PasteIcon /> Paste</span>, onClick: () => pasteClipAt(menu.x, menu.y) }]
+          }
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }

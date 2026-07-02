@@ -32,7 +32,7 @@ const unionOf = (objs) => {
 }
 const inside = (r, x, y) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
 
-export default function PdfPage({ page, image, scale, selected, nudge, onSelect, onDelete, onMove, onSprite }) {
+export default function PdfPage({ page, image, scale, selected, nudge, onSelect, onMove, onSprite, onMenu }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -117,9 +117,16 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
     window.addEventListener('mouseup', up)
   }
 
-  const onDouble = (e) => {
+  // right-click: on the selection (or an object — which gets selected first) → Copy/Delete menu;
+  // on empty space → Paste menu, pasting AT the clicked point
+  const onContext = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
     const [x, y] = toPt(e, e.currentTarget)
-    if (inside(union, x, y)) { e.stopPropagation(); onDelete() }
+    if (inside(union, x, y)) { onMenu({ page: pageIndex, kind: 'sel', sx: e.clientX, sy: e.clientY }); return }
+    const hit = hitTest(objects, x, y)
+    if (hit) { onSelect(pageIndex, [hit]); onMenu({ page: pageIndex, kind: 'sel', sx: e.clientX, sy: e.clientY }); return }
+    onMenu({ page: pageIndex, kind: 'empty', sx: e.clientX, sy: e.clientY, x, y })
   }
 
   const px = (r) => ({ left: r.x * scale, top: r.y * scale, width: r.w * scale, height: r.h * scale })
@@ -127,7 +134,7 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
   return (
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
-      <div className="pdfed__overlay" onMouseDown={onDown} onDoubleClick={onDouble}>
+      <div className="pdfed__overlay" onMouseDown={onDown} onContextMenu={onContext}>
         {/* selection frame — the same light dashed box for one object or a whole group; while a
             ghost is up it travels with it */}
         {union && (

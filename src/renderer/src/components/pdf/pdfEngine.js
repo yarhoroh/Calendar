@@ -47,6 +47,7 @@ export function createPdfEngine() {
     recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex or 'none'
     setVectorRadius: (pageIndex, item, radius) => call('setVectorRadius', { pageIndex, item, radius }), // rebuild the path as a rounded rect
     setStrokeWidth: (pageIndex, item, w) => call('setStrokeWidth', { pageIndex, item, w }), // stroke width, pt
+    setOpacity: (pageIndex, item, alpha) => call('setOpacity', { pageIndex, item, alpha }), // 0..1, vectors and images
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

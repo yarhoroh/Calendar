@@ -113,8 +113,8 @@ function buildUnits(cs, streamNum, H) {
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined }) } start = end; reset() }
-    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend }); start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined }) } start = end; reset() }
+    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
   }
   return units
@@ -492,14 +492,23 @@ function getModel(pageIndex) {
           }
         }
       }
-      // vectors: read back the %EFR (corner radius) metadata and the stroke width from their units
-      for (const v of vectors) {
+      // vectors/images: read back %EFR (corner radius), stroke width and /EFGS opacity from their units
+      const gsCa = (nm) => {
+        try {
+          const v = doc.findPage(pageIndex).getInheritable('Resources')?.get('ExtGState')?.get(nm)?.get('ca')
+          const n = v && v.isNumber && v.isNumber() ? v.asNumber() : NaN
+          return isNaN(n) ? undefined : n
+        } catch { return undefined }
+      }
+      for (const v of [...vectors, ...images]) {
         const cx = (v.bbox.x + v.bbox.w / 2), cy = (v.bbox.y + v.bbox.h / 2)
+        const want = v.type === 'vector' ? 'path' : 'image'
         for (const u of units) {
-          if (u.type !== 'path' || (u.efr === undefined && u.strw === undefined)) continue
+          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs)) continue
           if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
             if (u.efr !== undefined) v.radius = u.efr
             if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
+            if (u.gs) { const a = gsCa(u.gs); if (a !== undefined) v.opacity = Math.round(a * 100) }
             break
           }
         }
@@ -937,6 +946,34 @@ function recolorVector(pageIndex, item, colors) {
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
 }
 
+// Set an object's opacity (0..1): an ExtGState with CA/ca is registered on the page and applied
+// inside a q..Q wrap around the unit (so the alpha can't leak into the following content).
+let insGsSeq = 0
+function setOpacity(pageIndex, item, alpha) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u) throw new Error('cannot locate the object in the stream')
+  // register /EFGSn { CA, ca } in the page resources
+  const name = 'EFGS' + insGsSeq++
+  let res = pageObj.getInheritable('Resources')
+  if (!res || res.isNull()) { res = doc.newDictionary(); pageObj.put('Resources', res) }
+  let eg = res.get('ExtGState')
+  if (eg.isNull()) { eg = doc.newDictionary(); res.put('ExtGState', eg) }
+  const d = doc.newDictionary()
+  d.put('CA', alpha)
+  d.put('ca', alpha)
+  eg.put(name, doc.addObject(d))
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  let seg = cs.slice(u.start, segEnd)
+  if (/\/EFGS\d+ gs/.test(seg)) seg = seg.replace(/\/EFGS\d+ gs/g, `/${name} gs`) // re-tint an already wrapped unit
+  else seg = `\nq /${name} gs\n` + balanceSeg(seg) + '\nQ\n'
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
+}
+
 // Set a vector's stroke width: replace its own `n w` op(s), or inject one before the paint op.
 function setStrokeWidth(pageIndex, item, wpt) {
   const lp = doc.loadPage(pageIndex)
@@ -1190,6 +1227,7 @@ export const __test = {
   recolorVector: (...a) => recolorVector(...a),
   setVectorRadius: (...a) => setVectorRadius(...a),
   setStrokeWidth: (...a) => setStrokeWidth(...a),
+  setOpacity: (...a) => setOpacity(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n)
 }
 
@@ -1227,6 +1265,10 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
     } else if (type === 'setStrokeWidth') {
       if (!doc) throw new Error('no document open')
       setStrokeWidth(params.pageIndex, params.item, params.w)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'setOpacity') {
+      if (!doc) throw new Error('no document open')
+      setOpacity(params.pageIndex, params.item, params.alpha)
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'insertShape') {
       if (!doc) throw new Error('no document open')

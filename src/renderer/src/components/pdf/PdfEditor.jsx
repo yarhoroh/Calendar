@@ -632,28 +632,30 @@ export default function PdfEditor({ source, path }) {
     }
   }
 
-  // one gateway for every in-place vector mutation (recolor / radius / stroke width): run the op,
-  // re-read the page, re-find the object by its centre so it stays selected
-  const mutateVector = async (op) => {
-    if (busyRef.current || !selObj1 || selObj1.type !== 'vector') return
+  // one gateway for every in-place object mutation (recolor / radius / stroke width / opacity):
+  // run the op, re-read the page, re-find the object by its centre so it stays selected
+  const mutateObject = async (op, kinds = ['vector']) => {
+    if (busyRef.current || !selObj1 || !kinds.includes(selObj1.type)) return
     busyRef.current = true
     const pageIndex = selected.page
     const obj = selObj1
     try {
       await op(pageIndex, { type: obj.type, bbox: obj.bbox })
       const m = await refreshPage(pageIndex)
+      const pool = obj.type === 'vector' ? m.vectors : m.images
       const cx = obj.bbox.x + obj.bbox.w / 2, cy = obj.bbox.y + obj.bbox.h / 2
       let best = null, bestD = 9
-      for (const o of m.vectors || []) {
+      for (const o of pool || []) {
         const d = Math.hypot(o.bbox.x + o.bbox.w / 2 - cx, o.bbox.y + o.bbox.h / 2 - cy)
         if (d < bestD) { bestD = d; best = o }
       }
       onSelect(pageIndex, best ? [best] : [obj])
-    } catch (err) { console.error('[pdf] vector op failed:', err) } finally { busyRef.current = false }
+    } catch (err) { console.error('[pdf] object op failed:', err) } finally { busyRef.current = false }
   }
-  const recolorSelected = (colors) => mutateVector((p, it) => engineRef.current.recolorVector(p, it, colors))
-  const radiusSelected = (r) => mutateVector((p, it) => engineRef.current.setVectorRadius(p, it, r))
-  const strokeWidthSelected = (w) => mutateVector((p, it) => engineRef.current.setStrokeWidth(p, it, w))
+  const recolorSelected = (colors) => mutateObject((p, it) => engineRef.current.recolorVector(p, it, colors))
+  const radiusSelected = (r) => mutateObject((p, it) => engineRef.current.setVectorRadius(p, it, r))
+  const strokeWidthSelected = (w) => mutateObject((p, it) => engineRef.current.setStrokeWidth(p, it, w))
+  const opacitySelected = (pct) => mutateObject((p, it) => engineRef.current.setOpacity(p, it, Math.max(0, Math.min(100, pct)) / 100), ['vector', 'image'])
 
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {
@@ -1038,6 +1040,10 @@ export default function PdfEditor({ source, path }) {
               <ComboNum value={selObj1.bbox.y} onPick={pickObjY} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
             </label>
             <span className="pdfed__sbinfo">W {selObj1.bbox.w} · H {selObj1.bbox.h}</span>
+            <label className="pdfed__mini" title="Opacity, % — vectors and images (PDF ExtGState alpha)">
+              Op
+              <ComboNum value={selObj1.opacity ?? 100} onPick={(v) => deferMutation(() => opacitySelected(v ?? 100))} opts={[10, 25, 50, 75, 100]} step={5} min={0} max={100} width={60} />
+            </label>
             {selKind === 'vector' && (
               <>
                 <label className="pdfed__mini" title="Stroke colour">

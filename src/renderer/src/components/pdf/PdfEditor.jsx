@@ -10,6 +10,55 @@ const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
 const LS_OPTS = [-2, -1.5, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 1.5, 2, 3, 5]
 
+// Colour swatch button + dropdown panel: the document's palette, Transparent, and a custom picker.
+// Used for vector stroke/fill (value may be 'none').
+function ColorDrop({ value, colors, onPick, title }) {
+  const [open, setOpen] = useState(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => { if (!e.target.closest('.pdfed__colorpanel')) setOpen(null) }
+    window.addEventListener('mousedown', close, true)
+    return () => window.removeEventListener('mousedown', close, true)
+  }, [open])
+  return (
+    <span className="pdfed__colorwrap">
+      <button
+        className="pdfed__btn"
+        title={title}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          setOpen((v) => (v ? null : { x: r.left, y: r.bottom + 4 }))
+        }}
+      >
+        <span className={'pdfed__swatch' + (value === 'none' ? ' is-none' : '')} style={value === 'none' ? undefined : { background: value }} />
+      </button>
+      {open && (
+        <div className="pdfed__colorpanel" style={{ left: open.x, top: open.y }}>
+          <div className="pdfed__swatches">
+            {(colors || []).map((c) => (
+              <button
+                key={c}
+                className={'pdfed__swatchbtn' + (c === value ? ' is-on' : '')}
+                style={{ background: c }}
+                title={c}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { onPick(c); setOpen(null) }}
+              />
+            ))}
+          </div>
+          <button className="pdfed__custom pdfed__custom--btn" onClick={() => { onPick('none'); setOpen(null) }}>
+            <span className="pdfed__swatch is-none" /> Transparent
+          </button>
+          <label className="pdfed__custom">
+            Custom
+            <input type="color" value={value === 'none' ? '#000000' : value} onChange={(e) => onPick(e.target.value)} />
+          </label>
+        </div>
+      )}
+    </span>
+  )
+}
+
 // Number input + a dropdown of standard values sharing one box. The input keeps a local draft so
 // partial entries ("-", "1.", "") survive typing — the parent is only notified on valid numbers.
 function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGrab, disabled }) {
@@ -583,16 +632,16 @@ export default function PdfEditor({ source, path }) {
     }
   }
 
-  // recolor the selected vector (stroke and/or fill), then re-find it in the fresh model
-  const recolorSelected = async (colors) => {
+  // one gateway for every in-place vector mutation (recolor / radius / stroke width): run the op,
+  // re-read the page, re-find the object by its centre so it stays selected
+  const mutateVector = async (op) => {
     if (busyRef.current || !selObj1 || selObj1.type !== 'vector') return
     busyRef.current = true
     const pageIndex = selected.page
     const obj = selObj1
     try {
-      await engineRef.current.recolorVector(pageIndex, { type: obj.type, bbox: obj.bbox }, colors)
+      await op(pageIndex, { type: obj.type, bbox: obj.bbox })
       const m = await refreshPage(pageIndex)
-      // same place, new colour — pick the fresh vector whose centre matches
       const cx = obj.bbox.x + obj.bbox.w / 2, cy = obj.bbox.y + obj.bbox.h / 2
       let best = null, bestD = 9
       for (const o of m.vectors || []) {
@@ -600,8 +649,11 @@ export default function PdfEditor({ source, path }) {
         if (d < bestD) { bestD = d; best = o }
       }
       onSelect(pageIndex, best ? [best] : [obj])
-    } catch (err) { console.error('[pdf] recolor failed:', err) } finally { busyRef.current = false }
+    } catch (err) { console.error('[pdf] vector op failed:', err) } finally { busyRef.current = false }
   }
+  const recolorSelected = (colors) => mutateVector((p, it) => engineRef.current.recolorVector(p, it, colors))
+  const radiusSelected = (r) => mutateVector((p, it) => engineRef.current.setVectorRadius(p, it, r))
+  const strokeWidthSelected = (w) => mutateVector((p, it) => engineRef.current.setStrokeWidth(p, it, w))
 
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {
@@ -677,6 +729,16 @@ export default function PdfEditor({ source, path }) {
         }
       } else {
         geo = { x, y, w: 120, h: kind === 'line' ? 0 : 80, x1: x, y1: y, x2: x + 120, y2: y + (kind === 'line' ? 0 : 80) }
+      }
+      if (kind === 'line') {
+        // a line snaps to the drag's dominant axis: strictly horizontal or strictly vertical
+        if (Math.abs(geo.x2 - geo.x1) >= Math.abs(geo.y2 - geo.y1)) {
+          const lx = Math.min(geo.x1, geo.x2), rx = Math.max(geo.x1, geo.x2)
+          geo = { ...geo, x1: lx, x2: rx, y1: geo.y1, y2: geo.y1, x: lx, y: geo.y1, w: rx - lx, h: 0 }
+        } else {
+          const ty = Math.min(geo.y1, geo.y2), by = Math.max(geo.y1, geo.y2)
+          geo = { ...geo, y1: ty, y2: by, x1: geo.x1, x2: geo.x1, x: geo.x1, y: ty, w: 0, h: by - ty }
+        }
       }
       placeShape(pageIndex, kind, geo)
     }
@@ -958,23 +1020,29 @@ export default function PdfEditor({ source, path }) {
               <>
                 <label className="pdfed__mini" title="Stroke colour">
                   Stroke
-                  <input
-                    type="color"
-                    className="pdfed__colin"
-                    defaultValue={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
-                    onChange={(e) => deferMutation(() => recolorSelected({ stroke: e.target.value }))}
+                  <ColorDrop
+                    value={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
+                    colors={docColors}
+                    onPick={(c) => recolorSelected({ stroke: c })}
+                    title="Stroke colour (incl. Transparent)"
                   />
-                  <button className="pdfed__btn pdfed__btn--none" title="No stroke (transparent)" onClick={() => recolorSelected({ stroke: 'none' })}>∅</button>
                 </label>
                 <label className="pdfed__mini" title="Fill colour">
                   Fill
-                  <input
-                    type="color"
-                    className="pdfed__colin"
-                    defaultValue={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
-                    onChange={(e) => deferMutation(() => recolorSelected({ fill: e.target.value }))}
+                  <ColorDrop
+                    value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
+                    colors={docColors}
+                    onPick={(c) => recolorSelected({ fill: c })}
+                    title="Fill colour (incl. Transparent)"
                   />
-                  <button className="pdfed__btn pdfed__btn--none" title="No fill (transparent)" onClick={() => recolorSelected({ fill: 'none' })}>∅</button>
+                </label>
+                <label className="pdfed__mini" title="Stroke width, pt — any vector">
+                  W
+                  <ComboNum value={1} onPick={(v) => deferMutation(() => strokeWidthSelected(Math.max(0.2, v || 1)))} opts={[0.5, 1, 1.5, 2, 3, 4, 6]} step={0.5} min={0.2} max={40} width={60} />
+                </label>
+                <label className="pdfed__mini" title="Corner radius, pt — rebuilds the path as a rounded rectangle over the same bounds">
+                  R
+                  <ComboNum value={0} onPick={(v) => deferMutation(() => radiusSelected(Math.max(0, v || 0)))} opts={[0, 2, 4, 6, 8, 12, 16, 24]} step={1} min={0} max={200} width={60} />
                 </label>
               </>
             )}

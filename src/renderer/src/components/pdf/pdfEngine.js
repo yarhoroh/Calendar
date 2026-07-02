@@ -44,7 +44,9 @@ export function createPdfEngine() {
     insertImage: (pageIndex, bytes, x, y, w, h) => call('insertImage', { pageIndex, bytes, x, y, w, h }, [bytes]), // place a PNG/JPEG at x/y (pt, top-left)
     resizeObject: (pageIndex, item, nb) => call('resizeObject', { pageIndex, item, nb }), // stretch an image/vector to the new bbox
     insertShape: (pageIndex, kind, geo, style) => call('insertShape', { pageIndex, kind, geo, style }), // rect (radius) / line / ellipse
-    recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex
+    recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex or 'none'
+    setVectorRadius: (pageIndex, item, radius) => call('setVectorRadius', { pageIndex, item, radius }), // rebuild the path as a rounded rect
+    setStrokeWidth: (pageIndex, item, w) => call('setStrokeWidth', { pageIndex, item, w }), // stroke width, pt
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

@@ -923,6 +923,29 @@ function recolorVector(pageIndex, item, colors) {
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
 }
 
+// Set a vector's stroke width: replace its own `n w` op(s), or inject one before the paint op.
+function setStrokeWidth(pageIndex, item, wpt) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u) throw new Error('cannot locate the vector in the stream')
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  let seg = cs.slice(u.start, segEnd)
+  const wU = wpt / (Math.abs(u.ctm?.[0]) || 1) // width is given in device pt
+  let hit = false
+  seg = seg.replace(/(-?[\d.]+)\s+w\b/g, () => { hit = true; return `${n2(wU)} w` })
+  if (!hit) {
+    const re = /([\s>)\]])(S|s|f\*?|B\*?|b\*?)(?![A-Za-z*])/g
+    let last = null, m
+    while ((m = re.exec(seg))) last = m
+    if (last) seg = seg.slice(0, last.index + last[1].length) + `${n2(wU)} w\n` + seg.slice(last.index + last[1].length)
+  }
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
+}
+
 // Insert a vector shape (rect with optional corner radius / line / ellipse), stroked in the given
 // colour. Same end-of-stream neutralisation as text/images.
 const K = 0.5523 // bezier circle constant
@@ -940,23 +963,58 @@ function shapeOps(kind, g, style, H) {
       `${n2(cx - rx)} ${n2(cy - ry * K)} ${n2(cx - rx * K)} ${n2(cy - ry)} ${n2(cx)} ${n2(cy - ry)} c ` +
       `${n2(cx + rx * K)} ${n2(cy - ry)} ${n2(cx + rx)} ${n2(cy - ry * K)} ${n2(cx + rx)} ${n2(cy)} c h`
   } else { // rect, optionally rounded
-    const x = g.x, yB = H - g.y - g.h, w = g.w, h = g.h
-    const r = Math.max(0, Math.min(style.radius || 0, w / 2, h / 2))
-    if (r < 0.1) p = `${n2(x)} ${n2(yB)} ${n2(w)} ${n2(h)} re`
-    else {
-      const k = K * r
-      p = `${n2(x + r)} ${n2(yB)} m ` +
-        `${n2(x + w - r)} ${n2(yB)} l ` +
-        `${n2(x + w - r + k)} ${n2(yB)} ${n2(x + w)} ${n2(yB + r - k)} ${n2(x + w)} ${n2(yB + r)} c ` +
-        `${n2(x + w)} ${n2(yB + h - r)} l ` +
-        `${n2(x + w)} ${n2(yB + h - r + k)} ${n2(x + w - r + k)} ${n2(yB + h)} ${n2(x + w - r)} ${n2(yB + h)} c ` +
-        `${n2(x + r)} ${n2(yB + h)} l ` +
-        `${n2(x + r - k)} ${n2(yB + h)} ${n2(x)} ${n2(yB + h - r + k)} ${n2(x)} ${n2(yB + h - r)} c ` +
-        `${n2(x)} ${n2(yB + r)} l ` +
-        `${n2(x)} ${n2(yB + r - k)} ${n2(x + r - k)} ${n2(yB)} ${n2(x + r)} ${n2(yB)} c h`
-    }
+    p = roundRectPath(g.x, H - g.y - g.h, g.w, g.h, style.radius || 0)
   }
   return `q ${col} RG ${n2(sw)} w 1 j 1 J ${p} S Q\n`
+}
+// rectangle path ops in USER coordinates (y-up, yB = bottom), rounded with bezier arcs
+function roundRectPath(x, yB, w, h, radius) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2))
+  if (r < 0.1) return `${n2(x)} ${n2(yB)} ${n2(w)} ${n2(h)} re`
+  const k = K * r
+  return `${n2(x + r)} ${n2(yB)} m ` +
+    `${n2(x + w - r)} ${n2(yB)} l ` +
+    `${n2(x + w - r + k)} ${n2(yB)} ${n2(x + w)} ${n2(yB + r - k)} ${n2(x + w)} ${n2(yB + r)} c ` +
+    `${n2(x + w)} ${n2(yB + h - r)} l ` +
+    `${n2(x + w)} ${n2(yB + h - r + k)} ${n2(x + w - r + k)} ${n2(yB + h)} ${n2(x + w - r)} ${n2(yB + h)} c ` +
+    `${n2(x + r)} ${n2(yB + h)} l ` +
+    `${n2(x + r - k)} ${n2(yB + h)} ${n2(x)} ${n2(yB + h - r + k)} ${n2(x)} ${n2(yB + h - r)} c ` +
+    `${n2(x)} ${n2(yB + r)} l ` +
+    `${n2(x)} ${n2(yB + r - k)} ${n2(x + r - k)} ${n2(yB)} ${n2(x + r)} ${n2(yB)} c h`
+}
+// Set a vector's corner radius: its path-construction ops are REBUILT as a rounded rectangle over
+// the same bbox (in the unit's own user space, through the inverse CTM). Colour/width/paint stay.
+function setVectorRadius(pageIndex, item, radius) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u || !u.ctm) throw new Error('cannot locate the vector in the stream')
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  const seg = cs.slice(u.start, segEnd)
+  // unit bbox (device, top-left) → the unit's user space
+  const inv = invertM(u.ctm)
+  const toU = (dx, dyTop) => { const uy = H - dyTop; return [inv[0] * dx + inv[2] * uy + inv[4], inv[1] * dx + inv[3] * uy + inv[5]] }
+  const [xA, yA] = toU(u.bbox[0], u.bbox[1])
+  const [xB, yB] = toU(u.bbox[2], u.bbox[3])
+  const x = Math.min(xA, xB), yBot = Math.min(yA, yB), w = Math.abs(xB - xA), h = Math.abs(yB - yA)
+  const rU = radius / (Math.abs(u.ctm[0]) || 1) // radius is given in device pt
+  const path = roundRectPath(x, yBot, w, h, rU)
+  // swap ONLY the construction ops (first m/re/… to the last one before the paint op)
+  const CONSTR = new Set(['m', 'l', 'c', 'v', 'y', 're', 'h'])
+  let first = -1, last = -1, numStart = -1
+  for (const mt of mask(seg).matchAll(TOKENS)) {
+    if (isNum(mt[0])) { if (numStart < 0) numStart = mt.index; continue }
+    if (CONSTR.has(mt[0])) {
+      if (first < 0) first = numStart >= 0 ? numStart : mt.index
+      last = mt.index + mt[0].length
+    }
+    numStart = -1
+  }
+  if (first < 0) throw new Error('no path found in the unit')
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg.slice(0, first) + path + seg.slice(last) + cs.slice(segEnd))
 }
 function insertShape(pageIndex, kind, geo, style) {
   const lp = doc.loadPage(pageIndex)
@@ -1102,6 +1160,8 @@ export const __test = {
   insertImage: (...a) => insertImage(...a),
   resizeObject: (...a) => resizeObject(...a),
   recolorVector: (...a) => recolorVector(...a),
+  setVectorRadius: (...a) => setVectorRadius(...a),
+  setStrokeWidth: (...a) => setStrokeWidth(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n)
 }
 
@@ -1131,6 +1191,14 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
     } else if (type === 'recolorVector') {
       if (!doc) throw new Error('no document open')
       recolorVector(params.pageIndex, params.item, params.colors)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'setVectorRadius') {
+      if (!doc) throw new Error('no document open')
+      setVectorRadius(params.pageIndex, params.item, params.radius)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'setStrokeWidth') {
+      if (!doc) throw new Error('no document open')
+      setStrokeWidth(params.pageIndex, params.item, params.w)
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'insertShape') {
       if (!doc) throw new Error('no document open')

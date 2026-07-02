@@ -249,10 +249,14 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
                 })}
           />
         )}
-        {/* resize handles — single image/vector only (text scales through its font size) */}
+        {/* resize handles — single image/vector only (text scales through its font size). A flat
+            vector (a line) gets ONLY its along-axis handles: length is draggable, thickness comes
+            from the stroke-width control, not from stretching */}
         {selObjs.length === 1 && selObjs[0].type !== 'text' && !ghost && union && (() => {
           const b = resizeBox || union
-          return HANDLES.map(([h, fx, fy, cur]) => (
+          const flatH = b.h < 3, flatV = b.w < 3
+          const list = HANDLES.filter(([h]) => (flatH ? h === 'e' || h === 'w' : flatV ? h === 'n' || h === 's' : true))
+          return list.map(([h, fx, fy, cur]) => (
             <div
               key={h}
               className="pdfed__handle"

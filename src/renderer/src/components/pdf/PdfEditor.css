@@ -358,24 +358,29 @@
   background: transparent;
   cursor: move;
 }
-/* "transparent" button next to the stroke/fill pickers */
-.pdfed__btn--none {
-  width: 22px;
-  height: 22px;
-  font-size: 13px;
-  line-height: 1;
+/* "transparent" swatch: white with a red diagonal */
+.pdfed__swatch.is-none {
+  background:
+    linear-gradient(to top right, transparent 44%, #e33 46%, #e33 54%, transparent 56%),
+    #fff;
 }
-/* small colour input in the object panel (vector stroke/fill) */
-.pdfed__colin {
-  width: 28px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+/* Transparent row in the colour panel (button variant of .pdfed__custom) */
+.pdfed__custom--btn {
+  width: 100%;
+  border: none;
   background: transparent;
-  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  justify-content: flex-start;
 }
-
+.pdfed__custom--btn:hover {
+  color: var(--text);
+}
+.pdfed__custom--btn .pdfed__swatch {
+  width: 20px;
+  height: 20px;
+}
 /* "All" toggle in the toolbar */
 .pdfed__check {
   display: inline-flex;

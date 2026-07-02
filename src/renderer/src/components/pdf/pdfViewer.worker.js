@@ -583,47 +583,30 @@ function tightenBboxes(page, runs) {
     for (let x = Math.max(0, x0); x < Math.min(pw, x1); x++) if (px[base + x * nc + ai] > 16) return true
     return false
   }
-  // nearest X-overlapping baselines above/below each run: with TIGHT leading the lines' ink touches
-  // in the raster and the connected growth used to jump onto the neighbour ("frame twice as tall")
-  const nb = new Map()
-  for (const r of runs) {
-    let above = -Infinity, below = Infinity
-    const rx0 = r.bbox.x, rx1 = r.bbox.x + r.bbox.w
-    for (const o of runs) {
-      if (o === r) continue
-      if (Math.min(o.bbox.x + o.bbox.w, rx1) - Math.max(o.bbox.x, rx0) < 0.3 * Math.min(o.bbox.w, r.bbox.w)) continue
-      if (o.y < r.y - 1 && o.y > above) above = o.y
-      else if (o.y > r.y + 1 && o.y < below) below = o.y
-    }
-    nb.set(r, [above, below])
-  }
   for (const r of runs) {
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
-    let top = Math.round(r.bbox.y * S), bot = Math.round((r.bbox.y + r.bbox.h) * S)
-    // hard physical bounds around the run's OWN baseline: no glyph reaches beyond ~1.3em above /
-    // 0.5em below it, so neighbouring lines' ink (an inflated metric box, a run parked between two
-    // lines) can never blow the frame up
     const size = r.size || 10
-    let hardTop = Math.round((r.y - size * 1.3) * S), hardBot = Math.round((r.y + size * 0.5) * S)
-    // …and never past the MIDPOINT of the gap to the neighbouring line's baseline
-    const [above, below] = nb.get(r)
-    if (isFinite(above)) hardTop = Math.max(hardTop, Math.round(((above + r.y) / 2) * S))
-    if (isFinite(below)) hardBot = Math.min(hardBot, Math.round(((r.y + below) / 2) * S))
-    // (span y-limits were tried here and REVERTED: their metric top sits below real ascenders in
-    // some fonts — capitals got clipped. The text-only raster already excludes underlying art, so
-    // the glyph ink itself is the trustworthy boundary.)
+    // Scan OUT FROM THE BASELINE (the one trustworthy coordinate) through the glyph-only ink:
+    // grow while rows have ink, stop at the first real gap (> 0.15em — bigger than any in-glyph
+    // hole, smaller than the inter-line gap). No stext boxes, no midpoints — nothing to inflate a
+    // frame into the neighbouring line, nothing to clip ascenders with.
+    const base = Math.round(r.y * S)
+    const hardTop = Math.max(0, Math.round((r.y - size * 1.4) * S))
+    const hardBot = Math.min(ph, Math.round((r.y + size * 0.55) * S))
+    const gapMax = Math.max(2, Math.round(size * 0.15 * S))
+    let top = base, gap = 0
+    for (let y = base - 1; y >= hardTop; y--) {
+      if (ink(x0, x1, y)) { top = y; gap = 0 } else if (++gap > gapMax) break
+    }
+    let bot = base, gap2 = 0
+    for (let y = base; y < hardBot; y++) {
+      if (ink(x0, x1, y)) { bot = y + 1; gap2 = 0 } else if (++gap2 > gapMax) break
+    }
+    // width is NOT ink-grown: the metric right edge comes exactly from the device span (stable,
+    // independent of neighbours/whitespace)
+    if (bot > top) r.bbox = { x: r.bbox.x, y: n2(top / S), w: r.bbox.w, h: n2((bot - top) / S) }
     delete r.sy0
     delete r.sy1
-    top = Math.max(top, hardTop)
-    bot = Math.min(bot, hardBot)
-    const lim = Math.round(size * 0.25 * S), upLim = top - lim, dnLim = bot + lim
-    while (top > Math.max(0, hardTop) && top > upLim && ink(x0, x1, top - 1)) top-- // grow up (diacritics)
-    while (bot < Math.min(ph, hardBot) && bot < dnLim && ink(x0, x1, bot)) bot++ // grow down (descenders)
-    while (top < bot && !ink(x0, x1, top)) top++ // trim blank inside
-    while (bot > top && !ink(x0, x1, bot - 1)) bot--
-    // width is NOT ink-grown: the metric right edge comes exactly from the device span (stable,
-    // independent of neighbours/whitespace) — ink growth here was neither
-    if (bot > top) r.bbox = { x: r.bbox.x, y: n2(top / S), w: r.bbox.w, h: n2((bot - top) / S) }
   }
   pix.destroy()
 }
@@ -1405,7 +1388,8 @@ export const __test = {
   setOpacity: (...a) => setOpacity(...a),
   setDash: (...a) => setDash(...a),
   setLineGeo: (...a) => setLineGeo(...a),
-  readStreamOf: (pageObj, n) => readStream(pageObj, n)
+  readStreamOf: (pageObj, n) => readStream(pageObj, n),
+  textOnlyPixmap: (...a) => textOnlyPixmap(...a)
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })

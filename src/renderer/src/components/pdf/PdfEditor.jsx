@@ -172,9 +172,10 @@ export default function PdfEditor({ source, path }) {
     if (source === undefined || !engineRef.current) return
     let alive = true
     setStatus('loading')
+    console.log('[pdf][open]', path || '(no path)') // full path in every session log — bug reports point at the exact file
     Promise.resolve(engineRef.current.open(source))
       .then((info) => { if (alive) setPageCount(info?.pageCount || 0) })
-      .catch((err) => { console.error('[pdf] open failed:', err); if (alive) setStatus('error') })
+      .catch((err) => { console.error('[pdf] open failed:', err, '—', path); if (alive) setStatus('error') })
     return () => { alive = false }
   }, [source])
 
@@ -397,7 +398,7 @@ export default function PdfEditor({ source, path }) {
     // any selection change discards an uncommitted arrow-key nudge — its timer must never fire
     // against a selection that no longer exists
     if (nudgeRef.current) { clearTimeout(nudgeRef.current.timer); nudgeRef.current = null; setNudge(null) }
-    console.log(`[pdf][select] page ${pageIndex}, ${objs?.length || 0} objs:\n` + (objs || []).map(dbg).join('\n'))
+    console.log(`[pdf][select] ${path?.split(/[\\/]/).pop() || '?'} page ${pageIndex}, ${objs?.length || 0} objs:\n` + (objs || []).map(dbg).join('\n'))
     setSelected(objs && objs.length ? { page: pageIndex, objs } : null)
   }
   const imgOf = (i) => imgs.find((im) => im.pageIndex === i)

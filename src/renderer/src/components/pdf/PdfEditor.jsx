@@ -578,7 +578,10 @@ export default function PdfEditor({ source, path }) {
         const italic = patch.italic !== undefined ? patch.italic : !!cur.italic
         const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
         if (!fonts[k]) {
-          const src = await fontSourceFor(family, bold, italic)
+          // CHANGING the font (pipette / dropdown) → use the full loadable face, not the doc's
+          // subset: the picked font's subset may not cover THIS run's glyphs (→ "cannot encode").
+          // Pure colour/size restyle keeps the run's own subset (it always covers its own text).
+          const src = await fontSourceFor(family, bold, italic, !!patch.family)
           if (src) fonts[k] = src
         }
         // LS is a DELTA over the run's own base layout, never an absolute Tc of the replacement

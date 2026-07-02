@@ -13,6 +13,9 @@
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
 }
+.calendar-board__toolbar input[type='checkbox'] {
+  margin: 4px;
+}
 
 .cal-btn {
   display: grid;

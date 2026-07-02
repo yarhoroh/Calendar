@@ -403,6 +403,22 @@
   pointer-events: none;
 }
 
+/* line-type dropdown (narrow variant of the font select) */
+.pdfed__dashsel {
+  flex: 0 0 auto;
+  width: 110px;
+  min-width: 0;
+}
+/* live rubber line while dragging a line/arrow endpoint */
+.pdfed__rubber {
+  position: absolute;
+  height: 0;
+  border-top: 1.5px dashed #1473e6;
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* resize handles on a single image/vector selection */
 .pdfed__handle {
   position: absolute;

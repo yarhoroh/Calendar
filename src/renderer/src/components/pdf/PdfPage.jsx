@@ -40,7 +40,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -48,6 +48,7 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
   const [marquee, setMarquee] = useState(null) // {x,y,w,h} in pt while rubber-banding
   const [ghost, setGhost] = useState(null) // {dx,dy} in pt while moving the selection
   const [resizeBox, setResizeBox] = useState(null) // live bbox while dragging a handle
+  const [lineDrag, setLineDrag] = useState(null) // live endpoints while dragging a line/arrow end
   const [sprite, setSprite] = useState(null) // transparent render of ONLY the dragged objects
   const dragRef = useRef(null)
 
@@ -212,6 +213,29 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     window.addEventListener('mouseup', up)
   }
 
+  // drag ONE endpoint of a line/arrow anywhere (free rotation); the other end stays pinned
+  const startLineDrag = (e, which) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget.closest('.pdfed__overlay')
+    const obj = selObjs[0]
+    const L = obj.line
+    const move = (ev) => {
+      const [mx, my] = toPt(ev, el)
+      setLineDrag(which === 1 ? { ...L, x1: mx, y1: my } : { ...L, x2: mx, y2: my })
+    }
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      setLineDrag(null)
+      const [ux, uy] = toPt(ev, el)
+      const geo = which === 1 ? { ...L, x1: ux, y1: uy } : { ...L, x2: ux, y2: uy }
+      if (Math.hypot(geo.x1 - L.x1, geo.y1 - L.y1) > 0.5 || Math.hypot(geo.x2 - L.x2, geo.y2 - L.y2) > 0.5) onLineGeo(pageIndex, obj, geo)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
   const onContext = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -249,10 +273,27 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
                 })}
           />
         )}
+        {/* a line/arrow gets TWO endpoint handles — each drags anywhere (free rotation); while
+            dragging, a live rubber line previews the result */}
+        {selObjs.length === 1 && selObjs[0].line && !ghost && (() => {
+          const L = lineDrag || selObjs[0].line
+          return (
+            <>
+              {lineDrag && (() => {
+                const x1 = L.x1 * scale, y1 = L.y1 * scale, x2 = L.x2 * scale, y2 = L.y2 * scale
+                const len = Math.hypot(x2 - x1, y2 - y1)
+                const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI
+                return <div className="pdfed__rubber" style={{ left: x1, top: y1, width: len, transform: `rotate(${ang}deg)` }} />
+              })()}
+              <div className="pdfed__handle" style={{ left: L.x1 * scale - 4, top: L.y1 * scale - 4, cursor: 'crosshair' }} onMouseDown={(e) => startLineDrag(e, 1)} />
+              <div className="pdfed__handle" style={{ left: L.x2 * scale - 4, top: L.y2 * scale - 4, cursor: 'crosshair' }} onMouseDown={(e) => startLineDrag(e, 2)} />
+            </>
+          )
+        })()}
         {/* resize handles — single image/vector only (text scales through its font size). A flat
             vector (a line) gets ONLY its along-axis handles: length is draggable, thickness comes
             from the stroke-width control, not from stretching */}
-        {selObjs.length === 1 && selObjs[0].type !== 'text' && !ghost && union && (() => {
+        {selObjs.length === 1 && selObjs[0].type !== 'text' && !selObjs[0].line && !ghost && union && (() => {
           const b = resizeBox || union
           const flatH = b.h < 3, flatV = b.w < 3
           const list = HANDLES.filter(([h]) => (flatH ? h === 'e' || h === 'w' : flatV ? h === 'n' || h === 's' : true))

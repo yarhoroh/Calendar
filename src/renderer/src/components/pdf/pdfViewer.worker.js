@@ -113,7 +113,7 @@ function buildUnits(cs, streamNum, H) {
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined }) } start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
   }
@@ -150,6 +150,9 @@ function matchUnit(units, it) {
 // in the space BEFORE that cm); vector → path construction points.
 function shiftSeg(u, seg, dx, dy) {
   const de = dx / (u.sa || 1), df = -dy / (u.sd || 1)
+  // a line/arrow carries its endpoints as an %EFL note (device pt) — keep it in sync
+  seg = seg.replace(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/, (m, h, x1, y1, x2, y2) =>
+    `%EFL ${h} ${n2(+x1 + dx)} ${n2(+y1 + dy)} ${n2(+x2 + dx)} ${n2(+y2 + dy)}`)
   if (u.type === 'text') {
     const tmRe = /(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+Tm/g
     let edited
@@ -504,11 +507,16 @@ function getModel(pageIndex) {
         const cx = (v.bbox.x + v.bbox.w / 2), cy = (v.bbox.y + v.bbox.h / 2)
         const want = v.type === 'vector' ? 'path' : 'image'
         for (const u of units) {
-          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs)) continue
+          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl)) continue
           if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
             if (u.efr !== undefined) v.radius = u.efr
             if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
             if (u.gs) { const a = gsCa(u.gs); if (a !== undefined) v.opacity = Math.round(a * 100) }
+            if (u.dashArr !== undefined) {
+              const parts = u.dashArr.trim().split(/\s+/).filter(Boolean).map(Number)
+              v.dash = !parts.length ? 'solid' : parts.length >= 4 ? 'dashdot' : parts[0] <= 0.5 ? 'dotted' : 'dashed'
+            }
+            if (u.efl) v.line = u.efl // endpoints (device pt) — the UI shows two free-drag handles
             break
           }
         }
@@ -974,6 +982,65 @@ function setOpacity(pageIndex, item, alpha) {
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
 }
 
+// Move a line/arrow ENDPOINT: the construction ops are rebuilt from the new endpoints (in the
+// unit's own space through the inverse CTM); colour/width/dash/paint and the %EFL note follow.
+function setLineGeo(pageIndex, item, geo) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u || !u.efl) throw new Error('not an editable line/arrow')
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  const seg = cs.slice(u.start, segEnd)
+  const inv = invertM(u.ctm)
+  const toU = (dx, dyTop) => { const uy = H - dyTop; return [inv[0] * dx + inv[2] * uy + inv[4], inv[1] * dx + inv[3] * uy + inv[5]] }
+  const [ux1, uy1] = toU(geo.x1, geo.y1)
+  const [ux2, uy2] = toU(geo.x2, geo.y2)
+  const sc = Math.abs(u.ctm[0]) || 1
+  const swU = +((seg.match(/(-?[\d.]+)\s+w\b/) || [])[1] || 1)
+  const a = arrowPathUV(ux1, uy1, ux2, uy2, u.efl.head, Math.max(7, swU * sc * 4) / sc)
+  const CONSTR = new Set(['m', 'l', 'c', 'v', 'y', 're', 'h'])
+  let first = -1, last = -1, numStart = -1
+  for (const mt of mask(seg).matchAll(TOKENS)) {
+    if (isNum(mt[0])) { if (numStart < 0) numStart = mt.index; continue }
+    if (CONSTR.has(mt[0])) {
+      if (first < 0) first = numStart >= 0 ? numStart : mt.index
+      last = mt.index + mt[0].length
+    }
+    numStart = -1
+  }
+  if (first < 0) throw new Error('no path found in the unit')
+  let seg2 = seg.slice(0, first) + a.p + seg.slice(last)
+  seg2 = seg2.replace(/%EFL \w+ [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+/, `%EFL ${u.efl.head} ${n2(geo.x1)} ${n2(geo.y1)} ${n2(geo.x2)} ${n2(geo.y2)}`)
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg2 + cs.slice(segEnd))
+}
+
+// Set a vector's line type (solid/dashed/dotted/dashdot): replace its `[..] n d` op, or inject one.
+function setDash(pageIndex, item, key) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u) throw new Error('cannot locate the vector in the stream')
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  let seg = cs.slice(u.start, segEnd)
+  const swU = (seg.match(/(-?[\d.]+)\s+w\b/) || [])[1]
+  const op = dashOps(key, swU ? +swU * Math.abs(u.sa || 1) : 1).trim() || '[] 0 d'
+  let hit = false
+  seg = seg.replace(/\[[^\]]*\]\s*[-\d.]+\s+d\b/g, () => { hit = true; return op })
+  if (!hit) {
+    const re = /([\s>)\]])(S|s|f\*?|B\*?|b\*?)(?![A-Za-z*])/g
+    let last = null, m
+    while ((m = re.exec(seg))) last = m
+    if (last) seg = seg.slice(0, last.index + last[1].length) + `${op}\n` + seg.slice(last.index + last[1].length)
+  }
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
+}
+
 // Set a vector's stroke width: replace its own `n w` op(s), or inject one before the paint op.
 function setStrokeWidth(pageIndex, item, wpt) {
   const lp = doc.loadPage(pageIndex)
@@ -1000,9 +1067,43 @@ function setStrokeWidth(pageIndex, item, wpt) {
 // Insert a vector shape (rect with optional corner radius / line / ellipse), stroked in the given
 // colour. Same end-of-stream neutralisation as text/images.
 const K = 0.5523 // bezier circle constant
+// dash pattern op by type key, scaled by the stroke width (round caps turn the dots round)
+function dashOps(key, sw) {
+  const s = Math.max(1, sw || 1)
+  if (key === 'dashed') return `[${n2(4 * s)} ${n2(3 * s)}] 0 d `
+  if (key === 'dotted') return `[0.01 ${n2(2.5 * s)}] 0 d `
+  if (key === 'dashdot') return `[${n2(6 * s)} ${n2(2.5 * s)} 0.01 ${n2(2.5 * s)}] 0 d `
+  return '' // solid
+}
+// arrow path in plain Y-up coordinates (both root user space and unit space use this)
+function arrowPathUV(x1, y1, x2, y2, head, hs) {
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1
+  const ux = dx / len, uy = dy / len, px = -uy, py = ux
+  const vee = (tx, ty, dirx, diry) =>
+    `${n2(tx - dirx * hs + px * hs * 0.5)} ${n2(ty - diry * hs + py * hs * 0.5)} m ${n2(tx)} ${n2(ty)} l ${n2(tx - dirx * hs - px * hs * 0.5)} ${n2(ty - diry * hs - py * hs * 0.5)} l `
+  if (head === 'filled') {
+    // shaft stops short, the head is a filled triangle — ONE paint op (B) keeps it one unit
+    const bx = x2 - ux * hs * 0.7, by = y2 - uy * hs * 0.7
+    const tri = `${n2(x2)} ${n2(y2)} m ${n2(x2 - ux * hs + px * hs * 0.5)} ${n2(y2 - uy * hs + py * hs * 0.5)} l ${n2(x2 - ux * hs - px * hs * 0.5)} ${n2(y2 - uy * hs - py * hs * 0.5)} l h `
+    return { p: `${n2(x1)} ${n2(y1)} m ${n2(bx)} ${n2(by)} l ${tri}`, filled: true }
+  }
+  if (head === 'line') return { p: `${n2(x1)} ${n2(y1)} m ${n2(x2)} ${n2(y2)} l `, filled: false }
+  let p = `${n2(x1)} ${n2(y1)} m ${n2(x2)} ${n2(y2)} l ${vee(x2, y2, ux, uy)}`
+  if (head === 'double') p += vee(x1, y1, -ux, -uy)
+  if (head === 'bar') p += `${n2(x1 + px * hs * 0.6)} ${n2(y1 + py * hs * 0.6)} m ${n2(x1 - px * hs * 0.6)} ${n2(y1 - py * hs * 0.6)} l `
+  return { p, filled: false }
+}
 function shapeOps(kind, g, style, H) {
   const col = hexRgbOps(style.color || '#000000')
   const sw = style.strokeW || 1
+  const dash = dashOps(style.dash, sw)
+  if (kind === 'arrow') {
+    // free-angle arrow from (x1,y1) to (x2,y2); heads: open | filled | double | bar
+    const a = arrowPathUV(g.x1, H - g.y1, g.x2, H - g.y2, style.head || 'open', Math.max(7, sw * 4))
+    return a.filled
+      ? `q ${col} RG ${col} rg ${n2(sw)} w 1 j 1 J ${dash}${a.p}B Q\n`
+      : `q ${col} RG ${n2(sw)} w 1 j 1 J ${dash}${a.p}S Q\n`
+  }
   let p = ''
   if (kind === 'line') {
     p = `${n2(g.x1)} ${n2(H - g.y1)} m ${n2(g.x2)} ${n2(H - g.y2)} l`
@@ -1094,6 +1195,8 @@ function insertShape(pageIndex, kind, geo, style) {
   }
   let ops = shapeOps(kind, geo, style, H)
   if (kind === 'rect' && style.radius > 0) ops = `%EFR ${n2(style.radius)}\n` + ops // readable back as the vector's radius
+  // lines/arrows persist their endpoints (device pt, top-left) — the UI drags them freely
+  if (kind === 'line' || kind === 'arrow') ops = `%EFL ${kind === 'line' ? 'line' : style.head || 'open'} ${n2(geo.x1)} ${n2(geo.y1)} ${n2(geo.x2)} ${n2(geo.y2)}\n` + ops
   writeStream(po, 0, cs + '\n' + prefix + ops + suffix)
 }
 
@@ -1228,6 +1331,8 @@ export const __test = {
   setVectorRadius: (...a) => setVectorRadius(...a),
   setStrokeWidth: (...a) => setStrokeWidth(...a),
   setOpacity: (...a) => setOpacity(...a),
+  setDash: (...a) => setDash(...a),
+  setLineGeo: (...a) => setLineGeo(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n)
 }
 
@@ -1265,6 +1370,14 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
     } else if (type === 'setStrokeWidth') {
       if (!doc) throw new Error('no document open')
       setStrokeWidth(params.pageIndex, params.item, params.w)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'setLineGeo') {
+      if (!doc) throw new Error('no document open')
+      setLineGeo(params.pageIndex, params.item, params.geo)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'setDash') {
+      if (!doc) throw new Error('no document open')
+      setDash(params.pageIndex, params.item, params.dash)
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'setOpacity') {
       if (!doc) throw new Error('no document open')

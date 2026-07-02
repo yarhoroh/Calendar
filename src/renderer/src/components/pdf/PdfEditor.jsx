@@ -153,6 +153,7 @@ export default function PdfEditor({ source, path }) {
   const [shapeMenu, setShapeMenu] = useState(null) // shape-kind picker popover: { x, y }
   const [strokeW, setStrokeW] = useState(1) // shape stroke width, pt
   const [cornerR, setCornerR] = useState(0) // rect corner radius, pt
+  const [dashSel, setDashSel] = useState('solid') // line type for inserted shapes
   const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
   const rteRef = useRef(null)
   const engineRef = useRef(null)
@@ -656,6 +657,8 @@ export default function PdfEditor({ source, path }) {
   const radiusSelected = (r) => mutateObject((p, it) => engineRef.current.setVectorRadius(p, it, r))
   const strokeWidthSelected = (w) => mutateObject((p, it) => engineRef.current.setStrokeWidth(p, it, w))
   const opacitySelected = (pct) => mutateObject((p, it) => engineRef.current.setOpacity(p, it, Math.max(0, Math.min(100, pct)) / 100), ['vector', 'image'])
+  const dashSelected = (d) => mutateObject((p, it) => engineRef.current.setDash(p, it, d))
+  const lineGeoSelected = (pageIndex, obj, geo) => mutateObject((p, it) => engineRef.current.setLineGeo(p, it, geo))
 
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {
@@ -727,7 +730,7 @@ export default function PdfEditor({ source, path }) {
     busyRef.current = true
     try {
       const before = new Set(allOf(model.find((p) => p.pageIndex === pageIndex) || { runs: [] }).map(sigOf))
-      await engineRef.current.insertShape(pageIndex, kind, geo, { color: colorSel, strokeW, radius: cornerR })
+      await engineRef.current.insertShape(pageIndex, kind.kind || kind, geo, { color: colorSel, strokeW, radius: cornerR, dash: dashSel, head: kind.head })
       const m = await refreshPage(pageIndex)
       onSelect(pageIndex, allOf(m).filter((o) => !before.has(sigOf(o))))
     } catch (err) { console.error('[pdf] insert shape failed:', err) } finally { busyRef.current = false }
@@ -749,9 +752,9 @@ export default function PdfEditor({ source, path }) {
           x1: drag.x1, y1: drag.y1, x2: drag.x2, y2: drag.y2
         }
       } else {
-        // sensible click-defaults: marks are small (16pt), boxes 120x80, a line 120 long
-        const dw = kind === 'check' || kind === 'cross' ? 16 : 120
-        const dh = kind === 'line' ? 0 : kind === 'check' || kind === 'cross' ? 16 : 80
+        // sensible click-defaults: marks are small (16pt), an arrow 60pt, boxes 120x80, a line 120
+        const dw = kind === 'check' || kind === 'cross' ? 16 : kind === 'arrow' ? 60 : 120
+        const dh = kind === 'line' || kind === 'arrow' ? 0 : kind === 'check' || kind === 'cross' ? 16 : 80
         geo = { x, y, w: dw, h: dh, x1: x, y1: y, x2: x + dw, y2: y + dh }
       }
       if (kind === 'line') {
@@ -764,7 +767,7 @@ export default function PdfEditor({ source, path }) {
           geo = { ...geo, y1: ty, y2: by, x1: geo.x1, x2: geo.x1, x: geo.x1, y: ty, w: 0, h: by - ty }
         }
       }
-      placeShape(pageIndex, kind, geo)
+      placeShape(pageIndex, mode.shape, geo)
     }
   }
   const commitText = async (lines) => {
@@ -842,14 +845,17 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] delete failed:', err) }
   }
 
-  // what the second (contextual) toolbar row edits: text controls, or the selected object's panel
-  const selKind = textEdit || !selected
+  // what the second (contextual) toolbar row edits: text controls, the selected object's panel,
+  // or just a hint when nothing is selected (no confusing default font controls)
+  const selKind = textEdit
     ? 'text'
-    : selected.objs.every((o) => o.type === 'text')
-      ? 'text'
-      : selected.objs.length === 1
-        ? selected.objs[0].type
-        : 'mixed'
+    : !selected
+      ? 'none'
+      : selected.objs.every((o) => o.type === 'text')
+        ? 'text'
+        : selected.objs.length === 1
+          ? selected.objs[0].type
+          : 'mixed'
   const selObj1 = selected?.objs.length === 1 ? selected.objs[0] : null
   const pickObjX = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, v - selObj1.bbox.x, 0)) }
   const pickObjY = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, 0, v - selObj1.bbox.y)) }
@@ -915,6 +921,12 @@ export default function PdfEditor({ source, path }) {
               W
               <ComboNum value={strokeW} onPick={(v) => setStrokeW(Math.max(0.2, v || 1))} opts={[0.5, 1, 1.5, 2, 3, 4, 6]} step={0.5} min={0.2} max={40} width={64} />
             </label>
+            <select className="pdfed__fontsel pdfed__dashsel" value={dashSel} onChange={(e) => setDashSel(e.target.value)} title="Line type">
+              <option value="solid">— Solid</option>
+              <option value="dashed">– – Dashed</option>
+              <option value="dotted">· · Dotted</option>
+              <option value="dashdot">–·– Dash-dot</option>
+            </select>
             <span className="pdfed__sbinfo">
               stroke <span className="pdfed__swatch" style={{ background: colorSel, display: 'inline-block', verticalAlign: '-3px' }} /> — click or drag on the page
             </span>
@@ -1072,11 +1084,18 @@ export default function PdfEditor({ source, path }) {
                   R
                   <ComboNum value={selObj1.radius ?? 0} onPick={(v) => deferMutation(() => radiusSelected(Math.max(0, v || 0)))} opts={[0, 2, 4, 6, 8, 12, 16, 24]} step={1} min={0} max={200} width={60} />
                 </label>
+                <select className="pdfed__fontsel pdfed__dashsel" value={selObj1.dash || 'solid'} onChange={(e) => dashSelected(e.target.value)} title="Line type">
+                  <option value="solid">— Solid</option>
+                  <option value="dashed">– – Dashed</option>
+                  <option value="dotted">· · Dotted</option>
+                  <option value="dashdot">–·– Dash-dot</option>
+                </select>
               </>
             )}
           </>
         )}
         {!insertMode?.shape && selKind === 'mixed' && <span className="pdfed__sbinfo">{selected.objs.length} objects selected</span>}
+        {!insertMode?.shape && selKind === 'none' && <span className="pdfed__sbinfo">Select an element on the page — its properties appear here</span>}
       </div>
 
       {shapeMenu && (
@@ -1088,7 +1107,11 @@ export default function PdfEditor({ source, path }) {
             { label: 'Line', onClick: () => setInsertMode({ shape: { kind: 'line' } }) },
             { label: 'Ellipse', onClick: () => setInsertMode({ shape: { kind: 'ellipse' } }) },
             { label: 'Check ✓', onClick: () => setInsertMode({ shape: { kind: 'check' } }) },
-            { label: 'Cross ✕', onClick: () => setInsertMode({ shape: { kind: 'cross' } }) }
+            { label: 'Cross ✕', onClick: () => setInsertMode({ shape: { kind: 'cross' } }) },
+            { label: 'Arrow →', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'open' } }) },
+            { label: 'Arrow ▶', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'filled' } }) },
+            { label: 'Arrow ↔', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'double' } }) },
+            { label: 'Arrow ⊸', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'bar' } }) }
           ]}
           onClose={() => setShapeMenu(null)}
         />
@@ -1129,6 +1152,7 @@ export default function PdfEditor({ source, path }) {
                 onSelect={onSelect}
                 onMove={moveSelected}
                 onResize={resizeSelected}
+                onLineGeo={lineGeoSelected}
                 onSprite={spriteFor}
                 onMenu={setMenu}
                 onInsertAt={startInsertAt}

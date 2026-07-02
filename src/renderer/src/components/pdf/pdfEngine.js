@@ -48,6 +48,8 @@ export function createPdfEngine() {
     setVectorRadius: (pageIndex, item, radius) => call('setVectorRadius', { pageIndex, item, radius }), // rebuild the path as a rounded rect
     setStrokeWidth: (pageIndex, item, w) => call('setStrokeWidth', { pageIndex, item, w }), // stroke width, pt
     setOpacity: (pageIndex, item, alpha) => call('setOpacity', { pageIndex, item, alpha }), // 0..1, vectors and images
+    setDash: (pageIndex, item, dash) => call('setDash', { pageIndex, item, dash }), // solid|dashed|dotted|dashdot
+    setLineGeo: (pageIndex, item, geo) => call('setLineGeo', { pageIndex, item, geo }), // move a line/arrow endpoint {x1,y1,x2,y2}
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

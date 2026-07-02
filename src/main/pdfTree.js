@@ -63,6 +63,16 @@ export async function pickPdfFile() {
   return r.canceled ? [] : r.filePaths
 }
 
+// "Save" dialog for the editor: starts in the source file's folder with its name preselected.
+// Keeping the same name → the OS itself asks to confirm the overwrite; a new name → a copy.
+export async function savePdfDialog(defaultPath) {
+  const r = await dialog.showSaveDialog({
+    defaultPath: defaultPath || undefined,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  return r.canceled ? null : r.filePath
+}
+
 const isPdf = (n) => /\.pdf$/i.test(n)
 const byName = (a, b) => a.name.localeCompare(b.name)
 

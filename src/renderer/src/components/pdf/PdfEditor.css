@@ -41,6 +41,15 @@
   opacity: 0.4;
   cursor: default;
 }
+/* the Save button carries text, not an icon */
+.pdfed__btn--save {
+  width: auto;
+  padding: 0 12px;
+  margin-left: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent, #1473e6);
+}
 .pdfed__zoom {
   flex: 0 0 auto;
   min-width: 46px;
@@ -88,86 +97,71 @@
   box-shadow: 0 1px 100px rgba(0, 0, 0, 0.4);
   background: #fff;
 }
-/* zoomed container: graphics SVG underlay + our own text layer, both in page pt coords */
-.pdfed__layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: top left;
-}
-/* graphics underlay (paths, lines, art, images) — SVG fills the layer, text stripped out */
-.pdfed__gfx {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.pdfed__gfx > svg {
+/* raster page image — the exact visual (every font, graphics, rotation) */
+.pdfed__img {
   display: block;
-  width: 100%;
-  height: 100%;
+  user-select: none;
 }
-/* text preview: per-glyph SVG from the model (kerning 1:1), over the graphics. Clicks land on the
-   <text> itself — the whole run is a hit target (bounding-box), no extra hit-rect divs. */
-.pdfed__txt {
+/* single transparent overlay that captures clicks/drags; hit-testing is computed from the JSON model */
+.pdfed__overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: visible;
-  pointer-events: none;
+  inset: 0;
+  cursor: default; /* plain arrow while we're not editing text */
 }
-.pdfed__txt text {
-  pointer-events: bounding-box;
-  cursor: text;
-}
-.pdfed__hoverbox {
-  fill: rgba(20, 115, 230, 0.1);
-  stroke: rgba(20, 115, 230, 0.55);
-  stroke-width: 0.5;
-  pointer-events: none;
-}
-/* edit layer: framed contenteditable placed over the run being edited (same position + style) */
-.pdfed__edit {
+/* frame drawn only for the current selection (computed on click, not pre-rendered per object).
+   The frame itself is the drag zone: over it the mouse becomes the 4-arrow move cursor. */
+.pdfed__frame {
   position: absolute;
-  margin: 0;
-  padding: 0;
-  line-height: 1;
-  white-space: pre;
+  outline: 2px solid #1473e6; /* text — blue */
+  background: rgba(20, 115, 230, 0.12);
+  cursor: move;
+}
+/* image — green */
+.pdfed__frame.is-image {
+  outline-color: #1b9e77;
+  background: rgba(27, 158, 119, 0.1);
+}
+/* vector art (lines, table rules, shapes) — amber */
+.pdfed__frame.is-vector {
+  outline-color: #e08a00;
+  background: rgba(224, 138, 0, 0.1);
+}
+/* group selection: dashed union frame around everything selected (double-click it → delete) */
+.pdfed__frame.is-union {
+  outline: 1.5px dashed #1473e6;
   background: transparent;
-  outline: 1.5px solid #1473e6;
-  cursor: text;
+}
+/* rubber-band rectangle while dragging over empty space */
+.pdfed__marquee {
+  position: absolute;
+  border: 1px dashed #1473e6;
+  background: rgba(20, 115, 230, 0.08);
+  pointer-events: none;
+}
+/* ghost while moving the selection — a window into the live page raster (crisp at any zoom) */
+.pdfed__ghost {
+  position: absolute;
+  opacity: 0.75;
+  outline: 1.5px dashed #1473e6;
+  background-repeat: no-repeat;
+  pointer-events: none;
   z-index: 5;
 }
-/* move handle at the run's bottom-right corner — drag to change its coordinates (sizes in pt so it
-   scales with zoom like the page) */
-.pdfed__movehandle {
+/* alignment guides while moving — faint green hairlines from the ghost's edges across the page */
+.pdfed__guide {
   position: absolute;
-  transform: translate(1pt, 1pt);
-  display: grid;
-  place-items: center;
-  padding: 1pt;
-  background: #1473e6;
-  color: #fff;
-  border-radius: 2pt;
-  cursor: move;
-  z-index: 6;
-  pointer-events: auto;
+  pointer-events: none;
+  z-index: 4;
 }
-.pdfed__movehandle svg {
-  display: block;
-  width: 4pt;
-  height: 4pt;
+.pdfed__guide.is-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(27, 158, 119, 0.45);
 }
-/* toolbar edit counter */
-.pdfed__edits {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--accent, #1473e6);
-  margin-right: 8px;
-  white-space: nowrap;
+.pdfed__guide.is-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(27, 158, 119, 0.45);
 }

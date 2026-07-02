@@ -32,8 +32,11 @@ export function createPdfEngine() {
 
   return {
     open: (data) => { lastOpen = data; return call('open', { data }) },
-    parsePage: (pageIndex) => call('parsePage', { pageIndex }), // → { width, height, gfx, runs } — vector SVG + text model (source of truth)
-    getFonts: () => call('getFonts', {}), // → { fonts:[{ family, bytes }] } — embedded TrueType
+    getModel: (pageIndex) => call('getModel', { pageIndex }), // → { width, height, fonts, colors, runs, images, vectors }
+    renderImage: (pageIndex, scale) => call('renderImage', { pageIndex, scale }), // → { png, width, height } — raster visual
+    deleteObjects: (pageIndex, items) => call('deleteObjects', { pageIndex, items }), // items:[{type,bbox}] — remove from the stream
+    moveObjects: (pageIndex, items) => call('moveObjects', { pageIndex, items }), // items:[{type,bbox,dx,dy}] — shift coords in the stream
+    save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }
 }

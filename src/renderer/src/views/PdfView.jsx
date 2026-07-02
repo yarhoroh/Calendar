@@ -34,8 +34,6 @@ export default function PdfView() {
   const [scroll, setScroll] = useState({ left: false, right: false }) // strip overflows → show ‹ ›
   const dragTab = useRef(null) // path being Ctrl-dragged to reorder
   const treeBodyRef = useRef(null) // scroll container of the tree (to reveal a file)
-  const dirtyRef = useRef(new Map()) // tab path → has unsaved edits (for the close-confirm)
-  const onTabDirty = (path, d) => dirtyRef.current.set(path, d)
   const [menu, setMenu] = useState(null) // { x, y, node, parentId }
   const [editing, setEditing] = useState(null) // { id, name }
   const [query, setQuery] = useState('') // filters the tree by name
@@ -233,8 +231,6 @@ export default function PdfView() {
     loadInfo(path)
   }
   const closeTab = (path) => {
-    if (dirtyRef.current.get(path) && !window.confirm(t('pdf.closeUnsaved'))) return // unsaved edits → ask
-    dirtyRef.current.delete(path)
     const i = tabs.indexOf(path)
     const next = tabs.filter((p) => p !== path)
     setTabs(next)
@@ -248,11 +244,6 @@ export default function PdfView() {
     paths.forEach(loadInfo)
   }
   const selectFile = (node) => openTab(node.path)
-  // open a freshly "saved as new" file: drop scan caches so linked folders re-scan and the new file shows up
-  const openSavedFile = (path) => {
-    setScan({})
-    openTab(path)
-  }
 
   // ---- reveal a file in the tree: expand every folder on its path (scanning as needed) + scroll to it ----
   const pathStartsWith = (target, base) => {
@@ -652,7 +643,7 @@ export default function PdfView() {
               {/* one editor instance per open tab; only the active one is shown, so each PDF keeps its state */}
               {tabs.map((p) => (
                 <div key={p} className="pdf__tab-pane" style={{ display: p === activePath ? undefined : 'none' }}>
-                  <PdfEditorTab path={p} onOpenPath={openSavedFile} onDirty={onTabDirty} />
+                  <PdfEditorTab path={p} />
                 </div>
               ))}
             </div>

@@ -1,29 +1,33 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ZoomInIcon, ZoomOutIcon } from '../icons'
+import api from '../../lib/api'
 import { createPdfEngine } from './pdfEngine'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
 
-// PDF editor. The worker parses each page into a text model (source of truth) + a vector SVG. Pages
-// render as layered SVG (view) with a contenteditable that appears only while editing. Editing updates
-// the model, which re-renders the SVG. Export back to PDF (model → PDF) is the next step.
+// PDF editor. Each page is a raster image (exact visual) + a JSON text model loaded in parallel.
+// Clicking a run selects it and frames it on the image (Stage 1); later stages add area selection,
+// rich-text editing of the selected runs, and export back into the PDF stream.
 // Ctrl+wheel zooms (anchored on the cursor); hold Space to pan.
-export default function PdfEditor({ source }) {
-  const [pages, setPages] = useState([]) // model: [{ pageIndex, width, height, gfx, runs }]
+export default function PdfEditor({ source, path }) {
+  const [model, setModel] = useState([]) // [{ pageIndex, width, height, runs }]
+  const [imgs, setImgs] = useState([]) // [{ pageIndex, url, width, height }] — re-rendered per scale
   const [pageCount, setPageCount] = useState(0)
   const [scale, setScale] = useState(1.5)
   const [status, setStatus] = useState('idle')
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
-  const [editing, setEditing] = useState(null) // { page, id, bbox, font, generic, size, bold, italic, color, text }
+  const [selected, setSelected] = useState(null) // { page, ids: [...] } — single click or marquee group
+  const [saving, setSaving] = useState(false)
   const engineRef = useRef(null)
+  const urlsRef = useRef([])
   const viewportRef = useRef(null)
   const panRef = useRef(null)
   const zoomAnchorRef = useRef(null) // keeps the point under the cursor fixed across a zoom step
 
-  const edits = pages.reduce((n, p) => n + p.runs.filter((r) => r.dirty).length, 0)
+  const revoke = () => { for (const u of urlsRef.current) URL.revokeObjectURL(u); urlsRef.current = [] }
 
-  useEffect(() => { engineRef.current = createPdfEngine(); return () => engineRef.current?.dispose() }, [])
+  useEffect(() => { engineRef.current = createPdfEngine(); return () => { engineRef.current?.dispose(); revoke() } }, [])
 
   // open the document when bytes arrive
   useEffect(() => {
@@ -36,7 +40,23 @@ export default function PdfEditor({ source }) {
     return () => { alive = false }
   }, [source])
 
-  // parse every page into its model once
+  // load the JSON text model once (scale-independent)
+  useEffect(() => {
+    if (!pageCount || !engineRef.current) return
+    let alive = true
+    ;(async () => {
+      const out = []
+      for (let i = 0; i < pageCount; i++) {
+        const r = await engineRef.current.getModel(i)
+        if (!alive) return
+        out.push({ pageIndex: i, ...r }) // width/height, palettes (fonts/colors), runs, images, vectors
+      }
+      if (alive) setModel(out)
+    })().catch((err) => console.error('[pdf] getModel failed:', err))
+    return () => { alive = false }
+  }, [pageCount])
+
+  // render page images whenever the doc opens or the zoom changes
   useEffect(() => {
     if (!pageCount || !engineRef.current) return
     let alive = true
@@ -44,27 +64,15 @@ export default function PdfEditor({ source }) {
     ;(async () => {
       const out = []
       for (let i = 0; i < pageCount; i++) {
-        const r = await engineRef.current.parsePage(i)
+        const r = await engineRef.current.renderImage(i, scale)
         if (!alive) return
-        out.push({ pageIndex: i, width: r.width, height: r.height, gfx: r.gfx, runs: r.runs })
+        out.push({ pageIndex: i, url: URL.createObjectURL(new Blob([r.png], { type: 'image/png' })), width: r.width, height: r.height })
       }
-      if (alive) { setPages(out); setStatus('ready') }
+      if (!alive) { for (const p of out) URL.revokeObjectURL(p.url); return }
+      revoke(); urlsRef.current = out.map((p) => p.url); setImgs(out); setStatus('ready')
     })().catch(() => alive && setStatus('error'))
     return () => { alive = false }
-  }, [pageCount])
-
-  // load the PDF's embedded TrueType fonts as @font-face (registered under their clean family name)
-  useEffect(() => {
-    if (!pageCount || !engineRef.current) return
-    let alive = true
-    engineRef.current.getFonts().then(({ fonts }) => {
-      for (const f of fonts || []) {
-        if (!alive) break
-        try { new FontFace(f.family, f.bytes).load().then((ff) => document.fonts.add(ff)).catch(() => {}) } catch (_) {}
-      }
-    }).catch(() => {})
-    return () => { alive = false }
-  }, [pageCount])
+  }, [pageCount, scale])
 
   // Ctrl + wheel zoom (non-passive so we cancel the browser zoom). Anchor on the point under the cursor.
   useEffect(() => {
@@ -123,30 +131,65 @@ export default function PdfEditor({ source }) {
     window.addEventListener('mouseup', upp)
   }
 
-  // ---- editing (model is the source of truth) ----
-  const startEdit = (pageIndex, run) => { if (!spaceHeld) setEditing({ page: pageIndex, ...run }) }
-  const commitEdit = (pageIndex, id, newText, dx = 0, dy = 0) => {
-    setPages((prev) => prev.map((p) => {
-      if (p.pageIndex !== pageIndex) return p
-      return { ...p, runs: p.runs.map((r) => {
-        if (r.id !== id) return r
-        const textChanged = r.text !== newText
-        if (!textChanged && !dx && !dy) return r // nothing changed → keep pristine (per-glyph kerning)
-        return {
-          ...r,
-          text: newText,
-          x: r.x + dx,
-          y: r.y + dy,
-          bbox: { ...r.bbox, x: r.bbox.x + dx, y: r.bbox.y + dy },
-          glyphs: r.glyphs.map((g) => ({ ...g, x: g.x + dx })),
-          edited: r.edited || textChanged, // once text changes, per-glyph x is stale → render from a single start x
-          dirty: true
-        }
-      }) }
-    }))
-    setEditing(null)
+  const onSelect = (pageIndex, ids) => setSelected(ids && ids.length ? { page: pageIndex, ids } : null)
+  const imgOf = (i) => imgs.find((im) => im.pageIndex === i)
+
+  // Save: OS save dialog starting at the source file (same name → the OS confirms the overwrite,
+  // a new name → a copy), then write the worker's edited document to disk.
+  const handleSave = async () => {
+    if (!engineRef.current || saving) return
+    setSaving(true)
+    try {
+      const out = await api.pdf.saveDialog(path)
+      if (out) {
+        const r = await engineRef.current.save()
+        const w = await api.pdf.write(out, new Uint8Array(r.bytes))
+        if (!w?.ok) throw new Error(w?.error || 'write failed')
+      }
+    } catch (err) { console.error('[pdf] save failed:', err) } finally { setSaving(false) }
   }
-  const cancelEdit = () => setEditing(null)
+
+  // re-render one page's image + model after a mutation
+  const refreshPage = async (pageIndex) => {
+    const [im, m] = await Promise.all([engineRef.current.renderImage(pageIndex, scale), engineRef.current.getModel(pageIndex)])
+    const url = URL.createObjectURL(new Blob([im.png], { type: 'image/png' }))
+    urlsRef.current.push(url)
+    setImgs((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, url, width: im.width, height: im.height } : p)))
+    setModel((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, ...m } : p)))
+  }
+
+  // drag the selection → shift the objects' coordinates inside the PDF stream, then re-render
+  const moveSelected = async (dx, dy) => {
+    if (!selected) return
+    const pg = model.find((p) => p.pageIndex === selected.page)
+    if (!pg) return
+    const items = [...pg.runs, ...(pg.images || []), ...(pg.vectors || [])]
+      .filter((o) => selected.ids.includes(o.id))
+      .map((o) => ({ type: o.type, bbox: o.bbox, dx, dy }))
+    if (!items.length) return
+    setSelected(null)
+    try {
+      await engineRef.current.moveObjects(selected.page, items)
+      await refreshPage(selected.page)
+    } catch (err) { console.error('[pdf] move failed:', err) }
+  }
+
+  // double-click on the selection → physically remove the selected objects from the PDF stream.
+  // (The file on disk is untouched — there is no save yet; reopening the tab restores everything.)
+  const deleteSelected = async () => {
+    if (!selected) return
+    const pg = model.find((p) => p.pageIndex === selected.page)
+    if (!pg) return
+    const items = [...pg.runs, ...(pg.images || []), ...(pg.vectors || [])]
+      .filter((o) => selected.ids.includes(o.id))
+      .map((o) => ({ type: o.type, bbox: o.bbox }))
+    if (!items.length) return
+    setSelected(null)
+    try {
+      await engineRef.current.deleteObjects(selected.page, items)
+      await refreshPage(selected.page)
+    } catch (err) { console.error('[pdf] delete failed:', err) }
+  }
 
   return (
     <div className="pdfed">
@@ -154,8 +197,8 @@ export default function PdfEditor({ source }) {
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.max(0.3, s / 1.15))} title="Zoom out"><ZoomOutIcon /></button>
         <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(10, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
+        <button className="pdfed__btn pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
         <span className="pdfed__spacer" />
-        {edits > 0 && <span className="pdfed__edits">{edits} edited</span>}
         <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
       </div>
 
@@ -167,15 +210,16 @@ export default function PdfEditor({ source }) {
           onMouseDown={onPanMouseDown}
         >
           <div className="pdfed__pages" style={{ pointerEvents: spaceHeld ? 'none' : undefined }}>
-            {pages.map((p) => (
+            {model.map((p) => (
               <PdfPage
                 key={p.pageIndex}
                 page={p}
+                image={imgOf(p.pageIndex)}
                 scale={scale}
-                editing={editing}
-                onEdit={startEdit}
-                onCommit={commitEdit}
-                onCancel={cancelEdit}
+                selected={selected}
+                onSelect={onSelect}
+                onDelete={deleteSelected}
+                onMove={moveSelected}
               />
             ))}
           </div>

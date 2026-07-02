@@ -1522,11 +1522,6 @@ export default function PdfEditor({ source, path }) {
                 onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter') finishCreate(false); if (e.key === 'Escape') setVarDraft(null) }} />
             </label>
-            <label className="pdfed__varpop-lbl">Value
-              <input className="pdfed__var-value" value={varDraft.value}
-                onChange={(e) => setVarDraft({ ...varDraft, value: e.target.value })}
-                onKeyDown={(e) => { if (e.key === 'Enter') finishCreate(false); if (e.key === 'Escape') setVarDraft(null) }} />
-            </label>
             <div className="pdfed__varpop-btns">
               <button className="pdfed__btn pdfed__btn--txt" onClick={() => finishCreate(false)}>Add this</button>
               <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={() => finishCreate(true)}>Find identical &amp; add</button>

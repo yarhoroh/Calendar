@@ -133,6 +133,9 @@ function enqueue(key, path) {
   queue.push({ key, path })
 }
 function removeDoc(key) {
+  const i = queue.findIndex((j) => j.key === key) // drop it from the queue if it was waiting
+  if (i >= 0) queue.splice(i, 1)
+  queued.delete(key)
   db.prepare('DELETE FROM doc_fts WHERE key=?').run(key)
   db.prepare('DELETE FROM docs WHERE key=?').run(key)
 }
@@ -159,10 +162,9 @@ export function syncIndex(getTree) {
       added++
     } else setReach.run(path, key)
   }
-  // prune only files that vanished from disk AND are no longer linked (unlinked-but-present stay)
-  for (const r of db.prepare('SELECT key, path FROM docs WHERE reachable=0').all()) {
-    if (!safeStat(r.path)) removeDoc(r.key)
-  }
+  // purge everything no longer reachable from the tree: the index mirrors the current tree exactly
+  // (unlink a file/folder → its text is removed; re-adding re-indexes it from scratch)
+  for (const r of db.prepare('SELECT key FROM docs WHERE reachable=0').all()) removeDoc(r.key)
   notify?.()
   pump()
   return { reachable: reach.size, queued: added }
@@ -271,6 +273,8 @@ function maybeTeardown() {
 function writeResult(key, path, result) {
   const st = safeStat(path)
   if (!st) { removeDoc(key); notify?.(); return }
+  // the doc may have been purged (folder unlinked) while its worker was running — don't resurrect it
+  if (!db.prepare('SELECT 1 FROM docs WHERE key=?').get(key)) { db.prepare('DELETE FROM doc_fts WHERE key=?').run(key); return }
   if (result?.ok) {
     db.prepare('DELETE FROM doc_fts WHERE key=?').run(key)
     const ins = db.prepare('INSERT INTO doc_fts (text, key, page) VALUES (?, ?, ?)')

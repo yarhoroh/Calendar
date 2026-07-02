@@ -93,6 +93,22 @@ function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGra
   )
 }
 
+// align icons (standard: an edge line + two bars snapped to it)
+const AlignLeftIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M4 3v18" />
+    <rect x="7" y="6" width="13" height="4" fill="currentColor" stroke="none" />
+    <rect x="7" y="14" width="8" height="4" fill="currentColor" stroke="none" />
+  </svg>
+)
+const AlignTopIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M3 4h18" />
+    <rect x="6" y="7" width="4" height="13" fill="currentColor" stroke="none" />
+    <rect x="14" y="7" width="4" height="8" fill="currentColor" stroke="none" />
+  </svg>
+)
+
 // "insert shape" — a square with a plus (local: only the PDF toolbar uses it)
 const InsertShapeIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -673,6 +689,36 @@ export default function PdfEditor({ source, path }) {
   const lineGeoSelected = (pageIndex, obj, geo) =>
     mutateObject((p, it) => engineRef.current.setLineGeo(p, it, geo), ['vector'], { x: (geo.x1 + geo.x2) / 2, y: (geo.y1 + geo.y2) / 2 })
 
+  // align 2+ selected objects: everything to the leftmost edge / the topmost edge
+  const alignSelected = async (edge) => {
+    if (!selected || selected.objs.length < 2 || busyRef.current) return
+    busyRef.current = true
+    try {
+      const objs = selected.objs
+      const minX = Math.min(...objs.map((o) => o.bbox.x))
+      const minY = Math.min(...objs.map((o) => o.bbox.y))
+      const dOf = (o) => ({ dx: edge === 'left' ? minX - o.bbox.x : 0, dy: edge === 'top' ? minY - o.bbox.y : 0 })
+      const items = objs
+        .map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, ...dOf(o) }))
+        .filter((it) => Math.abs(it.dx) > 0.01 || Math.abs(it.dy) > 0.01)
+      if (items.length) {
+        await engineRef.current.moveObjects(selected.page, items)
+        await refreshPage(selected.page)
+        const shifted = objs.map((o) => {
+          const { dx, dy } = dOf(o)
+          return {
+            ...o,
+            bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
+            x: o.x + dx,
+            y: o.y + dy,
+            line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
+          }
+        })
+        onSelect(selected.page, shifted)
+      }
+    } catch (err) { console.error('[pdf] align failed:', err) } finally { busyRef.current = false }
+  }
+
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {
     if (busyRef.current) return
@@ -939,6 +985,14 @@ export default function PdfEditor({ source, path }) {
 
       {/* second row — contextual: text style controls, shape parameters, or the object's panel */}
       <div className="pdfed__stylebar">
+        {!insertMode?.shape && selected?.objs.length > 1 && (
+          /* 2+ objects → align tools: everything to the leftmost / the topmost of the selection */
+          <>
+            <button className="pdfed__btn" onClick={() => alignSelected('left')} title="Align left edges (to the leftmost object)"><AlignLeftIcon /></button>
+            <button className="pdfed__btn" onClick={() => alignSelected('top')} title="Align top edges (to the topmost object)"><AlignTopIcon /></button>
+            <span className="pdfed__sep" />
+          </>
+        )}
         {insertMode?.shape && (
           <>
             <span className="pdfed__sblabel">Shape · {insertMode.shape.kind}</span>

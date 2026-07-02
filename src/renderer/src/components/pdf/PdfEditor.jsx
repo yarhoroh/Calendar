@@ -1062,7 +1062,9 @@ export default function PdfEditor({ source, path }) {
               Y
               <ComboNum value={selObj1.bbox.y} onPick={pickObjY} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
             </label>
-            <span className="pdfed__sbinfo">W {selObj1.bbox.w} · H {selObj1.bbox.h}</span>
+            {selObj1.line
+              ? <span className="pdfed__sbinfo">L {Math.round(Math.hypot(selObj1.line.x2 - selObj1.line.x1, selObj1.line.y2 - selObj1.line.y1) * 10) / 10}</span>
+              : <span className="pdfed__sbinfo">W {selObj1.bbox.w} · H {selObj1.bbox.h}</span>}
             <label className="pdfed__mini" title="Opacity, % — vectors and images (PDF ExtGState alpha)">
               Op
               <ComboNum value={selObj1.opacity ?? 100} onPick={(v) => deferMutation(() => opacitySelected(v ?? 100))} opts={[10, 25, 50, 75, 100]} step={5} min={0} max={100} width={60} />

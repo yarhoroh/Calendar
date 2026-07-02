@@ -417,7 +417,10 @@ function getModel(pageIndex) {
         const t = cands.length ? cands[Math.min(k, cands.length - 1)] : null
         const sx = seg[0].x
         const lastAdv = seg.length > 1 ? seg[seg.length - 1].x - seg[seg.length - 2].x : cur.size * 0.6
-        const ex = seg[seg.length - 1].x + Math.max(lastAdv, cur.size * 0.35)
+        let ex = seg[seg.length - 1].x + Math.max(lastAdv, cur.size * 0.35)
+        // the device span carries the EXACT right edge (real advance of the last glyph — a wide
+        // '%'/'W' used to poke out of the approximated frame); sanity-capped against the metric
+        if (t && t.bbox && t.bbox[2] > sx + 0.3 && t.bbox[2] < ex + cur.size * 1.5) ex = t.bbox[2]
         runs.push({
           id: `b${cur.bi}.l${cur.li}` + (segs.length > 1 ? `.s${k}` : ''),
           type: 'text',
@@ -576,6 +579,8 @@ function tightenBboxes(page, runs) {
     while (bot < Math.min(ph, hardBot) && bot < dnLim && ink(x0, x1, bot)) bot++ // grow down (descenders)
     while (top < bot && !ink(x0, x1, top)) top++ // trim blank inside
     while (bot > top && !ink(x0, x1, bot - 1)) bot--
+    // width is NOT ink-grown: the metric right edge comes exactly from the device span (stable,
+    // independent of neighbours/whitespace) — ink growth here was neither
     if (bot > top) r.bbox = { x: r.bbox.x, y: n2(top / S), w: r.bbox.w, h: n2((bot - top) / S) }
   }
   pix.destroy()

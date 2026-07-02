@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ZoomInIcon, ZoomOutIcon, CopyIcon, PasteIcon, TrashIcon, PipetteIcon } from '../icons'
 import api from '../../lib/api'
 import ContextMenu from '../ContextMenu'
+import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
@@ -93,6 +94,13 @@ function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGra
   )
 }
 
+const InfoIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </svg>
+)
+
 // align icons (standard: an edge line + two bars snapped to it)
 const AlignLeftIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -140,6 +148,7 @@ const InsertTextIcon = () => (
 // rich-text editing of the selected runs, and export back into the PDF stream.
 // Ctrl+wheel zooms (anchored on the cursor); hold Space to pan.
 export default function PdfEditor({ source, path }) {
+  const { t } = useI18n()
   const [model, setModel] = useState([]) // [{ pageIndex, width, height, runs }]
   const [imgs, setImgs] = useState([]) // [{ pageIndex, url, width, height }] — re-rendered per scale
   const [pageCount, setPageCount] = useState(0)
@@ -172,6 +181,7 @@ export default function PdfEditor({ source, path }) {
   const [dashSel, setDashSel] = useState('solid') // line type for inserted shapes
   const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
   const [liveGeo, setLiveGeo] = useState(null) // geometry readout while dragging/resizing (from PdfPage)
+  const [showInfo, setShowInfo] = useState(false) // the quick-guide overlay
   const rteRef = useRef(null)
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -975,6 +985,7 @@ export default function PdfEditor({ source, path }) {
         <button className="pdfed__btn" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)"><PasteIcon /></button>
         <button className="pdfed__btn" onClick={deleteSelected} disabled={!selected} title="Delete"><TrashIcon /></button>
         <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
+        <button className="pdfed__btn" onClick={() => setShowInfo(true)} title={t('pdfed.info')}><InfoIcon /></button>
         <span className="pdfed__spacer" />
         <label className="pdfed__check" title="Outline every element on the page (faint grey), so you can see where everything is">
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
@@ -1186,6 +1197,27 @@ export default function PdfEditor({ source, path }) {
         {!insertMode?.shape && selKind === 'mixed' && <span className="pdfed__sbinfo">{selected.objs.length} objects selected</span>}
         {!insertMode?.shape && selKind === 'none' && <span className="pdfed__sbinfo">Select an element on the page — its properties appear here</span>}
       </div>
+
+      {showInfo && (
+        <div className="pdfed__infowrap" onClick={() => setShowInfo(false)}>
+          <div className="pdfed__infobox" onClick={(e) => e.stopPropagation()}>
+            <div className="pdfed__infohead">
+              <b>{t('pdfed.helpTitle')}</b>
+              <button className="pdfed__btn" onClick={() => setShowInfo(false)} title="Close">✕</button>
+            </div>
+            <div className="pdfed__infobody">
+              {t('pdfed.help').split('\n').map((line, i) => {
+                const dash = line.indexOf('—')
+                return (
+                  <p key={i}>
+                    {dash > 0 ? <><b>{line.slice(0, dash)}</b>{line.slice(dash)}</> : line}
+                  </p>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {shapeMenu && (
         <ContextMenu

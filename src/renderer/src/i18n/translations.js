@@ -33,6 +33,9 @@ export const translations = {
       openFromDisk: 'Open a PDF from disk…'
     },
     pdfed: {
+      info: 'How to work with the editor',
+      helpTitle: 'PDF editor — quick guide',
+      help: 'SELECT — click an object; drag over empty space — rubber-band a group; Shift/Ctrl+click — add or remove one.\nMOVE — press and drag; hold Ctrl while dragging — strictly one axis; arrow keys — 1 pt, Shift+arrows — 10 pt.\nCOPY — Ctrl+C / Ctrl+V (the copy lands slightly offset); right-click — copy, paste at the click point, delete; Del — delete.\nADD TEXT — the T button, then click where it goes; click outside commits, Esc cancels. The bar sets font, size, B/I, colour, letter/line spacing; the eyedropper copies a style from any existing text.\nADD IMAGE — PNG, JPEG or SVG from disk, then click the page; drag the handles to resize (Shift keeps the ratio).\nADD SHAPES — rectangle (corner radius R), ellipse, check, cross, line and 4 kinds of arrows: click for a default size or drag to draw; a line/arrow is re-shaped by dragging its endpoints anywhere.\nOBJECT PANEL — Stroke/Fill colours (incl. Transparent), thickness W, line type (solid/dashed/dotted), opacity Op.\nALIGN — with 2+ objects selected, the two buttons align the left / top edges.\nVIEW — Ctrl+wheel zooms, Space+drag pans, the All checkbox outlines every element.\nSAVE — writes the edited copy to disk (same name replaces, new name makes a copy).',
       save: 'Save', saveCurrent: 'Save current (Ctrl+S)', saveAsNew: 'Save as new…', fileName: 'File name', create: 'Create',
       editText: 'Edit text (E)', addText: 'Add text (T)', image: 'Add image', shape: 'Add box (R)',
       zoomIn: 'Zoom in (Ctrl+wheel)', zoomOut: 'Zoom out (Ctrl+wheel)', loading: 'Loading…', error: 'Error',
@@ -319,6 +322,9 @@ export const translations = {
       openFromDisk: 'Відкрити PDF з диска…'
     },
     pdfed: {
+      info: 'Як працювати з редактором',
+      helpTitle: 'Редактор PDF — короткий довідник',
+      help: 'ВИДІЛЕННЯ — клік по обʼєкту; тягни по порожньому місцю — рамка для групи; Shift/Ctrl+клік — додати чи прибрати один.\nПЕРЕМІЩЕННЯ — натисни і тягни; тримай Ctrl під час перетягування — строго по одній осі; стрілки — 1 pt, Shift+стрілки — 10 pt.\nКОПІЮВАННЯ — Ctrl+C / Ctrl+V (копія ляже трохи зі зсувом); права кнопка — копіювати, вставити в точку кліку, видалити; Del — видалити.\nДОДАТИ ТЕКСТ — кнопка T, потім клік куди; клік поза редактором зберігає, Esc скасовує. Панель задає шрифт, кегль, B/I, колір, розрядку та міжрядковий; піпетка копіює стиль з будь-якого тексту.\nДОДАТИ ЗОБРАЖЕННЯ — PNG, JPEG чи SVG з диска, потім клік по сторінці; квадратики розтягують (Shift зберігає пропорцію).\nДОДАТИ ФІГУРИ — прямокутник (радіус кутів R), еліпс, галочка, хрестик, лінія та 4 види стрілок: клік — стандартний розмір, або намалюй перетягуванням; лінію/стрілку перебудовуєш, тягнучи її кінці куди завгодно.\nПАНЕЛЬ ОБʼЄКТА — кольори Stroke/Fill (вкл. Transparent), товщина W, тип лінії (суцільна/пунктир/крапки), прозорість Op.\nВИРІВНЮВАННЯ — коли виділено 2+ обʼєкти, дві кнопки вирівнюють за лівим / верхнім краєм.\nПЕРЕГЛЯД — Ctrl+колесо масштабує, Space+тягнення панорамує, чекбокс All обводить усі елементи.\nЗБЕРЕЖЕННЯ — записує відредаговану копію на диск (те саме імʼя замінює, нове — створює копію).',
       save: 'Зберегти', saveCurrent: 'Зберегти поточний (Ctrl+S)', saveAsNew: 'Зберегти як новий…', fileName: 'Імʼя файлу', create: 'Створити',
       editText: 'Редагувати текст (E)', addText: 'Додати текст (T)', image: 'Додати зображення', shape: 'Додати рамку (R)',
       zoomIn: 'Збільшити (Ctrl+колесо)', zoomOut: 'Зменшити (Ctrl+колесо)', loading: 'Завантаження…', error: 'Помилка',

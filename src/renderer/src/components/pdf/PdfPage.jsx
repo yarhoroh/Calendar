@@ -12,13 +12,26 @@ import RichTextEditor from './RichTextEditor'
 //  • double-click IN the selection → the objects are physically removed from the PDF stream
 const PAD = 2 // pt — extra hit slack around hairline-thin objects
 
+// distance from a point to a segment — lines/arrows are hit along their TRAJECTORY, not their bbox
+const distSeg = (px, py, x1, y1, x2, y2) => {
+  const dx = x2 - x1, dy = y2 - y1
+  const ll = dx * dx + dy * dy
+  const t = ll ? Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / ll)) : 0
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
+const lineHitPad = (o) => (o.strokeW || 1) / 2 + 3 // half stroke + finger padding, pt
 const hitTest = (objects, x, y) => {
   let best = null
   for (const o of objects) {
-    const padX = o.bbox.w < PAD ? PAD : 0
-    const padY = o.bbox.h < PAD ? PAD : 0
-    if (x < o.bbox.x - padX || x > o.bbox.x + o.bbox.w + padX) continue
-    if (y < o.bbox.y - padY || y > o.bbox.y + o.bbox.h + padY) continue
+    if (o.line) {
+      // a slanted line/arrow only reacts near its actual path (same for both — one geometry)
+      if (distSeg(x, y, o.line.x1, o.line.y1, o.line.x2, o.line.y2) > lineHitPad(o)) continue
+    } else {
+      const padX = o.bbox.w < PAD ? PAD : 0
+      const padY = o.bbox.h < PAD ? PAD : 0
+      if (x < o.bbox.x - padX || x > o.bbox.x + o.bbox.w + padX) continue
+      if (y < o.bbox.y - padY || y > o.bbox.y + o.bbox.h + padY) continue
+    }
     if (!best) { best = o; continue }
     if ((o.z || 0) > (best.z || 0)) best = o
     else if ((o.z || 0) === (best.z || 0) && o.bbox.w * o.bbox.h < best.bbox.w * best.bbox.h) best = o
@@ -139,7 +152,13 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
       return // empty additive click keeps the selection as is
     }
 
-    if (inside(union, x, y)) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
+    // a single selected line/arrow moves only when grabbed NEAR ITS PATH — its axis-aligned bbox
+    // (huge for a slanted line) must not swallow clicks on other content
+    const selIsLine = selObjs.length === 1 && selObjs[0].line
+    const onSel = selIsLine
+      ? distSeg(x, y, selObjs[0].line.x1, selObjs[0].line.y1, selObjs[0].line.x2, selObjs[0].line.y2) <= lineHitPad(selObjs[0]) + 2
+      : inside(union, x, y)
+    if (onSel) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 
     const hit = hitTest(objects, x, y)
     if (hit) { onSelect(pageIndex, [hit]); startMoveDrag(el, x, y, [hit]); return } // select AND move in one gesture
@@ -262,9 +281,32 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
             ? <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
             : null
         ))}
+        {/* a single line/arrow gets a ROTATED frame hugging its path (an axis-aligned box around a
+            slanted line is huge and misleading); it travels with the ghost/nudge */}
+        {selObjs.length === 1 && selObjs[0].line && (() => {
+          const o = selObjs[0]
+          const L = lineDrag || o.line
+          const gdx = ((ghost?.dx || 0) + (nudge?.dx || 0)) * scale, gdy = ((ghost?.dy || 0) + (nudge?.dy || 0)) * scale
+          const x1 = L.x1 * scale + gdx, y1 = L.y1 * scale + gdy, x2 = L.x2 * scale + gdx, y2 = L.y2 * scale + gdy
+          const padPx = 3 + ((o.strokeW || 1) / 2) * scale + (o.line.head && o.line.head !== 'line' ? Math.max(7, (o.strokeW || 1) * 4) * 0.5 * scale : 0)
+          const len = Math.hypot(x2 - x1, y2 - y1) + padPx * 2
+          const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI
+          return (
+            <div
+              className="pdfed__frame pdfed__frame--rot"
+              style={{
+                left: (x1 + x2) / 2 - len / 2,
+                top: (y1 + y2) / 2 - padPx,
+                width: len,
+                height: padPx * 2,
+                transform: `rotate(${ang}deg)`
+              }}
+            />
+          )
+        })()}
         {/* selection frame — the same light dashed box for one object or a whole group; while a
             ghost is up it travels with it; while a handle is dragged it shows the live box */}
-        {union && (
+        {!(selObjs.length === 1 && selObjs[0].line) && union && (
           <div
             className="pdfed__frame"
             style={px(resizeBox

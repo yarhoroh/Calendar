@@ -409,6 +409,11 @@
   width: 110px;
   min-width: 0;
 }
+/* rotated frame hugging a slanted line/arrow; the div rotates around its centre. Events bubble to
+   the overlay (no own handler), so the frame itself is the padded grab zone with the move cursor */
+.pdfed__frame--rot {
+  transform-origin: center;
+}
 /* live rubber line while dragging a line/arrow endpoint */
 .pdfed__rubber {
   position: absolute;

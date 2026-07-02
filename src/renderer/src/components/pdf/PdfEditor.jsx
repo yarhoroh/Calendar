@@ -155,6 +155,7 @@ export default function PdfEditor({ source, path }) {
   const [cornerR, setCornerR] = useState(0) // rect corner radius, pt
   const [dashSel, setDashSel] = useState('solid') // line type for inserted shapes
   const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
+  const [liveGeo, setLiveGeo] = useState(null) // geometry readout while dragging/resizing (from PdfPage)
   const rteRef = useRef(null)
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -868,6 +869,26 @@ export default function PdfEditor({ source, path }) {
           ? selected.objs[0].type
           : 'mixed'
   const selObj1 = selected?.objs.length === 1 ? selected.objs[0] : null
+  // read-only geometry readout at the end of the panel; live during drag/resize/endpoint-drag.
+  // Whole numbers — the readout is orientation, not a measuring tool.
+  const r1 = (n) => Math.round(n)
+  const geoText = () => {
+    if (liveGeo?.line) {
+      const L = liveGeo.line
+      return `X ${r1(Math.min(L.x1, L.x2))} · Y ${r1(Math.min(L.y1, L.y2))} · L ${r1(Math.hypot(L.x2 - L.x1, L.y2 - L.y1))}`
+    }
+    if (liveGeo) return `X ${r1(liveGeo.x)} · Y ${r1(liveGeo.y)} · W ${r1(liveGeo.w)} · H ${r1(liveGeo.h)}`
+    if (!selected?.objs.length) return ''
+    const ndx = nudge?.page === selected.page ? nudge.dx : 0
+    const ndy = nudge?.page === selected.page ? nudge.dy : 0
+    if (selObj1?.line) {
+      const L = selObj1.line
+      return `X ${r1(Math.min(L.x1, L.x2) + ndx)} · Y ${r1(Math.min(L.y1, L.y2) + ndy)} · L ${r1(Math.hypot(L.x2 - L.x1, L.y2 - L.y1))}`
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const o of selected.objs) { x0 = Math.min(x0, o.bbox.x); y0 = Math.min(y0, o.bbox.y); x1 = Math.max(x1, o.bbox.x + o.bbox.w); y1 = Math.max(y1, o.bbox.y + o.bbox.h) }
+    return `X ${r1(x0 + ndx)} · Y ${r1(y0 + ndy)} · W ${r1(x1 - x0)} · H ${r1(y1 - y0)}`
+  }
 
   return (
     <div className="pdfed">
@@ -1045,6 +1066,12 @@ export default function PdfEditor({ source, path }) {
         >
           <PipetteIcon />
         </button>
+        {selected?.objs.length > 0 && (
+          <>
+            <span className="pdfed__spacer" />
+            <span className="pdfed__sbinfo">{geoText()}</span>
+          </>
+        )}
           </>
         )}
         {!insertMode?.shape && (selKind === 'image' || selKind === 'vector') && selObj1 && (
@@ -1098,11 +1125,7 @@ export default function PdfEditor({ source, path }) {
             )}
             {/* read-only geometry at the very end — the frame/handles are the editing tools */}
             <span className="pdfed__spacer" />
-            <span className="pdfed__sbinfo">
-              {selObj1.line
-                ? `X ${Math.round(Math.min(selObj1.line.x1, selObj1.line.x2) * 10) / 10} · Y ${Math.round(Math.min(selObj1.line.y1, selObj1.line.y2) * 10) / 10} · L ${Math.round(Math.hypot(selObj1.line.x2 - selObj1.line.x1, selObj1.line.y2 - selObj1.line.y1) * 10) / 10}`
-                : `X ${selObj1.bbox.x} · Y ${selObj1.bbox.y} · W ${selObj1.bbox.w} · H ${selObj1.bbox.h}`}
-            </span>
+            <span className="pdfed__sbinfo">{geoText()}</span>
           </>
         )}
         {!insertMode?.shape && selKind === 'mixed' && <span className="pdfed__sbinfo">{selected.objs.length} objects selected</span>}
@@ -1169,6 +1192,7 @@ export default function PdfEditor({ source, path }) {
                 onMove={moveSelected}
                 onResize={resizeSelected}
                 onLineGeo={lineGeoSelected}
+                onLiveGeo={setLiveGeo}
                 onSprite={spriteFor}
                 onMenu={setMenu}
                 onInsertAt={startInsertAt}

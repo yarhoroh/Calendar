@@ -53,7 +53,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -84,13 +84,16 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
   const startMoveDrag = (el, sx, sy, objs) => {
     // ask for a clean sprite of ONLY the dragged objects (until it lands, per-object raster windows serve)
     onSprite?.(pageIndex, objs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
+    const u0 = unionOf(objs)
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
       setGhost({ dx: mx - sx, dy: my - sy })
+      if (u0) onLiveGeo?.({ x: u0.x + (mx - sx), y: u0.y + (my - sy), w: u0.w, h: u0.h }) // live X/Y in the panel
     }
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
+      onLiveGeo?.(null)
       const [ux, uy] = toPt(ev, el)
       const dx = ux - sx, dy = uy - sy
       if (Math.hypot(dx, dy) >= 1) {
@@ -222,12 +225,15 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     const [sx0, sy0] = toPt(e, el)
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
-      setResizeBox(nextBox(ob, h, mx - sx0, my - sy0, ev.shiftKey))
+      const nb = nextBox(ob, h, mx - sx0, my - sy0, ev.shiftKey)
+      setResizeBox(nb)
+      onLiveGeo?.(nb) // live W/H in the panel
     }
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       setResizeBox(null)
+      onLiveGeo?.(null)
       const [ux, uy] = toPt(ev, el)
       const nb = nextBox(ob, h, ux - sx0, uy - sy0, ev.shiftKey)
       if (Math.abs(nb.w - ob.w) > 0.5 || Math.abs(nb.h - ob.h) > 0.5 || Math.abs(nb.x - ob.x) > 0.5 || Math.abs(nb.y - ob.y) > 0.5) onResize(pageIndex, obj, nb)
@@ -245,12 +251,15 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     const L = obj.line
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
-      setLineDrag(which === 1 ? { ...L, x1: mx, y1: my } : { ...L, x2: mx, y2: my })
+      const g = which === 1 ? { ...L, x1: mx, y1: my } : { ...L, x2: mx, y2: my }
+      setLineDrag(g)
+      onLiveGeo?.({ line: g }) // live X/Y/L in the panel
     }
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       setLineDrag(null)
+      onLiveGeo?.(null)
       const [ux, uy] = toPt(ev, el)
       const geo = which === 1 ? { ...L, x1: ux, y1: uy } : { ...L, x2: ux, y2: uy }
       if (Math.hypot(geo.x1 - L.x1, geo.y1 - L.y1) > 0.5 || Math.hypot(geo.x2 - L.x2, geo.y2 - L.y2) > 0.5) onLineGeo(pageIndex, obj, geo)

@@ -128,9 +128,18 @@ function matchUnit(units, it) {
   let best = null, bestD = 5 // pt — anchors further apart than this are different objects
   for (const u of units) {
     if (u.type !== want) continue
-    let ux, uy, ix, iy
-    if (want === 'text' && u.px !== undefined && it.x !== undefined) { ux = u.px; uy = u.py; ix = it.x; iy = it.y }
-    else { ux = (u.bbox[0] + u.bbox[2]) / 2; uy = (u.bbox[1] + u.bbox[3]) / 2; ix = it.bbox.x + it.bbox.w / 2; iy = it.bbox.y + it.bbox.h / 2 }
+    if (want === 'text' && it.x !== undefined) {
+      // a multi-line unit anchors EVERY line with its own show — match against all of them,
+      // not just the first Tj (line 2+ of a block was unmatchable and silently did not move)
+      const pool = u.shows && u.shows.length ? u.shows : (u.px !== undefined ? [{ px: u.px, py: u.py }] : [])
+      for (const sh of pool) {
+        const d = Math.hypot(sh.px - it.x, sh.py - it.y)
+        if (d < bestD) { bestD = d; best = u }
+      }
+      continue
+    }
+    const ux = (u.bbox[0] + u.bbox[2]) / 2, uy = (u.bbox[1] + u.bbox[3]) / 2
+    const ix = it.bbox.x + it.bbox.w / 2, iy = it.bbox.y + it.bbox.h / 2
     const d = Math.hypot(ux - ix, uy - iy)
     if (d < bestD) { bestD = d; best = u }
   }
@@ -1439,7 +1448,8 @@ export const __test = {
   setDash: (...a) => setDash(...a),
   setLineGeo: (...a) => setLineGeo(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n),
-  textOnlyPixmap: (...a) => textOnlyPixmap(...a)
+  textOnlyPixmap: (...a) => textOnlyPixmap(...a),
+  matchUnit
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })

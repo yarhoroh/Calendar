@@ -449,7 +449,14 @@ export default function PdfEditor({ source, path }) {
       // keep the SAME selection, just shifted — no re-computing from the fresh model (which could
       // return inflated/merged boxes when the objects land next to other content). The selection
       // lives until the user clicks something else.
-      const shifted = objs.map((o) => ({ ...o, bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy }, x: o.x + dx, y: o.y + dy }))
+      const shifted = objs.map((o) => ({
+        ...o,
+        bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
+        x: o.x + dx,
+        y: o.y + dy,
+        // a line/arrow carries its endpoints too — the handles must travel with the move
+        line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
+      }))
       console.log(`[pdf][move] d=(${dx.toFixed(1)},${dy.toFixed(1)}), ${shifted.length} object(s) shifted`)
       onSelect(pageIndex, shifted)
     } catch (err) { console.error('[pdf] move failed:', err) }
@@ -635,7 +642,7 @@ export default function PdfEditor({ source, path }) {
 
   // one gateway for every in-place object mutation (recolor / radius / stroke width / opacity):
   // run the op, re-read the page, re-find the object by its centre so it stays selected
-  const mutateObject = async (op, kinds = ['vector']) => {
+  const mutateObject = async (op, kinds = ['vector'], center = null) => {
     if (busyRef.current || !selObj1 || !kinds.includes(selObj1.type)) return
     busyRef.current = true
     const pageIndex = selected.page
@@ -644,8 +651,11 @@ export default function PdfEditor({ source, path }) {
       await op(pageIndex, { type: obj.type, bbox: obj.bbox })
       const m = await refreshPage(pageIndex)
       const pool = obj.type === 'vector' ? m.vectors : m.images
-      const cx = obj.bbox.x + obj.bbox.w / 2, cy = obj.bbox.y + obj.bbox.h / 2
-      let best = null, bestD = 9
+      // re-find where the object is EXPECTED to be: a geometry-changing op (endpoint drag) passes
+      // the new centre — searching around the old bbox would lose a rotated line entirely
+      const cx = center ? center.x : obj.bbox.x + obj.bbox.w / 2
+      const cy = center ? center.y : obj.bbox.y + obj.bbox.h / 2
+      let best = null, bestD = center ? 25 : 9
       for (const o of pool || []) {
         const d = Math.hypot(o.bbox.x + o.bbox.w / 2 - cx, o.bbox.y + o.bbox.h / 2 - cy)
         if (d < bestD) { bestD = d; best = o }
@@ -658,7 +668,8 @@ export default function PdfEditor({ source, path }) {
   const strokeWidthSelected = (w) => mutateObject((p, it) => engineRef.current.setStrokeWidth(p, it, w))
   const opacitySelected = (pct) => mutateObject((p, it) => engineRef.current.setOpacity(p, it, Math.max(0, Math.min(100, pct)) / 100), ['vector', 'image'])
   const dashSelected = (d) => mutateObject((p, it) => engineRef.current.setDash(p, it, d))
-  const lineGeoSelected = (pageIndex, obj, geo) => mutateObject((p, it) => engineRef.current.setLineGeo(p, it, geo))
+  const lineGeoSelected = (pageIndex, obj, geo) =>
+    mutateObject((p, it) => engineRef.current.setLineGeo(p, it, geo), ['vector'], { x: (geo.x1 + geo.x2) / 2, y: (geo.y1 + geo.y2) / 2 })
 
   // resize an image/vector to a new bbox (from the selection frame's handles)
   const resizeSelected = async (pageIndex, obj, nb) => {

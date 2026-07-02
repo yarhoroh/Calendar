@@ -96,6 +96,10 @@ export default function PdfPage({ page, image, scale, selected, showAll, nudge, 
     const [x, y] = toPt(e, el)
     e.stopPropagation()
 
+    // an open text editor swallows this click: it only commits/closes the editor and must NOT
+    // select whatever element happens to be under the cursor
+    if (textEdit) return
+
     // eyedropper: pick the clicked text's style for the rich editor (no selection change)
     if (pipette) {
       const hit = hitTest(objects, x, y)

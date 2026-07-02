@@ -647,8 +647,18 @@ export default function PdfEditor({ source, path }) {
     const occurrences = picks.map(({ page, r }) => occFromRun(page, r))
     if (!occurrences.length) { setVarDraft(null); return }
     const name = (d.name || '').trim() || d.value.trim() || 'var'
-    const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
-    setVariables((vs) => [...vs, { id, name, value: d.value, occurrences }])
+    setVariables((vs) => {
+      // typed/picked an EXISTING name → merge the new places into that variable (dedup by anchor)
+      const existing = vs.find((v) => v.name.toLowerCase() === name.toLowerCase())
+      if (existing) {
+        const key = (o) => `${o.page}|${Math.round(o.x)}|${Math.round(o.baseline)}`
+        const have = new Set(existing.occurrences.map(key))
+        const merged = [...existing.occurrences, ...occurrences.filter((o) => !have.has(key(o)))]
+        return vs.map((v) => (v === existing ? { ...v, occurrences: merged } : v))
+      }
+      const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
+      return [...vs, { id, name, value: d.value, occurrences }]
+    })
     setVarDraft(null)
     setVarsCollapsed(false)
   }
@@ -1028,10 +1038,21 @@ export default function PdfEditor({ source, path }) {
     if (!selected) return
     const items = selected.objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })) // anchors → surgical text delete
     if (!items.length) return
+    const page = selected.page
+    const deletedTexts = selected.objs.filter((o) => o.type === 'text').map((o) => ({ x: o.x, y: o.y }))
     onSelect(selected.page, null) // selection (and any pending nudge) is gone with the objects
     try {
-      await engineRef.current.deleteObjects(selected.page, items)
-      await refreshPage(selected.page)
+      await engineRef.current.deleteObjects(page, items)
+      await refreshPage(page)
+      // a deleted text object drops out of every variable that referenced it (empty variables go too)
+      if (deletedTexts.length) {
+        setVariables((vs) => vs
+          .map((v) => ({
+            ...v,
+            occurrences: v.occurrences.filter((o) => !(o.page === page && deletedTexts.some((d) => Math.abs(d.x - o.x) < 1.5 && Math.abs(d.y - o.baseline) < 1.5)))
+          }))
+          .filter((v) => v.occurrences.length))
+      }
     } catch (err) { console.error('[pdf] delete failed:', err) }
   }
 
@@ -1474,8 +1495,9 @@ export default function PdfEditor({ source, path }) {
         <div className="pdfed__infowrap" onClick={() => setVarDraft(null)}>
           <div className="pdfed__varpop" onClick={(e) => e.stopPropagation()}>
             <div className="pdfed__infohead"><b>Create variable</b><button className="pdfed__btn" onClick={() => setVarDraft(null)}>✕</button></div>
-            <label className="pdfed__varpop-lbl">Name
-              <input className="pdfed__var-value" autoFocus value={varDraft.name} onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })} />
+            <label className="pdfed__varpop-lbl">Name (type new, or pick an existing to merge into it)
+              <input className="pdfed__var-value" autoFocus list="pdfed-var-names" value={varDraft.name} onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })} />
+              <datalist id="pdfed-var-names">{variables.map((v) => <option key={v.id} value={v.name} />)}</datalist>
             </label>
             <label className="pdfed__varpop-lbl">Value
               <input className="pdfed__var-value" value={varDraft.value} onChange={(e) => setVarDraft({ ...varDraft, value: e.target.value })} />

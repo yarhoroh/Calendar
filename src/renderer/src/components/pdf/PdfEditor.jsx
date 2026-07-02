@@ -652,7 +652,21 @@ export default function PdfEditor({ source, path }) {
         let json = path ? await api.pdf?.varsGet?.(path) : null
         if (!json) { const r = await engineRef.current.readVariables(); json = r?.json || null }
         const list = json ? JSON.parse(json) : null
-        if (Array.isArray(list) && list.length) { setVariables(list); console.log(`[pdf][vars] restored ${list.length} variable(s)`) }
+        if (Array.isArray(list) && list.length) {
+          // the input must reflect what's ACTUALLY in the PDF now, not the last-saved value — read
+          // the current text at each variable's own anchors from the freshly-loaded model
+          const readCurrent = (v) => {
+            const occ = v.occurrences?.[0]
+            const pg = occ && model.find((p) => p.pageIndex === occ.page)
+            if (!pg) return v.value
+            const runs = (occ.parts || [{ x: occ.x, baseline: occ.baseline }])
+              .map((p) => pg.runs.find((r) => Math.abs(r.x - p.x) < 1.5 && Math.abs(r.y - p.baseline) < 1.5))
+              .filter(Boolean)
+            return runs.length ? joinRuns(runs).replace(/\s+/g, ' ').trim() : v.value
+          }
+          setVariables(list.map((v) => ({ ...v, value: readCurrent(v) })))
+          console.log(`[pdf][vars] restored ${list.length} variable(s)`)
+        }
       } catch (e) { console.warn('[pdf][vars] restore failed:', e?.message) }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps

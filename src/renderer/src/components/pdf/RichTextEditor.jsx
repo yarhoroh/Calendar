@@ -109,15 +109,16 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
     else onCancel() // nothing typed → just close
   }
 
-  // click anywhere outside the editor — except the toolbar and its popups — commits.
-  // While the eyedropper is armed, page clicks PICK a style instead of committing.
+  // commit ONLY when clicking inside the PDF page area (the viewport), never on the toolbars/panels:
+  // clicking the top toolbar (font, B/I, size, colour) must RESTYLE the selected text, not close the
+  // editor. Editing ends only by clicking on the page itself (or Escape to cancel).
   useEffect(() => {
     const down = (e) => {
       if (pipetteRef.current) return
       const t = e.target
       if (!(t instanceof Element)) return
-      if (t.closest('.pdfed__rte') || t.closest('.pdfed__toolbar') || t.closest('.pdfed__colorpanel') || t.closest('.ctx-menu')) return
-      commitRef.current()
+      if (t.closest('.pdfed__rte')) return // inside the editor
+      if (t.closest('.pdfed__viewport')) commitRef.current() // a click on the page → commit
     }
     window.addEventListener('mousedown', down, true)
     return () => window.removeEventListener('mousedown', down, true)

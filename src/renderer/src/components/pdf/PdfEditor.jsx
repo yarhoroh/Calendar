@@ -5,6 +5,7 @@ import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
 import PdfPage from './PdfPage'
+import VariableEditor from './VariableEditor'
 import './PdfEditor.css'
 
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
@@ -693,6 +694,35 @@ export default function PdfEditor({ source, path }) {
     }
   }
   const occParts = (o) => o.parts || [{ x: o.x, baseline: o.baseline }]
+  // seed the rich editor from a chain of runs — carry EVERY parameter (font, size, colour, bold,
+  // italic, letter-spacing), grouped into lines (Enter between different baselines), gap→space
+  const runsToContent = (page, runs) => {
+    const pg = model.find((p) => p.pageIndex === page)
+    const s = [...runs].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    const lines = []
+    let cur = null, prev = null
+    for (const r of s) {
+      const f = pg?.fonts?.[r.f] || {}
+      const run = { text: r.text || '', bold: !!f.bold, italic: !!f.italic, family: f.name || 'Arial', size: r.size, color: pg?.colors?.[r.c] || '#000000', ls: r.ls || 0 }
+      if (cur && prev && Math.abs(r.y - prev.y) <= 3) {
+        if (r.x - (prev.x + prev.bbox.w) > (r.size || 10) * 0.25) run.text = ' ' + run.text // real gap → space
+        cur.push(run)
+      } else { cur = [run]; lines.push(cur) }
+      prev = r
+    }
+    return lines
+  }
+  const valueToContent = (value) => String(value || '').split('\n').map((l) => [{ text: l }])
+  const contentToText = (lines) => (lines || []).map((runs) => runs.map((r) => r.text).join('')).join('\n')
+  // width estimate for re-flowing runs on a line (canvas ~ matches the visual font in pt)
+  const measureText = (() => {
+    const cx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
+    return (text, family, size, bold, italic) => {
+      if (!cx) return (text.length * (size || 10) * 0.5)
+      cx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size || 10}px "${family || 'Arial'}"`
+      return cx.measureText(text).width
+    }
+  })()
   // find every chain of adjacent same-line runs whose combined text equals the value (also single
   // runs) — so "2 000 EUR" split across 3 pieces and an unsplit "2000 EUR" both match
   const findChains = (target) => {
@@ -747,14 +777,17 @@ export default function PdfEditor({ source, path }) {
         return vs.map((v) => (v === existing ? { ...v, occurrences: merged } : v))
       }
       const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
-      return [...vs, { id, name, value: d.value, occurrences }]
+      // rich content seeded from the selected chain's runs (all styles + line breaks)
+      const content = runsToContent(d.page, d.objs)
+      return [...vs, { id, name, value: d.value, content, occurrences }]
     })
     setVarDraft(null)
     setVarsCollapsed(false)
   }
-  // apply a new value to every ENABLED occurrence — blank the old text at each anchor, insert the
-  // new value with the occurrence's own style (reuses the atomic replaceText engine)
-  const applyVariable = async (occurrences, value) => {
+  // apply the rich CONTENT (lines of styled runs) to every ENABLED occurrence — blank the whole
+  // chain, then re-flow the content from the occurrence's anchor (first piece = x/baseline, next
+  // lines drop by the line height; runs on a line advance by their measured width)
+  const applyVariable = async (occurrences, content) => {
     if (busyRef.current) return
     busyRef.current = true
     try {
@@ -764,23 +797,40 @@ export default function PdfEditor({ source, path }) {
         const occs = byPage[pageIndex]
         const fonts = {}
         const items = []
-        const lines = []
+        const specLines = []
         for (const o of occs) {
-          const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
-          if (!fonts[k]) { const src = await fontSourceFor(o.family, o.bold, o.italic, true); if (src) fonts[k] = src }
-          // blank EVERY piece of the chain, insert ONE new value at the first piece's position
-          for (const p of occParts(o)) items.push({ type: 'text', bbox: o.bbox, x: p.x, y: p.baseline })
-          lines.push([{ text: value, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline, ls: o.ls || 0 }])
+          for (const p of occParts(o)) items.push({ type: 'text', bbox: o.bbox, x: p.x, y: p.baseline }) // blank every piece
+          const lh = (o.size || 10) * 1.25
+          for (let li = 0; li < content.length; li++) {
+            const runs = content[li]
+            if (!runs || !runs.length) continue
+            const baseline = o.baseline + li * lh
+            let x = o.x
+            const spec = []
+            for (const r of runs) {
+              if (r.text === '') continue
+              const family = r.family || o.family
+              const size = r.size || o.size
+              const color = r.color || o.color
+              const k = `${family}|${r.bold ? 'b' : ''}${r.italic ? 'i' : ''}`
+              if (!fonts[k]) { const src = await fontSourceFor(family, !!r.bold, !!r.italic, true); if (src) fonts[k] = src }
+              spec.push({ text: r.text, size, color, fontKey: k, x, baseline, ls: o.ls || 0 })
+              x += measureText(r.text, family, size, r.bold, r.italic)
+            }
+            if (spec.length) specLines.push(spec)
+          }
         }
-        await engineRef.current.replaceText(pageIndex, items, { lines }, fonts, await getFallback(), true) // textOnly: don't redact already-blanked pieces
+        await engineRef.current.replaceText(pageIndex, items, { lines: specLines }, fonts, await getFallback(), true) // textOnly: don't redact already-blanked pieces
         await refreshPage(pageIndex)
       }
     } catch (e) { console.error('[pdf][variable] apply failed:', e) } finally { busyRef.current = false }
   }
-  const changeVarValue = (id, val) => {
-    setVariables((vs) => vs.map((v) => (v.id === id ? { ...v, value: val } : v)))
+  // rich editor changed → store the content (+ plain value for name/search) and re-apply to all places
+  const changeVarContent = (id, content) => {
+    const text = contentToText(content)
+    setVariables((vs) => vs.map((v) => (v.id === id ? { ...v, content, value: text } : v)))
     const v = variablesRef.current.find((x) => x.id === id)
-    if (v) deferMutation(() => applyVariable(v.occurrences, val))
+    if (v) deferMutation(() => applyVariable(v.occurrences, content))
   }
   const toggleOcc = (id, i) =>
     setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
@@ -1590,12 +1640,7 @@ export default function PdfEditor({ source, path }) {
                         <span className="pdfed__var-count" title="linked places">{v.occurrences.filter((o) => o.enabled !== false).length}</span>
                         <button className="pdfed__btn pdfed__var-del" title="Remove variable" onClick={() => removeVariable(v.id)}>✕</button>
                       </div>
-                      <input
-                        className="pdfed__var-value"
-                        value={v.value}
-                        onChange={(e) => changeVarValue(v.id, e.target.value)}
-                        placeholder="value…"
-                      />
+                      <VariableEditor content={v.content || valueToContent(v.value)} onChange={(lines) => changeVarContent(v.id, lines)} />
                       {open && (
                         <div className="pdfed__var-occs">
                           {v.occurrences.map((o, i) => (

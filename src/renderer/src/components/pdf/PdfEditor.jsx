@@ -1074,19 +1074,21 @@ export default function PdfEditor({ source, path }) {
                   <ColorDrop
                     value={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
                     colors={docColors}
-                    onPick={(c) => recolorSelected({ stroke: c })}
+                    onPick={(c) => recolorSelected(selObj1.line?.head === 'filled' ? { stroke: c, fill: c } : { stroke: c })}
                     title="Stroke colour (incl. Transparent)"
                   />
                 </label>
-                <label className="pdfed__mini" title="Fill colour">
-                  Fill
-                  <ColorDrop
-                    value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
-                    colors={docColors}
-                    onPick={(c) => recolorSelected({ fill: c })}
-                    title="Fill colour (incl. Transparent)"
-                  />
-                </label>
+                {!selObj1.line && ( /* fill makes no sense for a line/arrow (a filled head follows Stroke) */
+                  <label className="pdfed__mini" title="Fill colour">
+                    Fill
+                    <ColorDrop
+                      value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
+                      colors={docColors}
+                      onPick={(c) => recolorSelected({ fill: c })}
+                      title="Fill colour (incl. Transparent)"
+                    />
+                  </label>
+                )}
                 <label className="pdfed__mini" title="Stroke width, pt — any vector">
                   W
                   <ComboNum value={selObj1.strokeW ?? 1} onPick={(v) => deferMutation(() => strokeWidthSelected(Math.max(0.2, v || 1)))} opts={[0.5, 1, 1.5, 2, 3, 4, 6]} step={0.5} min={0.2} max={40} width={60} />

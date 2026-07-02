@@ -543,6 +543,20 @@ function tightenBboxes(page, runs) {
     for (let x = Math.max(0, x0); x < Math.min(pw, x1); x++) if (px[base + x * nc] < 250) return true
     return false
   }
+  // nearest X-overlapping baselines above/below each run: with TIGHT leading the lines' ink touches
+  // in the raster and the connected growth used to jump onto the neighbour ("frame twice as tall")
+  const nb = new Map()
+  for (const r of runs) {
+    let above = -Infinity, below = Infinity
+    const rx0 = r.bbox.x, rx1 = r.bbox.x + r.bbox.w
+    for (const o of runs) {
+      if (o === r) continue
+      if (Math.min(o.bbox.x + o.bbox.w, rx1) - Math.max(o.bbox.x, rx0) < 0.3 * Math.min(o.bbox.w, r.bbox.w)) continue
+      if (o.y < r.y - 1 && o.y > above) above = o.y
+      else if (o.y > r.y + 1 && o.y < below) below = o.y
+    }
+    nb.set(r, [above, below])
+  }
   for (const r of runs) {
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     let top = Math.round(r.bbox.y * S), bot = Math.round((r.bbox.y + r.bbox.h) * S)
@@ -550,7 +564,11 @@ function tightenBboxes(page, runs) {
     // 0.5em below it, so neighbouring lines' ink (an inflated metric box, a run parked between two
     // lines) can never blow the frame up
     const size = r.size || 10
-    const hardTop = Math.round((r.y - size * 1.3) * S), hardBot = Math.round((r.y + size * 0.5) * S)
+    let hardTop = Math.round((r.y - size * 1.3) * S), hardBot = Math.round((r.y + size * 0.5) * S)
+    // …and never past the MIDPOINT of the gap to the neighbouring line's baseline
+    const [above, below] = nb.get(r)
+    if (isFinite(above)) hardTop = Math.max(hardTop, Math.round(((above + r.y) / 2) * S))
+    if (isFinite(below)) hardBot = Math.min(hardBot, Math.round(((r.y + below) / 2) * S))
     top = Math.max(top, hardTop)
     bot = Math.min(bot, hardBot)
     const lim = Math.round(size * 0.25 * S), upLim = top - lim, dnLim = bot + lim

@@ -469,6 +469,10 @@
 .pdfed__var-value:focus {
   border-color: var(--accent, #1473e6);
 }
+.pdfed__var-value:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .pdfed__var-occs {
   margin-top: 6px;
   border-top: 1px dashed var(--border);

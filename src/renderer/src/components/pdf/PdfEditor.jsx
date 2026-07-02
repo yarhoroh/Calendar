@@ -629,7 +629,7 @@ export default function PdfEditor({ source, path }) {
     const texts = selected.objs.filter((o) => o.type === 'text')
     if (!texts.length) return
     const value = texts.map((o) => o.text).join(' ').replace(/\s+/g, ' ').trim()
-    setVarDraft({ value, name: value, page: selected.page, objs: texts })
+    setVarDraft({ value, name: value, existing: '', page: selected.page, objs: texts })
   }
   // popup buttons: "add this" = only the selected run(s); "find identical" = every run in the doc
   // whose text equals the value (case-insensitive, whitespace-normalized)
@@ -646,7 +646,7 @@ export default function PdfEditor({ source, path }) {
     }
     const occurrences = picks.map(({ page, r }) => occFromRun(page, r))
     if (!occurrences.length) { setVarDraft(null); return }
-    const name = (d.name || '').trim() || d.value.trim() || 'var'
+    const name = (d.existing || d.name || '').trim() || d.value.trim() || 'var'
     setVariables((vs) => {
       // typed/picked an EXISTING name → merge the new places into that variable (dedup by anchor)
       const existing = vs.find((v) => v.name.toLowerCase() === name.toLowerCase())
@@ -1510,14 +1510,15 @@ export default function PdfEditor({ source, path }) {
             <div className="pdfed__infohead"><b>Create variable</b><button className="pdfed__btn" onClick={() => setVarDraft(null)}>✕</button></div>
             {variables.length > 0 && (
               <label className="pdfed__varpop-lbl">Add to an existing variable
-                <select className="pdfed__var-value" value={variables.some((v) => v.name === varDraft.name) ? varDraft.name : ''} onChange={(e) => e.target.value && setVarDraft({ ...varDraft, name: e.target.value })}>
+                <select className="pdfed__var-value" value={varDraft.existing || ''} onChange={(e) => setVarDraft({ ...varDraft, existing: e.target.value })}>
                   <option value="">— new variable —</option>
                   {variables.map((v) => <option key={v.id} value={v.name}>{v.name} ({v.occurrences.length})</option>)}
                 </select>
               </label>
             )}
             <label className="pdfed__varpop-lbl">Name (for a new variable)
-              <input className="pdfed__var-value" autoFocus value={varDraft.name}
+              <input className="pdfed__var-value" autoFocus disabled={!!varDraft.existing}
+                value={varDraft.existing || varDraft.name}
                 onChange={(e) => setVarDraft({ ...varDraft, name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter') finishCreate(false); if (e.key === 'Escape') setVarDraft(null) }} />
             </label>

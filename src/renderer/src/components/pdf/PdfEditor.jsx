@@ -877,8 +877,12 @@ export default function PdfEditor({ source, path }) {
       setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
       const m = await refreshPage(te.page)
       const added = allOf(m).filter((o) => !before.has(sigOf(o)))
-      console.log(`[pdf][insert-text] page ${te.page}, ${lines.length} line(s) → ${added.length} objects`)
-      onSelect(te.page, added) // the inserted text comes out selected
+      // the insertion is ONE text block now — select it WHOLE (every bN.lK line), same as a
+      // block-mode click would
+      const blocks = new Set(added.filter((o) => o.type === 'text').map((o) => String(o.id).split('.')[0]))
+      const grouped = allOf(m).filter((o) => (o.type === 'text' && blocks.has(String(o.id).split('.')[0])) || added.includes(o))
+      console.log(`[pdf][insert-text] page ${te.page}, ${lines.length} line(s) → ${added.length} new, ${grouped.length} in block(s)`)
+      onSelect(te.page, grouped.length ? grouped : added) // the inserted block comes out selected whole
     } catch (err) { console.error('[pdf] insert text failed (editor kept open):', err) } finally { busyRef.current = false }
   }
 

@@ -86,6 +86,17 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
     const [x, y] = toPt(e, el)
     e.stopPropagation()
 
+    // Shift/Ctrl + click: add objects to the selection one by one (click a selected one → remove it).
+    // Same result as the rubber-band, just piecewise. Never starts a drag or a marquee.
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      const hit = hitTest(objects, x, y)
+      if (hit) {
+        const has = selObjs.some((o) => o.id === hit.id)
+        onSelect(pageIndex, has ? selObjs.filter((o) => o.id !== hit.id) : [...selObjs, hit])
+      }
+      return // empty additive click keeps the selection as is
+    }
+
     if (inside(union, x, y)) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 
     const hit = hitTest(objects, x, y)

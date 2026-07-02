@@ -260,28 +260,35 @@
   font-size: 11px;
   line-height: 1;
 }
-.pdf-idx--pending {
-  color: var(--muted);
-  opacity: 0.5;
-}
-.pdf-idx--done {
-  color: #1e9e5a;
-}
 .pdf-idx--error {
   color: #d9534f;
   font-weight: 700;
 }
-.pdf-idx__spin {
-  width: 11px;
-  height: 11px;
-  border: 1.6px solid var(--border);
-  border-top-color: var(--accent, #1473e6);
+/* filled status dot: grey = queued, yellow = indexing, green = indexed */
+.pdf-idx__dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  animation: pdf-idx-spin 0.7s linear infinite;
+  background: var(--muted);
 }
-@keyframes pdf-idx-spin {
-  to {
-    transform: rotate(360deg);
+.pdf-idx__dot.is-pending {
+  background: #b8b8b8;
+  opacity: 0.55;
+}
+.pdf-idx__dot.is-busy {
+  background: #e0a825;
+  animation: pdf-idx-pulse 1s ease-in-out infinite;
+}
+.pdf-idx__dot.is-done {
+  background: #1e9e5a;
+}
+@keyframes pdf-idx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
 

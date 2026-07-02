@@ -21,12 +21,13 @@ const FolderGlyph = ({ link }) => (
   </svg>
 )
 
-// full-text index status shown on the right of each file row
+// full-text index status: a filled dot — grey (queued), yellow (indexing), green (done), red !
 const IndexBadge = ({ st, pages }) => {
-  if (!st || st.status === 'none' || st.status === 'pending') return <span className="pdf-idx pdf-idx--pending" title="Queued for indexing">○</span>
-  if (st.status === 'indexing') return <span className="pdf-idx pdf-idx--busy" title="Indexing…"><span className="pdf-idx__spin" /></span>
-  if (st.status === 'error') return <span className="pdf-idx pdf-idx--error" title="Indexing failed">!</span>
-  return <span className="pdf-idx pdf-idx--done" title={`Indexed${pages ? ` · ${pages} p.` : ''} — searchable`}>✓</span>
+  if (st?.status === 'error') return <span className="pdf-idx pdf-idx--error" title="Indexing failed">!</span>
+  const cls = st?.status === 'done' ? 'is-done' : st?.status === 'indexing' ? 'is-busy' : 'is-pending'
+  const title = st?.status === 'done' ? `Indexed${pages ? ` · ${pages} p.` : ''} — searchable`
+    : st?.status === 'indexing' ? 'Indexing…' : 'Queued for indexing'
+  return <span className={'pdf-idx'} title={title}><span className={'pdf-idx__dot ' + cls} /></span>
 }
 
 // A virtual node is { id, type:'folder'|'linkFolder'|'linkFile', name, path?, mode?, children? }.

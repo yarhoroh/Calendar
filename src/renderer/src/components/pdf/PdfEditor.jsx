@@ -34,13 +34,33 @@ function ComboNum({ value, onPick, opts, step = 1, min, max, width, title, onGra
         onBlur={() => setDraft(String(value))}
         onKeyDown={(e) => { if (e.key === 'Enter') push(e.currentTarget.value) }}
       />
-      <select className="pdfed__combosel" value="" disabled={disabled} onMouseDown={onGrab} onChange={(e) => onPick(parseFloat(e.target.value))}>
-        <option value="" hidden></option>
-        {opts.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
+      {opts?.length > 0 && (
+        <select className="pdfed__combosel" value="" disabled={disabled} onMouseDown={onGrab} onChange={(e) => onPick(parseFloat(e.target.value))}>
+          <option value="" hidden></option>
+          {opts.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      )}
     </span>
   )
 }
+
+// "insert shape" — a square with a plus (local: only the PDF toolbar uses it)
+const InsertShapeIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="7" width="12" height="12" rx="2" />
+    <path d="M19 3v6M16 6h6" />
+  </svg>
+)
+
+// "insert image" — a picture with a plus (local: only the PDF toolbar uses it)
+const InsertImageIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="14" height="14" rx="2" />
+    <circle cx="8" cy="10" r="1.5" />
+    <path d="m3 17 4-4 3 3 4-4 3 3" />
+    <path d="M19 3v6M16 6h6" />
+  </svg>
+)
 
 // "insert text" — a T with a plus (local: only the PDF toolbar uses it)
 const InsertTextIcon = () => (
@@ -73,7 +93,7 @@ export default function PdfEditor({ source, path }) {
   const [fontSel, setFontSel] = useState('')
   const [colorSel, setColorSel] = useState('#000000')
   const [colorOpen, setColorOpen] = useState(false)
-  const [insertMode, setInsertMode] = useState(false) // "insert text" armed: the next click places the editor
+  const [insertMode, setInsertMode] = useState(false) // false | 'text' | { image: {bytes,w,h} } — the next click places it
   const [textEdit, setTextEdit] = useState(null) // active rich-text editor: { page, x, y } (pt)
   const [fontSize, setFontSize] = useState(12) // pt
   const [boldSel, setBoldSel] = useState(false) // sticky style state: survives deselection, so a new
@@ -81,6 +101,10 @@ export default function PdfEditor({ source, path }) {
   const [lineH, setLineH] = useState(1.25) // line-height multiplier (editor layout — coords carry it into the PDF)
   const [letterS, setLetterS] = useState(0) // letter spacing, pt → Tc
   const [pipette, setPipette] = useState(false) // eyedropper: next click on a text copies its full style into the editor
+  const [shapeMenu, setShapeMenu] = useState(null) // shape-kind picker popover: { x, y }
+  const [strokeW, setStrokeW] = useState(1) // shape stroke width, pt
+  const [cornerR, setCornerR] = useState(0) // rect corner radius, pt
+  const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
   const rteRef = useRef(null)
   const engineRef = useRef(null)
   const urlsRef = useRef([])
@@ -439,6 +463,14 @@ export default function PdfEditor({ source, path }) {
           const src = await fontSourceFor(family, bold, italic)
           if (src) fonts[k] = src
         }
+        // LS is a DELTA over the run's own base layout, never an absolute Tc of the replacement
+        // font: base = current width minus its current spacing; target = base + wanted LS. So
+        // LS=0 always returns to the run's ORIGINAL width (whatever font/kerning produced it),
+        // and 5↔0 cycles are exact.
+        const gaps = Math.max(1, (o.text || '').length - 1)
+        const sizeScale = patch.size ? patch.size / (o.size || patch.size) : 1
+        const baseW = (o.bbox.w - (o.ls || 0) * gaps) * sizeScale
+        const wantLS = patch.ls !== undefined ? patch.ls : (o.ls || 0)
         lines.push([{
           text: o.text,
           size: patch.size || o.size,
@@ -446,10 +478,8 @@ export default function PdfEditor({ source, path }) {
           fontKey: k,
           x: o.x,
           baseline: o.y,
-          // explicit LS change → user's value; otherwise the worker FITS Tc to the run's original
-          // width — spacing baked in as Tc, TJ kerning or per-glyph positions all survive
-          ls: patch.ls !== undefined ? patch.ls : undefined,
-          fitW: patch.ls !== undefined ? undefined : o.bbox.w * (patch.size ? patch.size / (o.size || patch.size) : 1)
+          ls: undefined, // the worker always fits Tc to the target width
+          fitW: baseW + wantLS * gaps
         }])
       }
       const before = new Set(allOf(pg).map(sigOf))
@@ -553,11 +583,103 @@ export default function PdfEditor({ source, path }) {
     }
   }
 
+  // recolor the selected vector (stroke and/or fill), then re-find it in the fresh model
+  const recolorSelected = async (colors) => {
+    if (busyRef.current || !selObj1 || selObj1.type !== 'vector') return
+    busyRef.current = true
+    const pageIndex = selected.page
+    const obj = selObj1
+    try {
+      await engineRef.current.recolorVector(pageIndex, { type: obj.type, bbox: obj.bbox }, colors)
+      const m = await refreshPage(pageIndex)
+      // same place, new colour — pick the fresh vector whose centre matches
+      const cx = obj.bbox.x + obj.bbox.w / 2, cy = obj.bbox.y + obj.bbox.h / 2
+      let best = null, bestD = 9
+      for (const o of m.vectors || []) {
+        const d = Math.hypot(o.bbox.x + o.bbox.w / 2 - cx, o.bbox.y + o.bbox.h / 2 - cy)
+        if (d < bestD) { bestD = d; best = o }
+      }
+      onSelect(pageIndex, best ? [best] : [obj])
+    } catch (err) { console.error('[pdf] recolor failed:', err) } finally { busyRef.current = false }
+  }
+
+  // resize an image/vector to a new bbox (from the selection frame's handles)
+  const resizeSelected = async (pageIndex, obj, nb) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      await engineRef.current.resizeObject(pageIndex, { type: obj.type, bbox: obj.bbox }, nb)
+      await refreshPage(pageIndex)
+      onSelect(pageIndex, [{ ...obj, bbox: nb }]) // keep it selected at its new size
+    } catch (err) { console.error('[pdf] resize failed:', err) } finally { busyRef.current = false }
+  }
+
   // ---- insert text: rich-editor content → styled runs → written into the PDF stream ----
   const startTextEdit = (pageIndex, x, y) => {
     setInsertMode(false)
     onSelect(pageIndex, null)
     setTextEdit({ page: pageIndex, x, y })
+  }
+
+  // ---- insert image: pick a PNG/JPEG, then click the page where it goes ----
+  const pickImageFile = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/jpeg'
+    input.onchange = async () => {
+      const f = input.files?.[0]
+      if (!f) return
+      const bytes = await f.arrayBuffer()
+      const bmp = await createImageBitmap(new Blob([bytes]))
+      const scale = Math.min(1, 300 / bmp.width, 300 / bmp.height) // sane default size, keeps ratio
+      const w = +(bmp.width * scale).toFixed(2), h = +(bmp.height * scale).toFixed(2)
+      bmp.close?.()
+      setInsertMode({ image: { bytes, w, h } })
+    }
+    input.click()
+  }
+  const placeImage = async (pageIndex, x, y, img) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      const before = new Set(allOf(model.find((p) => p.pageIndex === pageIndex) || { runs: [] }).map(sigOf))
+      await engineRef.current.insertImage(pageIndex, img.bytes, x, y, img.w, img.h)
+      const m = await refreshPage(pageIndex)
+      onSelect(pageIndex, allOf(m).filter((o) => !before.has(sigOf(o)))) // the placed image comes out selected
+    } catch (err) { console.error('[pdf] insert image failed:', err) } finally { busyRef.current = false }
+  }
+  // ---- insert shape: pick a kind, then click (default size) or drag (custom size) on the page ----
+  const placeShape = async (pageIndex, kind, geo) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      const before = new Set(allOf(model.find((p) => p.pageIndex === pageIndex) || { runs: [] }).map(sigOf))
+      await engineRef.current.insertShape(pageIndex, kind, geo, { color: colorSel, strokeW, radius: cornerR })
+      const m = await refreshPage(pageIndex)
+      onSelect(pageIndex, allOf(m).filter((o) => !before.has(sigOf(o))))
+    } catch (err) { console.error('[pdf] insert shape failed:', err) } finally { busyRef.current = false }
+  }
+
+  // one entry point for every armed insert mode; `drag` carries the drawn rectangle for shapes
+  const startInsertAt = (pageIndex, x, y, drag) => {
+    const mode = insertMode
+    setInsertMode(false)
+    if (mode === 'text') startTextEdit(pageIndex, x, y)
+    else if (mode?.image) placeImage(pageIndex, x, y, mode.image)
+    else if (mode?.shape) {
+      const kind = mode.shape.kind
+      let geo
+      if (drag && (Math.abs(drag.x2 - drag.x1) > 3 || Math.abs(drag.y2 - drag.y1) > 3)) {
+        geo = {
+          x: Math.min(drag.x1, drag.x2), y: Math.min(drag.y1, drag.y2),
+          w: Math.max(2, Math.abs(drag.x2 - drag.x1)), h: Math.max(2, Math.abs(drag.y2 - drag.y1)),
+          x1: drag.x1, y1: drag.y1, x2: drag.x2, y2: drag.y2
+        }
+      } else {
+        geo = { x, y, w: 120, h: kind === 'line' ? 0 : 80, x1: x, y1: y, x2: x + 120, y2: y + (kind === 'line' ? 0 : 80) }
+      }
+      placeShape(pageIndex, kind, geo)
+    }
   }
   const commitText = async (lines) => {
     const te = textEdit
@@ -634,6 +756,18 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] delete failed:', err) }
   }
 
+  // what the second (contextual) toolbar row edits: text controls, or the selected object's panel
+  const selKind = textEdit || !selected
+    ? 'text'
+    : selected.objs.every((o) => o.type === 'text')
+      ? 'text'
+      : selected.objs.length === 1
+        ? selected.objs[0].type
+        : 'mixed'
+  const selObj1 = selected?.objs.length === 1 ? selected.objs[0] : null
+  const pickObjX = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, v - selObj1.bbox.x, 0)) }
+  const pickObjY = (v) => { if (selObj1) deferMutation(() => moveSelected(selected.page, selected.objs, 0, v - selObj1.bbox.y)) }
+
   return (
     <div className="pdfed">
       <div className="pdfed__toolbar">
@@ -641,6 +775,67 @@ export default function PdfEditor({ source, path }) {
         <span className="pdfed__zoom">{Math.round(scale * 100)}%</span>
         <button className="pdfed__btn" onClick={() => setScale((s) => Math.min(10, s * 1.15))} title="Zoom in"><ZoomInIcon /></button>
         <span className="pdfed__sep" />
+        {/* insert section: arm a mode (text / image; shapes coming), then click the page */}
+        <button
+          className={'pdfed__btn' + (insertMode === 'text' ? ' is-active' : '')}
+          onClick={() => setInsertMode((m) => (m === 'text' ? false : 'text'))}
+          title="Insert text — click the page where it should go"
+        >
+          <InsertTextIcon />
+        </button>
+        <button
+          className={'pdfed__btn' + (insertMode?.image ? ' is-active' : '')}
+          onClick={pickImageFile}
+          title="Insert image (PNG/JPEG) — pick a file, then click the page"
+        >
+          <InsertImageIcon />
+        </button>
+        <button
+          className={'pdfed__btn' + (insertMode?.shape ? ' is-active' : '')}
+          onClick={(e) => {
+            if (insertMode?.shape) { setInsertMode(false); return }
+            const r = e.currentTarget.getBoundingClientRect()
+            setShapeMenu({ x: r.left, y: r.bottom + 4 })
+          }}
+          title="Insert shape — pick a kind, then click or drag on the page"
+        >
+          <InsertShapeIcon />
+        </button>
+        <span className="pdfed__sep" />
+        <button className="pdfed__btn" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)"><CopyIcon /></button>
+        <button className="pdfed__btn" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)"><PasteIcon /></button>
+        <button className="pdfed__btn" onClick={deleteSelected} disabled={!selected} title="Delete"><TrashIcon /></button>
+        <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
+        <span className="pdfed__spacer" />
+        <label className="pdfed__check" title="Outline every element on the page (faint grey), so you can see where everything is">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+          All
+        </label>
+        <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
+      </div>
+
+      {/* second row — contextual: text style controls, shape parameters, or the object's panel */}
+      <div className="pdfed__stylebar">
+        {insertMode?.shape && (
+          <>
+            <span className="pdfed__sblabel">Shape · {insertMode.shape.kind}</span>
+            {insertMode.shape.kind === 'rect' && (
+              <label className="pdfed__mini" title="Corner radius, pt">
+                R
+                <ComboNum value={cornerR} onPick={(v) => setCornerR(Math.max(0, v || 0))} opts={[0, 2, 4, 6, 8, 12, 16, 24]} step={1} min={0} max={200} width={64} />
+              </label>
+            )}
+            <label className="pdfed__mini" title="Stroke width, pt">
+              W
+              <ComboNum value={strokeW} onPick={(v) => setStrokeW(Math.max(0.2, v || 1))} opts={[0.5, 1, 1.5, 2, 3, 4, 6]} step={0.5} min={0.2} max={40} width={64} />
+            </label>
+            <span className="pdfed__sbinfo">
+              stroke <span className="pdfed__swatch" style={{ background: colorSel, display: 'inline-block', verticalAlign: '-3px' }} /> — click or drag on the page
+            </span>
+          </>
+        )}
+        {!insertMode?.shape && selKind === 'text' && (
+          <>
         <select
           className="pdfed__fontsel"
           value={fontSel}
@@ -743,23 +938,61 @@ export default function PdfEditor({ source, path }) {
         >
           <PipetteIcon />
         </button>
-        <span className="pdfed__sep" />
-        {/* insert section: arm the mode, then click the page where the new element should go */}
-        <button
-          className={'pdfed__btn' + (insertMode ? ' is-active' : '')}
-          onClick={() => setInsertMode((v) => !v)}
-          title="Insert text — click the page where it should go"
-        >
-          <InsertTextIcon />
-        </button>
-        <span className="pdfed__sep" />
-        <button className="pdfed__btn" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)"><CopyIcon /></button>
-        <button className="pdfed__btn" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)"><PasteIcon /></button>
-        <button className="pdfed__btn" onClick={deleteSelected} disabled={!selected} title="Delete"><TrashIcon /></button>
-        <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
-        <span className="pdfed__spacer" />
-        <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>
+          </>
+        )}
+        {!insertMode?.shape && (selKind === 'image' || selKind === 'vector') && selObj1 && (
+          /* object panel — position is editable now; resize, fill/stroke colours and corner
+             radius land here next */
+          <>
+            <span className="pdfed__sblabel">{selKind === 'image' ? 'Image' : 'Vector'}</span>
+            <label className="pdfed__mini" title="X (pt)">
+              X
+              <ComboNum value={selObj1.bbox.x} onPick={pickObjX} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
+            </label>
+            <label className="pdfed__mini" title="Y (pt)">
+              Y
+              <ComboNum value={selObj1.bbox.y} onPick={pickObjY} opts={[]} step={0.5} min={-10000} max={10000} width={72} />
+            </label>
+            <span className="pdfed__sbinfo">W {selObj1.bbox.w} · H {selObj1.bbox.h}</span>
+            {selKind === 'vector' && (
+              <>
+                <label className="pdfed__mini" title="Stroke colour">
+                  Stroke
+                  <input
+                    type="color"
+                    className="pdfed__colin"
+                    defaultValue={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
+                    onChange={(e) => deferMutation(() => recolorSelected({ stroke: e.target.value }))}
+                  />
+                </label>
+                <label className="pdfed__mini" title="Fill colour">
+                  Fill
+                  <input
+                    type="color"
+                    className="pdfed__colin"
+                    defaultValue={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
+                    onChange={(e) => deferMutation(() => recolorSelected({ fill: e.target.value }))}
+                  />
+                </label>
+              </>
+            )}
+          </>
+        )}
+        {!insertMode?.shape && selKind === 'mixed' && <span className="pdfed__sbinfo">{selected.objs.length} objects selected</span>}
       </div>
+
+      {shapeMenu && (
+        <ContextMenu
+          x={shapeMenu.x}
+          y={shapeMenu.y}
+          items={[
+            { label: 'Rectangle', onClick: () => setInsertMode({ shape: { kind: 'rect' } }) },
+            { label: 'Line', onClick: () => setInsertMode({ shape: { kind: 'line' } }) },
+            { label: 'Ellipse', onClick: () => setInsertMode({ shape: { kind: 'ellipse' } }) }
+          ]}
+          onClose={() => setShapeMenu(null)}
+        />
+      )}
 
       <div className="pdfed__body">
         <div
@@ -776,6 +1009,7 @@ export default function PdfEditor({ source, path }) {
                 image={imgOf(p.pageIndex)}
                 scale={scale}
                 selected={selected}
+                showAll={showAll}
                 nudge={nudge && nudge.page === p.pageIndex ? nudge : null}
                 insertMode={insertMode}
                 textEdit={textEdit}
@@ -794,9 +1028,10 @@ export default function PdfEditor({ source, path }) {
                 }}
                 onSelect={onSelect}
                 onMove={moveSelected}
+                onResize={resizeSelected}
                 onSprite={spriteFor}
                 onMenu={setMenu}
-                onInsertAt={startTextEdit}
+                onInsertAt={startInsertAt}
                 onPipettePick={pipettePick}
                 onTextCommit={commitText}
                 onTextCancel={() => setTextEdit(null)}

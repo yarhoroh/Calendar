@@ -33,13 +33,21 @@ const unionOf = (objs) => {
 }
 const inside = (r, x, y) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
 
-export default function PdfPage({ page, image, scale, selected, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+// resize handles: 4 corners + 4 edge midpoints, standard cursors
+const HANDLES = [
+  ['nw', 0, 0, 'nwse-resize'], ['n', 0.5, 0, 'ns-resize'], ['ne', 1, 0, 'nesw-resize'],
+  ['e', 1, 0.5, 'ew-resize'], ['se', 1, 1, 'nwse-resize'], ['s', 0.5, 1, 'ns-resize'],
+  ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
+]
+
+export default function PdfPage({ page, image, scale, selected, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
   const H = (image?.height ?? page.height) * scale
   const [marquee, setMarquee] = useState(null) // {x,y,w,h} in pt while rubber-banding
   const [ghost, setGhost] = useState(null) // {dx,dy} in pt while moving the selection
+  const [resizeBox, setResizeBox] = useState(null) // live bbox while dragging a handle
   const [sprite, setSprite] = useState(null) // transparent render of ONLY the dragged objects
   const dragRef = useRef(null)
 
@@ -94,7 +102,25 @@ export default function PdfPage({ page, image, scale, selected, nudge, insertMod
       return
     }
 
-    // insert-text mode: the click just places the rich-text editor
+    // shape mode: click places a default-size shape, drag draws it to size (marquee preview)
+    if (insertMode?.shape) {
+      const move = (ev) => {
+        const [mx, my] = toPt(ev, el)
+        setMarquee({ x: Math.min(x, mx), y: Math.min(y, my), w: Math.abs(mx - x), h: Math.abs(my - y) })
+      }
+      const up = (ev) => {
+        window.removeEventListener('mousemove', move)
+        window.removeEventListener('mouseup', up)
+        setMarquee(null)
+        const [ux, uy] = toPt(ev, el)
+        onInsertAt(pageIndex, x, y, { x1: x, y1: y, x2: ux, y2: uy })
+      }
+      window.addEventListener('mousemove', move)
+      window.addEventListener('mouseup', up)
+      return
+    }
+
+    // insert text/image mode: the click just places it
     if (insertMode) { onInsertAt(pageIndex, x, y); return }
 
     // Shift/Ctrl + click: add objects to the selection one by one (click a selected one → remove it).
@@ -141,6 +167,51 @@ export default function PdfPage({ page, image, scale, selected, nudge, insertMod
 
   // right-click: on the selection (or an object — which gets selected first) → Copy/Delete menu;
   // on empty space → Paste menu, pasting AT the clicked point
+  // drag a frame handle → live-resize the box; on drop the object is stretched in the stream.
+  // Shift keeps the aspect ratio on corner handles.
+  const nextBox = (b, h, dx, dy, keepRatio) => {
+    let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h
+    if (h.includes('w')) x0 += dx
+    if (h.includes('e')) x1 += dx
+    if (h.includes('n')) y0 += dy
+    if (h.includes('s')) y1 += dy
+    if (keepRatio && h.length === 2) { // corner + Shift → proportional
+      const r = b.w / b.h
+      const w = x1 - x0, hh = y1 - y0
+      if (Math.abs(w) / r > Math.abs(hh)) { const nh = (Math.abs(w) / r) * Math.sign(hh || 1); if (h.includes('n')) y0 = y1 - nh; else y1 = y0 + nh }
+      else { const nw = Math.abs(hh) * r * Math.sign(w || 1); if (h.includes('w')) x0 = x1 - nw; else x1 = x0 + nw }
+    }
+    const MIN = 2
+    return {
+      x: +Math.min(x0, x1).toFixed(2),
+      y: +Math.min(y0, y1).toFixed(2),
+      w: +Math.max(MIN, Math.abs(x1 - x0)).toFixed(2),
+      h: +Math.max(MIN, Math.abs(y1 - y0)).toFixed(2)
+    }
+  }
+  const startResize = (e, h) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget.closest('.pdfed__overlay')
+    const obj = selObjs[0]
+    const ob = obj.bbox
+    const [sx0, sy0] = toPt(e, el)
+    const move = (ev) => {
+      const [mx, my] = toPt(ev, el)
+      setResizeBox(nextBox(ob, h, mx - sx0, my - sy0, ev.shiftKey))
+    }
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      setResizeBox(null)
+      const [ux, uy] = toPt(ev, el)
+      const nb = nextBox(ob, h, ux - sx0, uy - sy0, ev.shiftKey)
+      if (Math.abs(nb.w - ob.w) > 0.5 || Math.abs(nb.h - ob.h) > 0.5 || Math.abs(nb.x - ob.x) > 0.5 || Math.abs(nb.y - ob.y) > 0.5) onResize(pageIndex, obj, nb)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
   const onContext = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -156,20 +227,40 @@ export default function PdfPage({ page, image, scale, selected, nudge, insertMod
   return (
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
-      <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode ? 'text' : undefined }} onMouseDown={onDown} onContextMenu={onContext}>
+      <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode === 'text' ? 'text' : insertMode ? 'crosshair' : undefined }} onMouseDown={onDown} onContextMenu={onContext}>
+        {/* "All" — faint grey outline around every non-empty element, an element map of the page */}
+        {showAll && objects.map((o) => (
+          o.bbox.w > 1 && o.bbox.h > 0.5
+            ? <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
+            : null
+        ))}
         {/* selection frame — the same light dashed box for one object or a whole group; while a
-            ghost is up it travels with it */}
+            ghost is up it travels with it; while a handle is dragged it shows the live box */}
         {union && (
           <div
             className="pdfed__frame"
-            style={px({
-              x: union.x - 2 + (ghost?.dx || 0) + (nudge?.dx || 0),
-              y: union.y - 2 + (ghost?.dy || 0) + (nudge?.dy || 0),
-              w: union.w + 4,
-              h: union.h + 4
-            })}
+            style={px(resizeBox
+              ? { x: resizeBox.x - 2, y: resizeBox.y - 2, w: resizeBox.w + 4, h: resizeBox.h + 4 }
+              : {
+                  x: union.x - 2 + (ghost?.dx || 0) + (nudge?.dx || 0),
+                  y: union.y - 2 + (ghost?.dy || 0) + (nudge?.dy || 0),
+                  w: union.w + 4,
+                  h: union.h + 4
+                })}
           />
         )}
+        {/* resize handles — single image/vector only (text scales through its font size) */}
+        {selObjs.length === 1 && selObjs[0].type !== 'text' && !ghost && union && (() => {
+          const b = resizeBox || union
+          return HANDLES.map(([h, fx, fy, cur]) => (
+            <div
+              key={h}
+              className="pdfed__handle"
+              style={{ left: (b.x + b.w * fx) * scale - 4, top: (b.y + b.h * fy) * scale - 4, cursor: cur }}
+              onMouseDown={(e) => startResize(e, h)}
+            />
+          ))
+        })()}
         {ghost && union && image && (
           <>
             {/* alignment guides while actively dragging: faint green lines from the ghost's edges

@@ -282,6 +282,34 @@
   text-overflow: ellipsis;
 }
 
+/* second toolbar row — contextual: text style controls, or the selected object's panel */
+.pdfed__stylebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+}
+.pdfed__sblabel {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-right: 4px;
+}
+.pdfed__sbinfo {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* body + page viewport */
 .pdfed__body {
   flex: 1 1 auto;
@@ -330,6 +358,50 @@
   background: transparent;
   cursor: move;
 }
+/* small colour input in the object panel (vector stroke/fill) */
+.pdfed__colin {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* "All" toggle in the toolbar */
+.pdfed__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  margin-right: 6px;
+}
+.pdfed__check input {
+  cursor: pointer;
+  accent-color: var(--accent, #1473e6);
+}
+/* faint outline around every element when "All" is on — the page's element map */
+.pdfed__allbox {
+  position: absolute;
+  outline: 1px dashed rgba(128, 128, 128, 0.38);
+  pointer-events: none;
+}
+
+/* resize handles on a single image/vector selection */
+.pdfed__handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #1473e6;
+  border-radius: 2px;
+  z-index: 6;
+}
+
 /* rubber-band rectangle while dragging over empty space */
 .pdfed__marquee {
   position: absolute;

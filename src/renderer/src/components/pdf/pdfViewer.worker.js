@@ -67,12 +67,15 @@ function buildUnits(cs, streamNum, H) {
   let cmPre = null // ctm scale just BEFORE the unit's last cm — moving an image edits that cm's e/f, which live in the OUTER space (the cm itself carries the image size!)
   let shows = [] // every show op in the current text unit: { start (operand), end, px, py } — lets a delete blank ONE show surgically
   let operandStart = null, arrOpen = null
+  let startCtm = ctm.slice() // CTM at the unit's START — a wrap goes AROUND the whole unit, so its conjugation must use this, not the paint-time ctm (which already includes the unit's own cm)
+  let unitDirty = false // has the current unit range seen any real content yet?
   const num = []; const N = (k) => num.slice(-k).map(Number)
   const pt = (x, y) => { const dx = ctm[0]*x+ctm[2]*y+ctm[4], dy = ctm[1]*x+ctm[3]*y+ctm[5]; x0 = Math.min(x0, dx); y0 = Math.min(y0, dy); x1 = Math.max(x1, dx); y1 = Math.max(y1, dy); hasP = true }
-  const reset = () => { x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity; hasP = false; tPos = null; cmPre = null }
+  const reset = () => { x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity; hasP = false; tPos = null; cmPre = null; startCtm = ctm.slice(); unitDirty = false }
   const dev = (mx, my) => [ctm[0]*mx+ctm[2]*my+ctm[4], H - (ctm[1]*mx+ctm[3]*my+ctm[5])]
   for (const mt of toks) {
     const t = mt[0], end = mt.index + t.length
+    if (t !== 'Q') unitDirty = true
     if (isNum(t)) { num.push(t); continue }
     // track the show operand's byte range: a string/hex token, or a whole [...] array for TJ
     if (t[0] === '(' || t[0] === '<') { if (arrOpen === null) operandStart = mt.index }
@@ -80,7 +83,13 @@ function buildUnits(cs, streamNum, H) {
     else if (t === ']') arrOpen = null
     if (t[0] === '/') { pend = t.slice(1); num.length = 0; continue }
     if (t === 'q') stk.push(ctm.slice())
-    else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
+    else if (t === 'Q') {
+      if (stk.length) ctm = stk.pop()
+      // a Q before any unit content closes an OUTER block — it's not part of this unit. Skip the
+      // start past it and re-pin startCtm, or an in-place edit would blank it (balanceSeg) leaving
+      // the outer block open forever → the whole page flips/shifts.
+      if (!unitDirty) { start = end; startCtm = ctm.slice() }
+    }
     else if (t === 'cm') { const m = N(6); if (m.length === 6) { cmPre = { sa: ctm[0] || 1, sd: ctm[3] || 1 }; ctm = matMul(m, ctm) } }
     else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
     else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0]; fontRes = pend }
@@ -102,8 +111,8 @@ function buildUnits(cs, streamNum, H) {
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
-    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, name: pend }); start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }); start = end; reset() }
+    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend }); start = end; reset() }
     num.length = 0
   }
   return units
@@ -156,7 +165,7 @@ function shiftSeg(u, seg, dx, dy) {
       const m = ms[ms.length - 1] // the LAST cm before Do positions the image
       return seg.slice(0, m.index) + `${m[1]} ${m[2]} ${m[3]} ${m[4]} ${(parseFloat(m[5]) + ide).toFixed(3)} ${(parseFloat(m[6]) + idf).toFixed(3)} cm` + seg.slice(m.index + m[0].length)
     }
-    return `q 1 0 0 1 ${de.toFixed(3)} ${df.toFixed(3)} cm ` + seg + ' Q' // no cm inside → wrap (only safe on a balanced segment)
+    return `\nq 1 0 0 1 ${de.toFixed(3)} ${df.toFixed(3)} cm\n` + seg + '\nQ\n' // no cm inside → wrap (newlines: units start flush against the previous op — "n"+"q" would fuse into "nq")
   }
   if (u.type === 'path') {
     return seg
@@ -179,6 +188,29 @@ function balanceSeg(seg) {
     else if (mt[0] === 'Q') { if (depth > 0) depth--; else out[mt.index] = ' ' }
   }
   return out.join('') + (depth > 0 ? ' ' + 'Q '.repeat(depth) : '')
+}
+// how many q's does the segment leave open?
+function segOpenDepth(seg) {
+  const toks = [...mask(seg).matchAll(TOKENS)]
+  let depth = 0
+  for (const mt of toks) {
+    if (mt[0] === 'q') depth++
+    else if (mt[0] === 'Q' && depth > 0) depth--
+  }
+  return depth
+}
+// A previously wrapped unit ("q M cm …path… S" — its closing Q sits AFTER the paint op, outside the
+// parsed unit range). Extend the segment end to swallow those trailing Q's, or a re-wrap would leave
+// orphan Q's in the stream (gstate underflow → the whole page flips).
+function extendOverTrailingQs(cs, start, end) {
+  let opens = segOpenDepth(cs.slice(start, end))
+  while (opens > 0) {
+    const m = cs.slice(end).match(/^\s*Q/)
+    if (!m) break
+    end += m[0].length
+    opens--
+  }
+  return end
 }
 
 // walk page + form XObjects, collecting units in every stream (device coords)
@@ -806,6 +838,194 @@ function blankTextShows(pageIndex, items, strict = false) {
   return leftovers
 }
 
+// Resize an image/vector: wrap its (q/Q-balanced) unit in a transform that maps the old device
+// bbox onto the new one. W is computed in the unit's own space through its full CTM, so rotated /
+// nested content scales correctly too.
+function resizeObject(pageIndex, item, nb) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u || !u.ctm) throw new Error('cannot locate the object in the stream — nothing changed')
+  const ob = item.bbox
+  const sx = nb.w / ob.w, sy = nb.h / ob.h
+  // device-space transform: scale around the OLD top-left, then move to the NEW top-left.
+  // In root user space (y-up): anchor (x, H - y).
+  const ax = ob.x, ayU = H - ob.y
+  const mUser = [sx, 0, 0, sy, ax * (1 - sx) + (nb.x - ob.x), ayU * (1 - sy) - (nb.y - ob.y)]
+  // The wrap goes AROUND the unit, so conjugate through the CTM at the unit's START (ctmStart) —
+  // the paint-time ctm includes the unit's own cm (an image's placement, a previous wrap) and
+  // would skew the translation ("shrink from the left → the right edge drifts").
+  const prior = u.ctmStart || [1, 0, 0, 1, 0, 0]
+  const W = matMul(matMul(prior, mUser), invertM(prior))
+  const cs = readStream(pageObj, u.stream)
+  // a unit we already wrapped before keeps its closing Q AFTER the paint op — swallow those, or the
+  // re-wrap would orphan them (gstate underflow → the whole page flips/shifts)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  const seg = balanceSeg(cs.slice(u.start, segEnd))
+  // leading/trailing newlines are ESSENTIAL: units start flush against the previous operator, and
+  // "…W n" + "q…" would fuse into the invalid token "nq" (breaks the whole page)
+  const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n'
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end))
+}
+
+// Recolor a vector: replace its stroke (RG/G/K) and/or fill (rg/g/k) colour operators inside the
+// unit; a unit with no own colour op (inherited state) gets one prefixed.
+function recolorVector(pageIndex, item, colors) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const u = matchUnit(units, item)
+  if (!u) throw new Error('cannot locate the vector in the stream')
+  const cs = readStream(pageObj, u.stream)
+  const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+  let seg = cs.slice(u.start, segEnd)
+  const lastPaintPos = () => {
+    const re = /([\s>)\]])(S|s|f\*?|B\*?|b\*?)(?![A-Za-z*])/g
+    let last = null, m
+    while ((m = re.exec(seg))) last = m
+    return last ? last.index + last[1].length : -1
+  }
+  const N3 = '(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+'
+  const apply = (hex, ops) => {
+    const col = hexRgbOps(hex)
+    let hit = false
+    seg = seg
+      .replace(new RegExp(N3 + ops[0] + '\\b', 'g'), () => { hit = true; return `${col} ${ops[0]}` }) // RGB
+      .replace(new RegExp('(-?[\\d.]+)\\s+' + ops[1] + '\\b', 'g'), () => { hit = true; return `${col} ${ops[0]}` }) // gray → RGB
+      .replace(new RegExp(N3 + '(-?[\\d.]+)\\s+' + ops[2] + '\\b', 'g'), () => { hit = true; return `${col} ${ops[0]}` }) // CMYK → RGB
+    if (!hit) {
+      // no own colour op — inject one right BEFORE the paint op (the unit's own q…Q wrapping would
+      // cancel anything prefixed outside of it, leaving the default black)
+      const at = lastPaintPos()
+      if (at >= 0) seg = seg.slice(0, at) + `${col} ${ops[0]}\n` + seg.slice(at)
+      else seg = `\n${col} ${ops[0]}\n` + seg
+    }
+  }
+  if (colors.stroke) apply(colors.stroke, ['RG', 'G', 'K'])
+  if (colors.fill) apply(colors.fill, ['rg', 'g', 'k'])
+  // a stroke-only path can't SHOW a fill (and vice versa) — upgrade the LAST paint op to stroke+fill
+  const upgradePaint = (from, to) => {
+    const re = new RegExp(`([\\s>)\\]])${from.replace('*', '\\*')}(?![A-Za-z*])`, 'g')
+    let last = null, m
+    while ((m = re.exec(seg))) last = m
+    if (last) seg = seg.slice(0, last.index) + last[1] + to + seg.slice(last.index + last[0].length)
+  }
+  if (colors.fill) { upgradePaint('S', 'B'); upgradePaint('s', 'b') }
+  if (colors.stroke) { upgradePaint('f*', 'B*'); upgradePaint('f', 'B') }
+  writeStream(pageObj, u.stream, cs.slice(0, u.start) + seg + cs.slice(segEnd))
+}
+
+// Insert a vector shape (rect with optional corner radius / line / ellipse), stroked in the given
+// colour. Same end-of-stream neutralisation as text/images.
+const K = 0.5523 // bezier circle constant
+function shapeOps(kind, g, style, H) {
+  const col = hexRgbOps(style.color || '#000000')
+  const sw = style.strokeW || 1
+  let p = ''
+  if (kind === 'line') {
+    p = `${n2(g.x1)} ${n2(H - g.y1)} m ${n2(g.x2)} ${n2(H - g.y2)} l`
+  } else if (kind === 'ellipse') {
+    const cx = g.x + g.w / 2, cy = H - g.y - g.h / 2, rx = g.w / 2, ry = g.h / 2
+    p = `${n2(cx + rx)} ${n2(cy)} m ` +
+      `${n2(cx + rx)} ${n2(cy + ry * K)} ${n2(cx + rx * K)} ${n2(cy + ry)} ${n2(cx)} ${n2(cy + ry)} c ` +
+      `${n2(cx - rx * K)} ${n2(cy + ry)} ${n2(cx - rx)} ${n2(cy + ry * K)} ${n2(cx - rx)} ${n2(cy)} c ` +
+      `${n2(cx - rx)} ${n2(cy - ry * K)} ${n2(cx - rx * K)} ${n2(cy - ry)} ${n2(cx)} ${n2(cy - ry)} c ` +
+      `${n2(cx + rx * K)} ${n2(cy - ry)} ${n2(cx + rx)} ${n2(cy - ry * K)} ${n2(cx + rx)} ${n2(cy)} c h`
+  } else { // rect, optionally rounded
+    const x = g.x, yB = H - g.y - g.h, w = g.w, h = g.h
+    const r = Math.max(0, Math.min(style.radius || 0, w / 2, h / 2))
+    if (r < 0.1) p = `${n2(x)} ${n2(yB)} ${n2(w)} ${n2(h)} re`
+    else {
+      const k = K * r
+      p = `${n2(x + r)} ${n2(yB)} m ` +
+        `${n2(x + w - r)} ${n2(yB)} l ` +
+        `${n2(x + w - r + k)} ${n2(yB)} ${n2(x + w)} ${n2(yB + r - k)} ${n2(x + w)} ${n2(yB + r)} c ` +
+        `${n2(x + w)} ${n2(yB + h - r)} l ` +
+        `${n2(x + w)} ${n2(yB + h - r + k)} ${n2(x + w - r + k)} ${n2(yB + h)} ${n2(x + w - r)} ${n2(yB + h)} c ` +
+        `${n2(x + r)} ${n2(yB + h)} l ` +
+        `${n2(x + r - k)} ${n2(yB + h)} ${n2(x)} ${n2(yB + h - r + k)} ${n2(x)} ${n2(yB + h - r)} c ` +
+        `${n2(x)} ${n2(yB + r)} l ` +
+        `${n2(x)} ${n2(yB + r - k)} ${n2(x + r - k)} ${n2(yB)} ${n2(x + r)} ${n2(yB)} c h`
+    }
+  }
+  return `q ${col} RG ${n2(sw)} w 1 j 1 J ${p} S Q\n`
+}
+function insertShape(pageIndex, kind, geo, style) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const po = doc.findPage(pageIndex)
+  const cs = readStream(po, 0)
+  const end = streamEndState(cs)
+  let prefix = end.depth > 0 ? 'Q'.repeat(end.depth) + '\n' : ''
+  let suffix = ''
+  if (!isIdentityM(end.base)) {
+    const iv = invertM(end.base)
+    prefix += `q ${iv.map((v) => +v.toFixed(6)).join(' ')} cm\n`
+    suffix = 'Q\n'
+  }
+  writeStream(po, 0, cs + '\n' + prefix + shapeOps(kind, geo, style, H) + suffix)
+}
+
+// Insert a raster image (PNG/JPEG bytes) at x/y (pt, top-left) with the given size. Same
+// end-of-stream neutralisation as text, so a leftover flipped CTM can't mirror or displace it.
+let insImgSeq = 0
+function insertImage(pageIndex, bytes, x, y, w, h) {
+  const img = new mupdf.Image(new Uint8Array(bytes))
+  const ref = doc.addImage(img)
+  const name = 'EFIm' + insImgSeq++
+  const po = doc.findPage(pageIndex)
+  let res = po.getInheritable('Resources')
+  if (!res || res.isNull()) { res = doc.newDictionary(); po.put('Resources', res) }
+  let xo = res.get('XObject')
+  if (xo.isNull()) { xo = doc.newDictionary(); res.put('XObject', xo) }
+  xo.put(name, ref)
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const cs = readStream(po, 0)
+  const end = streamEndState(cs)
+  let prefix = end.depth > 0 ? 'Q'.repeat(end.depth) + '\n' : ''
+  let suffix = ''
+  if (!isIdentityM(end.base)) {
+    const iv = invertM(end.base)
+    prefix += `q ${iv.map((v) => +v.toFixed(6)).join(' ')} cm\n`
+    suffix = 'Q\n'
+  }
+  const ops = `q ${n2(w)} 0 0 ${n2(h)} ${n2(x)} ${n2(H - y - h)} cm /${name} Do Q\n`
+  writeStream(po, 0, cs + '\n' + prefix + ops + suffix)
+}
+
+// Shift object coordinates INSIDE the content stream: text → Tm (or the first Td), image → its
+// positioning cm, vector → path construction points. items: [{ type, bbox, x?, y?, dx, dy }] (dx/dy
+// in pt, screen-down positive). Each item is matched to its unit by exact anchor first, and several
+// items sharing one unit shift it ONCE.
+function moveObjectsImpl(pageIndex, items) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const jobMap = new Map() // unit → {dx, dy}
+  for (const it of items || []) {
+    const best = matchUnit(units, it)
+    if (best && !jobMap.has(best)) jobMap.set(best, { dx: it.dx, dy: it.dy })
+  }
+  const jobs = [...jobMap.entries()].map(([u, d]) => ({ u, dx: d.dx, dy: d.dy }))
+  const byStream = {}
+  for (const j of jobs) (byStream[j.u.stream] = byStream[j.u.stream] || []).push(j)
+  for (const sk of Object.keys(byStream)) {
+    const s = Number(sk)
+    let cs = readStream(pageObj, s)
+    const list = byStream[sk].sort((a, b) => b.u.start - a.u.start) // right-to-left keeps byte offsets valid
+    for (const { u, dx, dy } of list) {
+      cs = cs.slice(0, u.start) + shiftSeg(u, cs.slice(u.start, u.end), dx, dy) + cs.slice(u.end)
+    }
+    writeStream(pageObj, s, cs)
+  }
+  return jobs.length
+}
+
 // physically remove objects from the page stream: text — surgically (blank its own show op);
 // images/vectors and unmatched text — via redaction, grouped by type so each pass only touches
 // its own kind (text redaction won't eat an image underneath, etc.)
@@ -830,8 +1050,23 @@ function deleteObjectsImpl(pageIndex, items) {
   } finally { page.destroy() }
 }
 
-self.postMessage({ ready: true })
-self.onmessage = (e) => {
+// Test hooks: the SAME functions the worker runs are importable in Node — no copies, one source of
+// truth for behaviour. Harmless in the browser (module worker).
+export const __test = {
+  setDoc: (d) => { doc = d; insFonts = {}; insFontSeq = 0 },
+  getModel: (...a) => getModel(...a),
+  collectUnits,
+  moveObjectsImpl: (...a) => moveObjectsImpl(...a),
+  deleteObjectsImpl: (...a) => deleteObjectsImpl(...a),
+  insertShape: (...a) => insertShape(...a),
+  insertImage: (...a) => insertImage(...a),
+  resizeObject: (...a) => resizeObject(...a),
+  recolorVector: (...a) => recolorVector(...a),
+  readStreamOf: (pageObj, n) => readStream(pageObj, n)
+}
+
+if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })
+if (typeof self !== 'undefined') self.onmessage = (e) => {
   const { id, type, params } = e.data
   try {
     if (type === 'open') {
@@ -846,38 +1081,29 @@ self.onmessage = (e) => {
       const r = renderImage(params.pageIndex, params.scale)
       self.postMessage({ id, result: r }, [r.png])
     } else if (type === 'moveObjects') {
-      // shift object coordinates INSIDE the content stream: text → Tm (or the first Td), image → its
-      // positioning cm, vector → path construction points. items: [{ type, bbox, dx, dy }] (dx/dy in
-      // pt, screen-down positive). Each item is matched to the stream unit with the biggest overlap.
       if (!doc) throw new Error('no document open')
-      const lp = doc.loadPage(params.pageIndex)
-      const H = lp.getBounds()[3]; lp.destroy()
-      const pageObj = doc.findPage(params.pageIndex)
-      const units = collectUnits(pageObj, H)
-      // match every item to its unit (exact anchor first — overlapping copies stay distinct), then
-      // dedupe: several items can share one stream unit — shift that unit ONCE
-      const jobMap = new Map() // unit → {dx, dy}
-      for (const it of params.items || []) {
-        const best = matchUnit(units, it)
-        if (best && !jobMap.has(best)) jobMap.set(best, { dx: it.dx, dy: it.dy })
-      }
-      const jobs = [...jobMap.entries()].map(([u, d]) => ({ u, dx: d.dx, dy: d.dy }))
-      const byStream = {}
-      for (const j of jobs) (byStream[j.u.stream] = byStream[j.u.stream] || []).push(j)
-      for (const sk of Object.keys(byStream)) {
-        const s = Number(sk)
-        let cs = readStream(pageObj, s)
-        const list = byStream[sk].sort((a, b) => b.u.start - a.u.start) // right-to-left keeps byte offsets valid
-        for (const { u, dx, dy } of list) {
-          cs = cs.slice(0, u.start) + shiftSeg(u, cs.slice(u.start, u.end), dx, dy) + cs.slice(u.end)
-        }
-        writeStream(pageObj, s, cs)
-      }
-      self.postMessage({ id, result: { ok: true, moved: jobs.length, of: (params.items || []).length } })
+      const moved = moveObjectsImpl(params.pageIndex, params.items)
+      self.postMessage({ id, result: { ok: true, moved, of: (params.items || []).length } })
     } else if (type === 'renderObjects') {
       if (!doc) throw new Error('no document open')
       const r = renderObjects(params.pageIndex, params.zs, params.bbox, params.scale)
       self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'recolorVector') {
+      if (!doc) throw new Error('no document open')
+      recolorVector(params.pageIndex, params.item, params.colors)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'insertShape') {
+      if (!doc) throw new Error('no document open')
+      insertShape(params.pageIndex, params.kind, params.geo, params.style)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'resizeObject') {
+      if (!doc) throw new Error('no document open')
+      resizeObject(params.pageIndex, params.item, params.nb)
+      self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'insertImage') {
+      if (!doc) throw new Error('no document open')
+      insertImage(params.pageIndex, params.bytes, params.x, params.y, params.w, params.h)
+      self.postMessage({ id, result: { ok: true } })
     } else if (type === 'insertText') {
       if (!doc) throw new Error('no document open')
       insertText(params.pageIndex, params.spec, params.fonts, params.fallback)

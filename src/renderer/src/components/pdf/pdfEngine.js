@@ -41,6 +41,10 @@ export function createPdfEngine() {
     getFontsInfo: () => call('getFontsInfo', {}), // → { fonts:[{name, embedded, subset}] } — document font inventory
     insertText: (pageIndex, spec, fonts, fallback) => call('insertText', { pageIndex, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // write new rich text into the stream (fonts validated first)
     replaceText: (pageIndex, items, spec, fonts, fallback) => call('replaceText', { pageIndex, items, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // ATOMIC: validate fonts → delete → insert
+    insertImage: (pageIndex, bytes, x, y, w, h) => call('insertImage', { pageIndex, bytes, x, y, w, h }, [bytes]), // place a PNG/JPEG at x/y (pt, top-left)
+    resizeObject: (pageIndex, item, nb) => call('resizeObject', { pageIndex, item, nb }), // stretch an image/vector to the new bbox
+    insertShape: (pageIndex, kind, geo, style) => call('insertShape', { pageIndex, kind, geo, style }), // rect (radius) / line / ellipse
+    recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

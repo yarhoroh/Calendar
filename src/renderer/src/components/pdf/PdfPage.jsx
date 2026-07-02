@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import RichTextEditor from './RichTextEditor'
 
 // One page: a raster <img> (the exact visual) + a SINGLE transparent overlay that captures the mouse.
 // Everything is computed from the JSON model — no per-object divs:
@@ -32,7 +33,7 @@ const unionOf = (objs) => {
 }
 const inside = (r, x, y) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
 
-export default function PdfPage({ page, image, scale, selected, nudge, onSelect, onMove, onSprite, onMenu }) {
+export default function PdfPage({ page, image, scale, selected, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -85,6 +86,16 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
     const el = e.currentTarget
     const [x, y] = toPt(e, el)
     e.stopPropagation()
+
+    // eyedropper: pick the clicked text's style for the rich editor (no selection change)
+    if (pipette) {
+      const hit = hitTest(objects, x, y)
+      if (hit && hit.type === 'text') onPipettePick(pageIndex, hit)
+      return
+    }
+
+    // insert-text mode: the click just places the rich-text editor
+    if (insertMode) { onInsertAt(pageIndex, x, y); return }
 
     // Shift/Ctrl + click: add objects to the selection one by one (click a selected one → remove it).
     // Same result as the rubber-band, just piecewise. Never starts a drag or a marquee.
@@ -145,7 +156,7 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
   return (
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
-      <div className="pdfed__overlay" onMouseDown={onDown} onContextMenu={onContext}>
+      <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode ? 'text' : undefined }} onMouseDown={onDown} onContextMenu={onContext}>
         {/* selection frame — the same light dashed box for one object or a whole group; while a
             ghost is up it travels with it */}
         {union && (
@@ -198,6 +209,25 @@ export default function PdfPage({ page, image, scale, selected, nudge, onSelect,
           </>
         )}
         {marquee && <div className="pdfed__marquee" style={px(marquee)} />}
+        {textEdit && textEdit.page === pageIndex && (
+          <RichTextEditor
+            ref={rte.ref}
+            x={textEdit.x}
+            y={textEdit.y}
+            scale={scale}
+            font={rte.font}
+            color={rte.color}
+            size={rte.size}
+            bold={rte.bold}
+            italic={rte.italic}
+            lineHeight={rte.lineHeight}
+            letterSpacing={rte.letterSpacing}
+            pipette={rte.pipette}
+            onPipette={rte.onPipette}
+            onCommit={(lines) => onTextCommit(lines)}
+            onCancel={onTextCancel}
+          />
+        )}
       </div>
     </div>
   )

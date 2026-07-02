@@ -41,6 +41,10 @@
   opacity: 0.4;
   cursor: default;
 }
+.pdfed__btn.is-active {
+  background: var(--active, rgba(20, 115, 230, 0.15));
+  color: var(--accent, #1473e6);
+}
 /* text buttons (Save) */
 .pdfed__btn--txt {
   width: auto;
@@ -121,6 +125,123 @@
 }
 .pdfed__swatchbtn.is-on {
   outline: 2px solid var(--accent, #1473e6);
+}
+
+/* floating rich-text editor for inserting new text: grows with content, corner-resizable, commits
+   on outside click. Line-height 1.25 matches the worker's line advance when writing to the stream. */
+.pdfed__rte {
+  position: absolute;
+  z-index: 30;
+}
+/* the editor's own mini-bar above the box — a home for style tools (eyedropper, …) */
+.pdfed__rte-bar {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--panel, #fff);
+  border: 1px solid var(--border, #d0d0d0);
+  border-radius: 6px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+}
+.pdfed__rte-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted, #666);
+  cursor: pointer;
+}
+.pdfed__rte-btn:hover {
+  background: var(--hover, #eee);
+  color: var(--text, #222);
+}
+.pdfed__rte-btn.is-active {
+  background: var(--active, rgba(20, 115, 230, 0.15));
+  color: var(--accent, #1473e6);
+}
+.pdfed__rte-ed {
+  min-width: 60px;
+  min-height: 1.3em;
+  resize: both;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.92);
+  outline: 1.5px dashed #1473e6;
+  cursor: text;
+}
+/* the Tiptap surface inside: no extra chrome, no paragraph margins (coords are measured 1:1) */
+.pdfed__rte-ed .ProseMirror {
+  outline: none;
+  padding: 1px 3px;
+  white-space: pre-wrap;
+}
+.pdfed__rte-ed .ProseMirror p {
+  margin: 0;
+}
+
+/* toolbar number inputs (font size, line height, letter spacing): a number field with a dropdown of
+   standard values sharing one box */
+.pdfed__combo {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 72px;
+  height: 30px;
+}
+.pdfed__num {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0 20px 0 4px;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.pdfed__num::-webkit-outer-spin-button,
+.pdfed__num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pdfed__combosel {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 18px;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: var(--muted);
+  outline: none;
+  cursor: pointer;
+}
+/* locked style controls (multi-selection / non-text) — greyed out */
+.pdfed__fontsel:disabled,
+.pdfed__num:disabled,
+.pdfed__combosel:disabled,
+.pdfed__combo.is-locked {
+  opacity: 0.45;
+  cursor: default;
+}
+.pdfed__mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  flex: 0 0 auto;
 }
 
 /* context-menu item content: icon + label. Block flex — an inline box would sit on the text

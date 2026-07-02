@@ -39,6 +39,8 @@ export function createPdfEngine() {
     moveObjects: (pageIndex, items) => call('moveObjects', { pageIndex, items }), // items:[{type,bbox,dx,dy}] — shift coords in the stream
     copyObjects: (pageIndex, items, dx, dy) => call('copyObjects', { pageIndex, items, dx, dy }), // duplicate units in the stream at an offset
     getFontsInfo: () => call('getFontsInfo', {}), // → { fonts:[{name, embedded, subset}] } — document font inventory
+    insertText: (pageIndex, spec, fonts, fallback) => call('insertText', { pageIndex, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // write new rich text into the stream (fonts validated first)
+    replaceText: (pageIndex, items, spec, fonts, fallback) => call('replaceText', { pageIndex, items, spec, fonts, fallback }, Object.values(fonts || {}).map((f) => f.bytes).filter(Boolean)), // ATOMIC: validate fonts → delete → insert
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

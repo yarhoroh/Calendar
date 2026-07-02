@@ -6,6 +6,8 @@
 import * as mupdf from 'mupdf'
 
 let doc = null
+let insFonts = {} // fontKey → { font, ref, name, pages:Set } — fonts embedded for inserted text
+let insFontSeq = 0
 
 const cleanName = (n) => String(n || '').replace(/^[A-Z]{6}\+/, '').replace(/^\*/, '').replace(/,/g, ' ')
 const n2 = (v) => +Number(v).toFixed(2)
@@ -63,6 +65,8 @@ function buildUnits(cs, streamNum, H) {
   let tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0], L = 0, pend = null, fontSize = 0
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, hasP = false, tPos = null
   let cmPre = null // ctm scale just BEFORE the unit's last cm — moving an image edits that cm's e/f, which live in the OUTER space (the cm itself carries the image size!)
+  let shows = [] // every show op in the current text unit: { start (operand), end, px, py } — lets a delete blank ONE show surgically
+  let operandStart = null, arrOpen = null
   const num = []; const N = (k) => num.slice(-k).map(Number)
   const pt = (x, y) => { const dx = ctm[0]*x+ctm[2]*y+ctm[4], dy = ctm[1]*x+ctm[3]*y+ctm[5]; x0 = Math.min(x0, dx); y0 = Math.min(y0, dy); x1 = Math.max(x1, dx); y1 = Math.max(y1, dy); hasP = true }
   const reset = () => { x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity; hasP = false; tPos = null; cmPre = null }
@@ -70,6 +74,10 @@ function buildUnits(cs, streamNum, H) {
   for (const mt of toks) {
     const t = mt[0], end = mt.index + t.length
     if (isNum(t)) { num.push(t); continue }
+    // track the show operand's byte range: a string/hex token, or a whole [...] array for TJ
+    if (t[0] === '(' || t[0] === '<') { if (arrOpen === null) operandStart = mt.index }
+    else if (t === '[') { arrOpen = mt.index; operandStart = mt.index }
+    else if (t === ']') arrOpen = null
     if (t[0] === '/') { pend = t.slice(1); num.length = 0; continue }
     if (t === 'q') stk.push(ctm.slice())
     else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
@@ -86,8 +94,13 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'v' || t === 'y') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[2], p[3]) } }
     else if (t === 're') { const p = N(4); if (p.length === 4) { pt(p[0], p[1]); pt(p[0] + p[2], p[1] + p[3]) } }
     else if (t === 'n') { start = end; reset() } // clip finaliser (re W n): keep clip paths OUT of paint units so a move never shifts a clip
-    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') { const d = dev(tm[4], tm[5]); if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) } }
-    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } start = end; reset() }
+    else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
+      const d = dev(tm[4], tm[5])
+      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1] })
+      operandStart = null
+      if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
+    }
+    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
     else if (VIS.has(t)) { if (hasP) units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1 }); start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, name: pend }); start = end; reset() }
     num.length = 0
@@ -233,13 +246,17 @@ function scanDevice(page, W, H) {
     fillText: (text, ctm, cs, color) => {
       const zz = z++
       let b = null; try { b = text.getBounds(null, ctm) } catch (_) {}
-      // exact anchor: the device position of the span's FIRST glyph — matches the stext baseline
-      // origin, so overlapping copies/originals never swap (bbox overlap would)
-      let ax, ay
+      // exact anchor + exact font size from the FIRST glyph's matrix (stext JSON rounds size to an
+      // integer — 9.75 would read back as 9)
+      let ax, ay, asize
       try {
-        text.walk({ showGlyph: (f, trm) => { if (ax === undefined) { ax = ctm[0] * trm[4] + ctm[2] * trm[5] + ctm[4]; ay = ctm[1] * trm[4] + ctm[3] * trm[5] + ctm[5] } } })
+        text.walk({ showGlyph: (f, trm) => { if (ax === undefined) {
+          ax = ctm[0] * trm[4] + ctm[2] * trm[5] + ctm[4]
+          ay = ctm[1] * trm[4] + ctm[3] * trm[5] + ctm[5]
+          asize = Math.hypot(trm[2], trm[3]) * Math.hypot(ctm[2], ctm[3]) // em-height through both matrices
+        } } })
       } catch (_) {}
-      if (validRect(b) && b[2] > b[0] && b[3] > b[1]) texts.push({ z: zz, bbox: b, ax, ay, color: colorHex(color) })
+      if (validRect(b) && b[2] > b[0] && b[3] > b[1]) texts.push({ z: zz, bbox: b, ax, ay, size: asize, color: colorHex(color) })
     },
     strokeText: () => { z++ }, clipPath: () => { z++ }, clipStrokePath: () => { z++ },
     clipText: () => { z++ }, clipImageMask: () => { z++ }, ignoreText: () => { z++ },
@@ -309,69 +326,88 @@ function getModel(pageIndex) {
     // palettes — objects reference them by index (f = font, c = color)
     const fonts = [], fontIdx = new Map()
     const colors = [], colorIdx = new Map()
-    const fontRef = (f) => {
-      const name = cleanName(f.name || '')
-      const key = `${name}|${f.weight}|${f.style}`
-      if (!fontIdx.has(key)) {
-        fontIdx.set(key, fonts.length)
-        fonts.push({ name, generic: f.family || 'sans-serif', bold: f.weight === 'bold' || /bold|black|heavy/i.test(name), italic: f.style === 'italic' || /italic|oblique/i.test(name) })
-      }
-      return fontIdx.get(key)
-    }
     const colorRef = (hex) => {
       if (!colorIdx.has(hex)) { colorIdx.set(hex, colors.length); colors.push(hex) }
       return colorIdx.get(hex)
     }
 
-    // text runs from structured text (preserve-spans → one run per font-run)
-    const runs = []
-    const stext = page.toStructuredText('preserve-spans')
-    let json
-    try { json = JSON.parse(stext.asJSON()) } finally { stext.destroy?.() }
-    let bi = 0
-    for (const b of json.blocks || []) {
-      if (!Array.isArray(b.lines)) continue
-      let li = 0
-      for (const l of b.lines) {
-        if (!l.bbox || !l.text || !l.text.trim()) continue
-        const f = l.font || {}
-        runs.push({
-          id: `b${bi}.l${li++}`, type: 'text',
-          bbox: { x: n2(l.bbox.x), y: n2(l.bbox.y), w: n2(l.bbox.w), h: n2(l.bbox.h) },
-          f: fontRef(f), size: n2(f.size || l.bbox.h), c: 0, z: -1, // z=-1 until matched to a device call (a real z can be 0)
-          x: n2(l.x ?? l.bbox.x), y: n2(l.y ?? (l.bbox.y + l.bbox.h)),
-          text: l.text
-        })
-      }
-      bi++
-    }
+    colorRef('#000000') // index 0 is ALWAYS black — unmatched runs default to c:0 (vectors used to claim it)
 
-    // device pass: vectors + images + text ink-spans (color, z)
+    // device pass first: vectors + images + text ink-spans (anchor, color, size, z)
     const scan = scanDevice(page, W, H)
     const vectors = scan.vectors.map((v, i) => ({ id: 'v' + i, type: 'vector', bbox: v.bbox, kind: v.kind, c: colorRef(v.color), z: v.z }))
     const images = scan.images.map((im, i) => ({ id: 'i' + i, type: 'image', bbox: im.bbox, z: im.z }))
 
-    // give each run its color and z from its device text span: exact anchor first (first-glyph
-    // device position vs the run's baseline — overlapping copies stay distinct), overlap fallback
-    colorRef('#000000') // ensure black exists (default)
-    for (const r of runs) {
-      let best = null, bestD = 3 // pt
-      for (const t of scan.texts) {
-        if (t.ax === undefined) continue
-        const d = Math.hypot(t.ax - r.x, t.ay - r.y)
-        if (d < bestD) { bestD = d; best = t }
+    // Text runs from stext.walk (per-char positions, exact float sizes). stext GLUES neighbouring
+    // texts that share a baseline into one line — but every physical show op is a separate device
+    // span with its own anchor, so a glued line is SPLIT back at the span boundaries: each piece
+    // stays an independent object (frame, restyle and move touch only their own text).
+    const runs = []
+    const stext = page.toStructuredText('preserve-spans')
+    const fontRefW = (font) => {
+      const name = cleanName(font.getName())
+      const key = 'w|' + name
+      if (!fontIdx.has(key)) {
+        fontIdx.set(key, fonts.length)
+        fonts.push({
+          name,
+          generic: font.isMono() ? 'monospace' : font.isSerif() ? 'serif' : 'sans-serif',
+          bold: font.isBold() || /bold|black|heavy/i.test(name),
+          italic: font.isItalic() || /italic|oblique/i.test(name)
+        })
       }
-      if (!best) {
-        const rx0 = r.bbox.x, ry0 = r.bbox.y, rx1 = rx0 + r.bbox.w, ry1 = ry0 + r.bbox.h
-        let bestA = 0
-        for (const t of scan.texts) {
-          const ix = Math.min(rx1, t.bbox[2]) - Math.max(rx0, t.bbox[0])
-          const iy = Math.min(ry1, t.bbox[3]) - Math.max(ry0, t.bbox[1])
-          if (ix > 0 && iy > 0 && ix * iy > bestA) { bestA = ix * iy; best = t }
-        }
-      }
-      if (best) { r.c = colorRef(best.color); r.z = best.z }
+      return fontIdx.get(key)
     }
+    let bi = -1, li = -1, cur = null
+    const flush = () => {
+      if (!cur || !cur.chars.length) { cur = null; return }
+      const chars = cur.chars
+      const x0 = chars[0].x, x1 = chars[chars.length - 1].x
+      // device spans anchored on this baseline inside the line → cut points
+      const cands = scan.texts
+        .filter((t) => t.ax !== undefined && Math.abs(t.ay - cur.baseline) < 2 && t.ax >= x0 - 1 && t.ax <= x1 + 1)
+        .sort((a, b) => a.ax - b.ax)
+      const cuts = cands.length > 1 ? cands.map((t) => t.ax) : [x0]
+      const segs = cuts.map(() => [])
+      for (const ch of chars) {
+        let j = 0
+        while (j + 1 < cuts.length && ch.x >= cuts[j + 1] - 0.35) j++
+        segs[j].push(ch)
+      }
+      segs.forEach((seg, k) => {
+        if (!seg.length || !seg.some((ch) => ch.c.trim())) return
+        const t = cands.length ? cands[Math.min(k, cands.length - 1)] : null
+        const sx = seg[0].x
+        const lastAdv = seg.length > 1 ? seg[seg.length - 1].x - seg[seg.length - 2].x : cur.size * 0.6
+        const ex = seg[seg.length - 1].x + Math.max(lastAdv, cur.size * 0.35)
+        runs.push({
+          id: `b${cur.bi}.l${cur.li}` + (segs.length > 1 ? `.s${k}` : ''),
+          type: 'text',
+          bbox: { x: n2(sx), y: n2(cur.bbox[1]), w: n2(ex - sx), h: n2(cur.bbox[3] - cur.bbox[1]) },
+          f: cur.f,
+          size: n2(t && t.size > 0 ? t.size : cur.size),
+          c: t ? colorRef(t.color) : 0,
+          z: t ? t.z : -1,
+          x: n2(sx),
+          y: n2(cur.baseline),
+          text: seg.map((ch) => ch.c).join('')
+        })
+      })
+      cur = null
+    }
+    try {
+      stext.walk({
+        beginTextBlock: () => { bi++; li = -1 },
+        beginLine: (bbox) => { li++; cur = { bi, li, bbox, chars: [], f: 0, size: 12, baseline: 0, started: false } },
+        onChar: (c, origin, font, size) => {
+          if (!cur) return
+          if (!cur.started) { cur.started = true; cur.f = fontRefW(font); cur.size = size; cur.baseline = origin[1] }
+          cur.chars.push({ c, x: origin[0] })
+        },
+        endLine: flush,
+        endTextBlock: flush
+      })
+    } finally { stext.destroy?.() }
 
     tightenBboxes(page, runs) // hug the real glyphs: catch diacritics above and descenders below
     return { width: W, height: H, fonts, colors, runs, images, vectors }
@@ -395,9 +431,16 @@ function tightenBboxes(page, runs) {
   for (const r of runs) {
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     let top = Math.round(r.bbox.y * S), bot = Math.round((r.bbox.y + r.bbox.h) * S)
-    const lim = Math.round((r.size || 10) * 0.25 * S), upLim = top - lim, dnLim = bot + lim
-    while (top > 0 && top > upLim && ink(x0, x1, top - 1)) top-- // connected grow up, capped (diacritics)
-    while (bot < ph && bot < dnLim && ink(x0, x1, bot)) bot++ // connected grow down, capped (descenders)
+    // hard physical bounds around the run's OWN baseline: no glyph reaches beyond ~1.3em above /
+    // 0.5em below it, so neighbouring lines' ink (an inflated metric box, a run parked between two
+    // lines) can never blow the frame up
+    const size = r.size || 10
+    const hardTop = Math.round((r.y - size * 1.3) * S), hardBot = Math.round((r.y + size * 0.5) * S)
+    top = Math.max(top, hardTop)
+    bot = Math.min(bot, hardBot)
+    const lim = Math.round(size * 0.25 * S), upLim = top - lim, dnLim = bot + lim
+    while (top > Math.max(0, hardTop) && top > upLim && ink(x0, x1, top - 1)) top-- // grow up (diacritics)
+    while (bot < Math.min(ph, hardBot) && bot < dnLim && ink(x0, x1, bot)) bot++ // grow down (descenders)
     while (top < bot && !ink(x0, x1, top)) top++ // trim blank inside
     while (bot > top && !ink(x0, x1, bot - 1)) bot--
     if (bot > top) r.bbox = { x: r.bbox.x, y: n2(top / S), w: r.bbox.w, h: n2((bot - top) / S) }
@@ -405,8 +448,17 @@ function tightenBboxes(page, runs) {
   pix.destroy()
 }
 
-// Font inventory of the document: clean name + whether a font file is embedded (FontFile/2/3) and
-// whether it's a subset (ABCDEF+ prefix). The UI pairs non-embedded ones with a similar system font.
+// TrueType face must carry a cmap or the browser's OTS rejects the FontFace
+function sfntHasCmap(buf) {
+  try {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const n = dv.getUint16(4)
+    for (let i = 0; i < n; i++) { const r = 12 + i * 16; if (String.fromCharCode(buf[r], buf[r + 1], buf[r + 2], buf[r + 3]) === 'cmap') return true }
+  } catch {} return false
+}
+
+// Font inventory of the document: clean name, embedded/subset flags, and — for browser-loadable
+// TrueType faces (cmap present) — the raw bytes, so the rich editor can PREVIEW the PDF's own fonts.
 function getFontsInfo() {
   const out = [], seen = {}
   let count = 0
@@ -422,11 +474,298 @@ function getFontsInfo() {
     const name = cleanName(raw)
     if (!name || seen[name]) continue
     seen[name] = 1
-    let embedded = false
-    if (d && !d.isNull()) embedded = !d.get('FontFile2').isNull() || !d.get('FontFile3').isNull() || !d.get('FontFile').isNull()
-    out.push({ name, embedded, subset: /^[A-Z]{6}\+/.test(raw) })
+    let embedded = false, bytes = null, tt = false
+    if (d && !d.isNull()) {
+      embedded = !d.get('FontFile2').isNull() || !d.get('FontFile3').isNull() || !d.get('FontFile').isNull()
+      const ff2 = d.get('FontFile2')
+      tt = !ff2.isNull() // only TrueType bytes can be re-embedded for our CID inserts (Type1/CFF mis-encode)
+      if (tt) {
+        try { const raw2 = ff2.readStream().asUint8Array(); if (sfntHasCmap(raw2)) bytes = new Uint8Array(raw2).buffer } catch (_) {}
+      }
+    }
+    out.push({ name, embedded, subset: /^[A-Z]{6}\+/.test(raw), tt, bytes })
   }
   return out
+}
+
+// raw font-file bytes of a document font (FontFile/2/3) by clean name — used to insert/restyle text
+// with the PDF's OWN font, so it looks exactly like the rest of the document
+function docFontBytes(name) {
+  const n = String(name).toLowerCase().replace(/[^a-z0-9]/g, '')
+  let count = 0
+  try { count = doc.countObjects() } catch { return null }
+  for (let i = 1; i < count; i++) {
+    let o; try { o = doc.newIndirect(i).resolve() } catch { continue }
+    if (!o || !o.isDictionary || !o.isDictionary()) continue
+    let ty; try { ty = o.get('Type') } catch { continue }
+    if (!ty || ty.isNull() || ty.asName() !== 'Font') continue
+    const bf = o.get('BaseFont')
+    const nm = cleanName(bf.isNull() ? '' : bf.asName()).toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (nm !== n) continue
+    let d = o.get('FontDescriptor')
+    if (d.isNull()) { const df = o.get('DescendantFonts'); if (df.isArray() && df.length) d = df.get(0).resolve().get('FontDescriptor') }
+    if (!d || d.isNull()) continue
+    // TrueType ONLY: Type1/CFF bytes fed into a new CID font mis-encode every glyph ("ÜÜÜÜ…")
+    const ff = d.get('FontFile2')
+    if (!ff.isNull()) { try { return ff.readStream().asUint8Array() } catch (_) {} }
+  }
+  return null
+}
+
+// ---- inserting NEW text ------------------------------------------------------------------------
+// Embed a full font (CID/Identity-H via doc.addFont) once per fontKey and register it in the page's
+// /Resources/Font. Glyphs are encoded per character; advances position the spans.
+// Unicode ranges covered by the up-front ToUnicode map: Latin (+ext), Greek, Cyrillic, punctuation,
+// currency, letterlike. ~2000 encodeCharacter probes at font creation — milliseconds.
+const UNI_RANGES = [[0x20, 0x24F], [0x370, 0x3FF], [0x400, 0x52F], [0x1E00, 0x1EFF], [0x2000, 0x206F], [0x20A0, 0x20BF], [0x2100, 0x214F]]
+
+function ensureInsFont(pageIndex, key, bytes, family) {
+  let rec = insFonts[key]
+  if (!rec) {
+    // the font's NAME must be the real family — it becomes /BaseFont, which the model reads back as
+    // the run's font name (an internal key here would "lose" the font on the next restyle)
+    const font = new mupdf.Font(family || key, new Uint8Array(bytes))
+    rec = { font, ref: doc.addFont(font), name: 'EF' + insFontSeq++, uni: new Map() }
+    // Build the COMPLETE ToUnicode map NOW, before the font ever enters the content: mupdf caches a
+    // font on first load, so a ToUnicode attached (or extended) later is never seen again and the
+    // text reads back as glyph-id garbage. One full map up front covers every future character.
+    for (const [a, b] of UNI_RANGES) {
+      for (let cp = a; cp <= b; cp++) {
+        const gid = font.encodeCharacter(cp) & 0xffff
+        if (gid && !rec.uni.has(gid)) rec.uni.set(gid, cp)
+      }
+    }
+    updateToUnicode(rec)
+    insFonts[key] = rec
+  }
+  return rec
+}
+
+// Put the font into the page's /Resources/Font. Called right before WRITING content — never before
+// a redaction: applyRedactions rebuilds the resources and throws away a not-yet-used font, leaving
+// the inserted text pointing at nothing (wrong face on screen, glyph-id garbage in the model).
+// Always verifies the actual dictionary — a cached "already registered" flag can be stale.
+function registerInsFont(pageIndex, rec) {
+  const po = doc.findPage(pageIndex)
+  let res = po.getInheritable('Resources')
+  if (!res || res.isNull()) { res = doc.newDictionary(); po.put('Resources', res) }
+  let fd = res.get('Font')
+  if (fd.isNull()) { fd = doc.newDictionary(); res.put('Font', fd) }
+  if (fd.get(rec.name).isNull()) fd.put(rec.name, rec.ref)
+}
+
+// Can this font actually ENCODE the given sample text? Type1/CFF faces fed into our CID insert
+// return one-and-the-same glyph for every char ("aaaaa…"). Checked BEFORE any deletion happens.
+function fontEncodes(bytes, family, sample) {
+  let font = null
+  try {
+    font = new mupdf.Font(family || 'F', new Uint8Array(bytes))
+    const chars = [...new Set([...String(sample || 'Ag1')])].slice(0, 12)
+    const gids = chars.map((ch) => font.encodeCharacter(ch.codePointAt(0)) & 0xffff)
+    if (gids.every((g) => g === 0)) return false
+    if (chars.length > 2 && new Set(gids).size === 1) return false // all different chars → one glyph = broken
+    return true
+  } catch (_) { return false } finally { try { font?.destroy?.() } catch (_) {} }
+}
+
+// Without /ToUnicode the inserted CID text reads back as raw glyph ids ("Estonia" → "(VWRQLD"-style
+// garbage), which then cascades through every following restyle. We know the gid↔char mapping (we
+// encoded it), so build the CMap ourselves and attach it to the font.
+function updateToUnicode(rec) {
+  if (!rec.uni.size) return
+  const entries = [...rec.uni.entries()]
+  let bf = ''
+  for (let i = 0; i < entries.length; i += 100) {
+    const chunk = entries.slice(i, i + 100)
+    bf += `${chunk.length} beginbfchar\n` + chunk.map(([g, cp]) => {
+      let u
+      if (cp > 0xffff) { const c = cp - 0x10000; u = (0xd800 + (c >> 10)).toString(16).padStart(4, '0') + (0xdc00 + (c & 0x3ff)).toString(16).padStart(4, '0') }
+      else u = cp.toString(16).padStart(4, '0')
+      return `<${g.toString(16).padStart(4, '0')}> <${u}>`
+    }).join('\n') + '\nendbfchar\n'
+  }
+  const cmap = `/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n${bf}endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n`
+  try {
+    const dict = rec.ref.resolve ? rec.ref.resolve() : rec.ref
+    dict.put('ToUnicode', doc.addStream(cmap, {}))
+  } catch (e) { console.warn('[pdf worker] ToUnicode failed:', e?.message) }
+}
+const hexRgbOps = (hex) => (String(hex || '#000000').replace('#', '').match(/../g) || ['00', '00', '00']).slice(0, 3).map((h) => (parseInt(h, 16) / 255).toFixed(3)).join(' ')
+
+// State at the very END of a content stream: how many q's are still open and which CTM would be
+// active after closing them. Appended content inherits this state — many generators leave a FLIPPED
+// CTM open (1 0 0 -1 …), which would mirror and displace anything we add.
+function streamEndState(cs) {
+  const toks = [...mask(cs).matchAll(TOKENS)]
+  let ctm = [1, 0, 0, 1, 0, 0]
+  const stk = []
+  const num = []
+  for (const mt of toks) {
+    const t = mt[0]
+    if (isNum(t)) { num.push(t); continue }
+    if (t === 'q') stk.push(ctm.slice())
+    else if (t === 'Q') { if (stk.length) ctm = stk.pop() }
+    else if (t === 'cm') { const m = num.slice(-6).map(Number); if (m.length === 6) ctm = matMul(m, ctm) }
+    num.length = 0
+  }
+  return { depth: stk.length, base: stk.length ? stk[0] : ctm } // base = CTM after popping every open q
+}
+const isIdentityM = (m) => Math.abs(m[0] - 1) < 1e-6 && Math.abs(m[1]) < 1e-6 && Math.abs(m[2]) < 1e-6 && Math.abs(m[3] - 1) < 1e-6 && Math.abs(m[4]) < 1e-6 && Math.abs(m[5]) < 1e-6
+function invertM(m) {
+  const [a, b, c, d, e, f] = m
+  const det = a * d - b * c || 1e-9
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det]
+}
+
+// THE single gate for fonts entering the document. For every key: resolve bytes ({pdf} → the
+// document's own TrueType, else the provided file), VALIDATE they can encode this key's actual
+// text, fall back to the provided fallback font, and only then embed. Throws BEFORE any mutation —
+// so no operation built on top of it can ever delete content and then fail to draw ("aaaa…").
+function prepareInsFonts(pageIndex, fonts, fallback, samples) {
+  const recs = {}
+  for (const k of Object.keys(fonts || {})) {
+    const f = fonts[k]
+    const sample = samples[k] || 'Ag1'
+    let bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf) : null)
+    let family = f.family || f.pdf || k
+    if (!bytes || !fontEncodes(bytes, family, sample)) {
+      if (fallback?.bytes && fontEncodes(fallback.bytes, fallback.family, sample)) {
+        console.warn(`[pdf worker] font "${family}" cannot encode the text → fallback "${fallback.family}"`)
+        bytes = fallback.bytes
+        family = fallback.family || 'Arial'
+      } else {
+        throw new Error(`font "${family}" cannot encode the text and no usable fallback`)
+      }
+    }
+    recs[k] = ensureInsFont(pageIndex, family + '|' + (bytes === fallback?.bytes ? 'fb' : k), bytes, family)
+  }
+  return recs
+}
+const samplesOf = (spec) => {
+  const out = {}
+  for (const line of spec.lines || []) for (const s of line) out[s.fontKey] = (out[s.fontKey] || '') + s.text
+  return out
+}
+
+// Append new text to the page content. spec.lines = [ [ {text, size, color, fontKey, x, baseline,
+// ls} ] ] — every run carries its EXACT page coordinates (measured from the editor's real DOM
+// rects), so the text lands precisely where it was typed. ls → Tc (letter spacing). Each LINE is
+// its own BT..ET, so it parses back as a separate, individually selectable unit.
+function insertText(pageIndex, spec, fonts, fallback) {
+  const recs = prepareInsFonts(pageIndex, fonts, fallback, samplesOf(spec)) // throws BEFORE any write
+  insertTextWithRecs(pageIndex, spec, recs)
+}
+function insertTextWithRecs(pageIndex, spec, recs) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  for (const k of Object.keys(recs)) registerInsFont(pageIndex, recs[k]) // AFTER any redaction, right before writing
+  console.log('[pdf worker] insert:', JSON.stringify((spec.lines || []).map((l) => l.map((s) => ({ t: s.text, x: s.x, b: s.baseline, ls: s.ls || 0 })))))
+  let ops = '\n'
+  for (const line of spec.lines || []) {
+    let body = ''
+    for (const s of line) {
+      const rec = recs[s.fontKey]
+      if (!rec || !s.text) continue
+      let hex = ''
+      for (const ch of s.text) hex += (rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff).toString(16).padStart(4, '0')
+      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(s.ls || 0)} Tc 1 0 0 1 ${n2(s.x)} ${n2(H - s.baseline)} Tm <${hex}> Tj\n`
+    }
+    if (body) ops += 'q BT\n' + body + 'ET Q\n'
+  }
+  // (ToUnicode is complete since font creation — no post-hoc updates: mupdf would never re-read them)
+  const cs = readStream(pageObj, 0)
+  // neutralise whatever graphics state the stream ends in: close every open q, then undo any
+  // remaining root CTM (a leftover flip would mirror our glyphs and shift the position)
+  const end = streamEndState(cs)
+  let prefix = end.depth > 0 ? 'Q'.repeat(end.depth) + '\n' : ''
+  let suffix = ''
+  if (!isIdentityM(end.base)) {
+    const iv = invertM(end.base)
+    prefix += `q ${iv.map((v) => +v.toFixed(6)).join(' ')} cm\n`
+    suffix = 'Q\n'
+  }
+  writeStream(pageObj, 0, cs + '\n' + prefix + ops + suffix)
+}
+
+// Surgical text delete: match each item to ITS OWN show operator by the exact baseline anchor and
+// blank it with same-length spaces (byte offsets stay intact, graphics state untouched) — a
+// rectangle-based redaction would also eat any neighbouring text whose box merely overlaps.
+// Returns the items no show could be matched for (they fall back to redaction).
+function blankTextShows(pageIndex, items, strict = false) {
+  const texts = (items || []).filter((it) => it.type === 'text')
+  if (!texts.length) return []
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  // phase 1: match EVERY item to its own show first — nothing is written until all are resolved
+  const leftovers = []
+  const byStream = {}
+  const used = new Set()
+  for (const it of texts) {
+    let best = null, bestD = 3, bestU = null, nearest = Infinity
+    for (const u of units) {
+      if (u.type !== 'text' || !u.shows) continue
+      for (const sh of u.shows) {
+        if (used.has(sh)) continue
+        const d = it.x !== undefined ? Math.hypot(sh.px - it.x, sh.py - it.y) : Infinity
+        if (d < nearest) nearest = d
+        if (d < bestD) { bestD = d; best = sh; bestU = u }
+      }
+    }
+    if (!best) {
+      console.warn(`[pdf worker] no show op at anchor (${it.x},${it.y}) "${(it.text || '').slice(0, 20)}" — nearest ${nearest.toFixed(1)}pt`)
+      leftovers.push(it)
+      continue
+    }
+    // one visual run is often painted by SEVERAL show ops ("(L) Tj (eon…) Tj") that the device pass
+    // merges into one span — blank EVERY show of this unit that falls inside the item's own line
+    // range, or the leftovers would keep drawing under the replacement
+    const x0 = (it.bbox?.x ?? it.x) - 1, x1 = (it.bbox ? it.bbox.x + it.bbox.w : it.x) + 1
+    for (const sh of bestU.shows) {
+      if (used.has(sh)) continue
+      if (Math.abs(sh.py - it.y) < 2 && sh.px >= x0 && sh.px <= x1) {
+        used.add(sh)
+        ;(byStream[bestU.stream] = byStream[bestU.stream] || []).push(sh)
+      }
+    }
+  }
+  // strict (replace/restyle): a single miss aborts the WHOLE operation before any write — an
+  // imprecise delete would leave duplicates / eat neighbours
+  if (strict && leftovers.length) throw new Error(`cannot precisely locate ${leftovers.length} text run(s) in the stream — nothing changed`)
+  // phase 2: blank the matched shows with same-length spaces (offsets stay intact)
+  for (const sk of Object.keys(byStream)) {
+    const s = Number(sk)
+    let cs = readStream(pageObj, s)
+    for (const sh of byStream[sk]) cs = cs.slice(0, sh.start) + ' '.repeat(sh.end - sh.start) + cs.slice(sh.end)
+    writeStream(pageObj, s, cs)
+  }
+  return leftovers
+}
+
+// physically remove objects from the page stream: text — surgically (blank its own show op);
+// images/vectors and unmatched text — via redaction, grouped by type so each pass only touches
+// its own kind (text redaction won't eat an image underneath, etc.)
+function deleteObjectsImpl(pageIndex, items) {
+  const textLeftovers = blankTextShows(pageIndex, items)
+  const page = doc.loadPage(pageIndex)
+  try {
+    const groups = { text: [], image: [], vector: [] }
+    for (const it of textLeftovers) groups.text.push(it.bbox)
+    for (const it of items || []) if (it.type !== 'text' && groups[it.type]) groups[it.type].push(it.bbox)
+    const apply = (boxes, imageMethod, lineArtMethod, textMethod, pad) => {
+      if (!boxes.length) return
+      for (const b of boxes) {
+        const a = page.createAnnotation('Redact')
+        a.setRect([b.x - pad, b.y - pad, b.x + b.w + pad, b.y + b.h + pad])
+      }
+      page.applyRedactions(false, imageMethod, lineArtMethod, textMethod)
+    }
+    apply(groups.text, 0, 0, 0, 0) // IMAGE_NONE, LINE_ART_NONE, TEXT_REMOVE — exact bbox (don't graze neighbours)
+    apply(groups.image, 1, 0, 1, 0.2) // IMAGE_REMOVE, LINE_ART_NONE, TEXT_NONE
+    apply(groups.vector, 0, 1, 1, 0.2) // IMAGE_NONE, LINE_ART_REMOVE_IF_COVERED, TEXT_NONE
+  } finally { page.destroy() }
 }
 
 self.postMessage({ ready: true })
@@ -435,6 +774,7 @@ self.onmessage = (e) => {
   try {
     if (type === 'open') {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
+      insFonts = {}; insFontSeq = 0
       self.postMessage({ id, result: { pageCount: doc.countPages() } })
     } else if (type === 'getModel') {
       if (!doc) throw new Error('no document open')
@@ -476,9 +816,14 @@ self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       const r = renderObjects(params.pageIndex, params.zs, params.bbox, params.scale)
       self.postMessage({ id, result: r }, [r.png])
+    } else if (type === 'insertText') {
+      if (!doc) throw new Error('no document open')
+      insertText(params.pageIndex, params.spec, params.fonts, params.fallback)
+      self.postMessage({ id, result: { ok: true } })
     } else if (type === 'getFontsInfo') {
       if (!doc) throw new Error('no document open')
-      self.postMessage({ id, result: { fonts: getFontsInfo() } })
+      const fonts = getFontsInfo()
+      self.postMessage({ id, result: { fonts } }, fonts.map((f) => f.bytes).filter(Boolean))
     } else if (type === 'save') {
       // serialise the in-memory working copy (with all moves/deletes applied) back to PDF bytes
       if (!doc) throw new Error('no document open')
@@ -514,26 +859,17 @@ self.onmessage = (e) => {
       }
       self.postMessage({ id, result: { ok: true, copied: found.size } })
     } else if (type === 'deleteObjects') {
-      // physically remove objects from the page stream via redaction, grouped by type so each pass
-      // only touches its own kind (text redaction won't eat an image underneath, etc.)
       if (!doc) throw new Error('no document open')
-      const page = doc.loadPage(params.pageIndex)
-      try {
-        const groups = { text: [], image: [], vector: [] }
-        for (const it of params.items || []) if (groups[it.type]) groups[it.type].push(it.bbox)
-        const apply = (boxes, imageMethod, lineArtMethod, textMethod, pad) => {
-          if (!boxes.length) return
-          for (const b of boxes) {
-            const a = page.createAnnotation('Redact')
-            a.setRect([b.x - pad, b.y - pad, b.x + b.w + pad, b.y + b.h + pad])
-          }
-          page.applyRedactions(false, imageMethod, lineArtMethod, textMethod)
-        }
-        apply(groups.text, 0, 0, 0, 0) // IMAGE_NONE, LINE_ART_NONE, TEXT_REMOVE — exact bbox (don't graze neighbours)
-        apply(groups.image, 1, 0, 1, 0.2) // IMAGE_REMOVE, LINE_ART_NONE, TEXT_NONE
-        apply(groups.vector, 0, 1, 1, 0.2) // IMAGE_NONE, LINE_ART_REMOVE_IF_COVERED, TEXT_NONE
-        self.postMessage({ id, result: { ok: true, deleted: (params.items || []).length } })
-      } finally { page.destroy() }
+      deleteObjectsImpl(params.pageIndex, params.items)
+      self.postMessage({ id, result: { ok: true, deleted: (params.items || []).length } })
+    } else if (type === 'replaceText') {
+      // ATOMIC delete+insert: fonts are resolved and VALIDATED first — if anything is wrong the
+      // operation throws here and nothing has been deleted
+      if (!doc) throw new Error('no document open')
+      const recs = prepareInsFonts(params.pageIndex, params.fonts, params.fallback, samplesOf(params.spec))
+      deleteObjectsImpl(params.pageIndex, params.items)
+      insertTextWithRecs(params.pageIndex, params.spec, recs)
+      self.postMessage({ id, result: { ok: true } })
     } else throw new Error('unknown request: ' + type)
   } catch (err) {
     self.postMessage({ id, error: err?.message || String(err) })

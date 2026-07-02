@@ -108,7 +108,7 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'n') { start = end; reset() } // clip finaliser (re W n): keep clip paths OUT of paint units so a move never shifts a clip
     else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
       const d = dev(tm[4], tm[5])
-      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1], tc, font: fontRes, stream: streamNum })
+      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1], tc, font: fontRes, stream: streamNum, ta: tlm[0] || 1, td: tlm[3] || 1 })
       operandStart = null
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
@@ -583,16 +583,33 @@ function tightenBboxes(page, runs) {
     for (let x = Math.max(0, x0); x < Math.min(pw, x1); x++) if (px[base + x * nc + ai] > 16) return true
     return false
   }
+  // Nearest X-overlapping baselines: with EXTREME leading (gap < 0.5pt) the lines' ink touches and
+  // the scan jumps across. Demarcation between two baselines is ASYMMETRIC — descenders of the
+  // upper line get ~28% of the gap, ascenders of the lower one ~72% (a midpoint clipped capitals).
+  const nb = new Map()
+  for (const r of runs) {
+    let above = -Infinity, below = Infinity
+    const rx0 = r.bbox.x, rx1 = r.bbox.x + r.bbox.w
+    for (const o of runs) {
+      if (o === r) continue
+      if (Math.min(o.bbox.x + o.bbox.w, rx1) - Math.max(o.bbox.x, rx0) < 0.3 * Math.min(o.bbox.w, r.bbox.w)) continue
+      if (o.y < r.y - 1 && o.y > above) above = o.y
+      else if (o.y > r.y + 1 && o.y < below) below = o.y
+    }
+    nb.set(r, [above, below])
+  }
   for (const r of runs) {
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     const size = r.size || 10
     // Scan OUT FROM THE BASELINE (the one trustworthy coordinate) through the glyph-only ink:
     // grow while rows have ink, stop at the first real gap (> 0.15em — bigger than any in-glyph
-    // hole, smaller than the inter-line gap). No stext boxes, no midpoints — nothing to inflate a
-    // frame into the neighbouring line, nothing to clip ascenders with.
+    // hole, smaller than the inter-line gap).
     const base = Math.round(r.y * S)
-    const hardTop = Math.max(0, Math.round((r.y - size * 1.4) * S))
-    const hardBot = Math.min(ph, Math.round((r.y + size * 0.55) * S))
+    let hardTop = Math.max(0, Math.round((r.y - size * 1.4) * S))
+    let hardBot = Math.min(ph, Math.round((r.y + size * 0.55) * S))
+    const [above, below] = nb.get(r)
+    if (isFinite(above)) hardTop = Math.max(hardTop, Math.round((above + 0.28 * (r.y - above)) * S))
+    if (isFinite(below)) hardBot = Math.min(hardBot, Math.round((r.y + 0.72 * (below - r.y)) * S))
     const gapMax = Math.max(2, Math.round(size * 0.15 * S))
     let top = base, gap = 0
     for (let y = base - 1; y >= hardTop; y--) {
@@ -1293,23 +1310,50 @@ function moveObjectsImpl(pageIndex, items) {
   const pageObj = doc.findPage(pageIndex)
   const units = collectUnits(pageObj, H)
   const jobMap = new Map() // unit → {dx, dy}
+  const lineSeen = new Set()
+  const lineJobs = [] // per-LINE moves inside a multi-line text unit
   for (const it of items || []) {
     const best = matchUnit(units, it)
-    if (best && !jobMap.has(best)) jobMap.set(best, { dx: it.dx, dy: it.dy })
+    if (!best) continue
+    const pys = best.type === 'text' && best.shows ? best.shows.map((sh) => sh.py) : []
+    const spread = pys.length > 1 ? Math.max(...pys) - Math.min(...pys) : 0
+    if (spread > 3 && it.type === 'text' && it.y !== undefined) {
+      // a multi-line BT..ET block: shift ONLY the picked line — a Td before its first show and the
+      // INVERSE Td after its last one, so the text line matrix (and every following line) stays put
+      const k = best.start + '|' + Math.round(it.y * 2)
+      if (!lineSeen.has(k)) { lineSeen.add(k); lineJobs.push({ u: best, y: it.y, dx: it.dx, dy: it.dy }) }
+    } else if (!jobMap.has(best)) jobMap.set(best, { dx: it.dx, dy: it.dy })
   }
-  const jobs = [...jobMap.entries()].map(([u, d]) => ({ u, dx: d.dx, dy: d.dy }))
   const byStream = {}
-  for (const j of jobs) (byStream[j.u.stream] = byStream[j.u.stream] || []).push(j)
+  for (const [u, d] of jobMap) (byStream[u.stream] = byStream[u.stream] || []).push({ kind: 'unit', u, dx: d.dx, dy: d.dy })
+  for (const j of lineJobs) (byStream[j.u.stream] = byStream[j.u.stream] || []).push({ kind: 'line', ...j })
+  let moved = 0
   for (const sk of Object.keys(byStream)) {
     const s = Number(sk)
     let cs = readStream(pageObj, s)
-    const list = byStream[sk].sort((a, b) => b.u.start - a.u.start) // right-to-left keeps byte offsets valid
-    for (const { u, dx, dy } of list) {
-      cs = cs.slice(0, u.start) + shiftSeg(u, cs.slice(u.start, u.end), dx, dy) + cs.slice(u.end)
+    const edits = []
+    for (const job of byStream[sk]) {
+      if (job.kind === 'unit') {
+        edits.push({ pos: job.u.start, run: () => { cs = cs.slice(0, job.u.start) + shiftSeg(job.u, cs.slice(job.u.start, job.u.end), job.dx, job.dy) + cs.slice(job.u.end) } })
+      } else {
+        const shows = job.u.shows.filter((sh) => Math.abs(sh.py - job.y) < 2).sort((a, b) => a.start - b.start)
+        if (!shows.length) continue
+        // Td offsets live in TEXT space: they are multiplied by the line matrix (a 7pt Tm scales a
+        // Td by 7) — divide by both the CTM scale and the line-matrix scale
+        const de = job.dx / (job.u.sa || 1) / (shows[0].ta || 1), df = -job.dy / (job.u.sd || 1) / (shows[0].td || 1)
+        const first = shows[0].start, last = shows[shows.length - 1].end
+        edits.push({ pos: first, run: () => {
+          cs = cs.slice(0, last) + `\n${n2(-de)} ${n2(-df)} Td\n` + cs.slice(last)
+          cs = cs.slice(0, first) + `\n${n2(de)} ${n2(df)} Td\n` + cs.slice(first)
+        } })
+      }
+      moved++
     }
+    edits.sort((a, b) => b.pos - a.pos) // right-to-left keeps byte offsets valid
+    for (const e of edits) e.run()
     writeStream(pageObj, s, cs)
   }
-  return jobs.length
+  return moved
 }
 
 // Duplicate objects INSIDE the stream: each matched unit's bytes are re-inserted after the original

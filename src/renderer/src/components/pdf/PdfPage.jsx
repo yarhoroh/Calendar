@@ -120,16 +120,17 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     const [x, y] = toPt(e, el)
     e.stopPropagation()
 
-    // an open text editor swallows this click: it only commits/closes the editor and must NOT
-    // select whatever element happens to be under the cursor
-    if (textEdit) return
-
-    // eyedropper: pick the clicked text's style for the rich editor (no selection change)
+    // eyedropper first — it must work WHILE editing (click any text to copy its style into the
+    // open editor); it never changes the selection or closes the editor
     if (pipette) {
       const hit = hitTest(objects, x, y)
       if (hit && hit.type === 'text') onPipettePick(pageIndex, hit)
       return
     }
+
+    // otherwise an open text editor swallows this click: it only commits/closes the editor and must
+    // NOT select whatever element happens to be under the cursor
+    if (textEdit) return
 
     // shape mode: click places a default-size shape, drag draws it to size (marquee preview)
     if (insertMode?.shape) {

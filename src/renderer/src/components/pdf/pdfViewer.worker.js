@@ -431,7 +431,11 @@ function getModel(pageIndex) {
           z: t ? t.z : -1,
           x: n2(sx),
           y: n2(cur.baseline),
-          text: seg.map((ch) => ch.c).join('')
+          text: seg.map((ch) => ch.c).join(''),
+          // the span's exact vertical metrics: hard bounds for the raster tighten (art painted
+          // UNDER the text must not feed the ink growth) — consumed and dropped there
+          sy0: t ? t.bbox[1] : undefined,
+          sy1: t ? t.bbox[3] : undefined
         })
       })
       cur = null
@@ -572,6 +576,12 @@ function tightenBboxes(page, runs) {
     const [above, below] = nb.get(r)
     if (isFinite(above)) hardTop = Math.max(hardTop, Math.round(((above + r.y) / 2) * S))
     if (isFinite(below)) hardBot = Math.min(hardBot, Math.round(((r.y + below) / 2) * S))
+    // …and never past the span's own metric box: art painted UNDER the text is solid ink that the
+    // growth would climb ("frame inflates over a filled cell until re-selected on empty ground")
+    if (r.sy0 !== undefined) hardTop = Math.max(hardTop, Math.round(r.sy0 * S))
+    if (r.sy1 !== undefined) hardBot = Math.min(hardBot, Math.round(r.sy1 * S))
+    delete r.sy0
+    delete r.sy1
     top = Math.max(top, hardTop)
     bot = Math.min(bot, hardBot)
     const lim = Math.round(size * 0.25 * S), upLim = top - lim, dnLim = bot + lim

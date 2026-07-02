@@ -49,6 +49,8 @@ export default function PdfView() {
   const [info, setInfo] = useState({}) // path → { size, mtime } loaded lazily on hover / select
   const [idx, setIdx] = useState({}) // path → { status, pages } — full-text index badges
   const idxTimer = useRef(null)
+  const [contentHits, setContentHits] = useState(null) // Set of lowercased paths matching the query's TEXT
+  const searchTimer = useRef(null)
   const saveTimer = useRef(null)
   // resizable / collapsible panel, like the mail tree
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('pdfCollapsed') === '1')
@@ -115,6 +117,19 @@ export default function PdfView() {
     clearTimeout(idxTimer.current)
     idxTimer.current = setTimeout(refreshIdx, 400)
   }), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- content search: query → the set of files whose TEXT matches (debounced) ----
+  useEffect(() => {
+    clearTimeout(searchTimer.current)
+    const term = query.trim()
+    if (term.length < 2) { setContentHits(null); return } // too short → name filter only
+    searchTimer.current = setTimeout(() => {
+      Promise.resolve(api.pdf?.search?.(term)).then((r) => {
+        setContentHits(new Set((r?.results || []).map((x) => (x.path || '').toLowerCase())))
+      })
+    }, 250)
+    return () => clearTimeout(searchTimer.current)
+  }, [query])
   const commit = (next) => {
     setTree(next)
     clearTimeout(saveTimer.current)
@@ -419,13 +434,16 @@ export default function PdfView() {
     tabsRef.current?.querySelector('.pdf-tab.is-active')?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
   }, [activePath, tabs])
 
-  // ---- name filter ----
+  // ---- filter: by file NAME and by full-text CONTENT (the index) ----
   const q = query.trim().toLowerCase()
   const nameHit = (n) => (n.name || '').toLowerCase().includes(q)
+  // a file also matches when the FTS index found the query inside it (case/diacritics-insensitive)
+  const contentHit = (n) => contentHits && isFile(n) && n.path && contentHits.has(n.path.toLowerCase())
+  const nodeHit = (n) => nameHit(n) || contentHit(n)
   // visible while filtering: matches itself, or a (loaded) descendant matches. Unscanned folders
   // are scanned lazily, so the filter deepens as their contents arrive.
   const subtreeHit = (node) => {
-    if (nameHit(node)) return true
+    if (nodeHit(node)) return true
     if (!isFolder(node)) return false
     const kids = childrenOf(node)
     if (kids === null) {

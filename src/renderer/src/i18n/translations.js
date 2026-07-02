@@ -27,7 +27,7 @@ export const translations = {
       closeUnsaved: 'This tab has unsaved changes. Close it anyway?',
       rename: 'Rename', remove: 'Remove', modeFlat: 'Show all PDFs (flat)', modeTree: 'Show real folders',
       flat: 'flat', tree: 'tree', empty: 'Empty. Add a folder, or link a real folder / PDF.',
-      search: 'Filter files…', clear: 'Clear', noMatch: 'Nothing matches.',
+      search: 'Search name or text inside…', clear: 'Clear', noMatch: 'Nothing matches.',
       collapse: 'Collapse', expand: 'Expand', resize: 'Drag to resize',
       placeholderTitle: 'PDF editor', placeholderSub: 'Pick a PDF on the left. The editor lands here.',
       openFromDisk: 'Open a PDF from disk…'
@@ -316,7 +316,7 @@ export const translations = {
       closeUnsaved: 'У цій вкладці є незбережені зміни. Все одно закрити?',
       rename: 'Перейменувати', remove: 'Прибрати', modeFlat: 'Усі PDF (списком)', modeTree: 'Реальні папки',
       flat: 'плоско', tree: 'дерево', empty: 'Порожньо. Додай папку або підключи реальну папку / PDF.',
-      search: 'Фільтр файлів…', clear: 'Очистити', noMatch: 'Нічого не знайдено.',
+      search: 'Пошук за назвою або текстом…', clear: 'Очистити', noMatch: 'Нічого не знайдено.',
       collapse: 'Згорнути', expand: 'Розгорнути', resize: 'Потягни, щоб змінити ширину',
       placeholderTitle: 'Редактор PDF', placeholderSub: 'Обери PDF зліва. Редактор зʼявиться тут.',
       openFromDisk: 'Відкрити PDF з диска…'

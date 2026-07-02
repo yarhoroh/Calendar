@@ -664,6 +664,8 @@ export default function PdfEditor({ source, path }) {
 
   // ---- variables ----
   const vnorm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  // for matching: strip EVERY space so "2 000,00 €" and "2000,00€" are the same number
+  const vmatch = (s) => (s || '').replace(/\s+/g, '').toLowerCase()
   // reconstruct the text of a chain of runs, inserting a space only where there's a real gap
   const joinRuns = (runs) => {
     const s = [...runs].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
@@ -703,7 +705,7 @@ export default function PdfEditor({ source, path }) {
   // find every chain of adjacent same-line runs whose combined text equals the value (also single
   // runs) — so "2 000 EUR" split across 3 pieces and an unsplit "2000 EUR" both match
   const findChains = (target) => {
-    const T = vnorm(target)
+    const T = vmatch(target)
     if (!T) return []
     const out = []
     for (const pg of model) {
@@ -715,9 +717,8 @@ export default function PdfEditor({ source, path }) {
         while (i < line.length) {
           let acc = '', matched = false
           for (let j = i; j < line.length && j < i + 14; j++) {
-            if (j > i) { const p = line[j - 1], c = line[j]; if (c.x - (p.x + p.bbox.w) > (c.size || 10) * 0.25) acc += ' ' }
-            acc += line[j].text || ''
-            const na = vnorm(acc)
+            acc += line[j].text || '' // spaces are stripped by vmatch, so gaps don't matter
+            const na = vmatch(acc)
             if (na === T) { out.push({ page: pg.pageIndex, runs: line.slice(i, j + 1) }); i = j + 1; matched = true; break }
             if (!T.startsWith(na)) break
           }

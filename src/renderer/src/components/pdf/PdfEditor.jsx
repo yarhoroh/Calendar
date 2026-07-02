@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ZoomInIcon, ZoomOutIcon, CopyIcon, PasteIcon, TrashIcon, PipetteIcon } from '../icons'
+import { ZoomInIcon, ZoomOutIcon, CopyIcon, PasteIcon, TrashIcon, PipetteIcon, ChevronLeftIcon, ChevronRightIcon } from '../icons'
 import api from '../../lib/api'
 import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
@@ -1420,7 +1420,7 @@ export default function PdfEditor({ source, path }) {
         {/* right panel: the document's variables (template fields) — collapsible + resizable */}
         {varsCollapsed ? (
           <button className="pdfed__vars-open" title="Variables" onClick={toggleVarsCollapsed}>
-            <VariableIcon />
+            <ChevronLeftIcon />
             {variables.length > 0 && <span className="pdfed__vars-badge">{variables.length}</span>}
           </button>
         ) : (
@@ -1428,7 +1428,7 @@ export default function PdfEditor({ source, path }) {
             <div className="pdfed__vars-resize" onMouseDown={startVarsResize} title="Drag to resize" />
             <div className="pdfed__vars-head">
               <b><VariableIcon /> Variables</b>
-              <button className="pdfed__btn" title="Collapse" onClick={toggleVarsCollapsed}>›</button>
+              <button className="pdfed__collapse" title="Collapse" onClick={toggleVarsCollapsed}><ChevronRightIcon /></button>
             </div>
             <div className="pdfed__vars-body">
               {variables.length === 0 ? (

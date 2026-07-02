@@ -350,6 +350,23 @@
   align-items: center;
   gap: 7px;
 }
+/* collapse button — same size as the left tree's .pdf__collapse (28×28) */
+.pdfed__collapse {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pdfed__collapse:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 .pdfed__vars-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -362,22 +379,22 @@
   color: var(--muted);
   padding: 6px 2px;
 }
-/* collapsed handle on the right edge */
+/* collapsed handle on the right edge — same size as the left tree's .pdf__open (width 30, full height) */
 .pdfed__vars-open {
   flex: 0 0 auto;
-  width: 34px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  width: 30px;
+  display: grid;
+  place-items: center;
   gap: 4px;
-  padding-top: 10px;
   border: none;
   border-left: 1px solid var(--border);
   background: var(--panel);
   color: var(--muted);
   cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
 .pdfed__vars-open:hover {
+  background: var(--hover);
   color: var(--text);
 }
 .pdfed__vars-badge {

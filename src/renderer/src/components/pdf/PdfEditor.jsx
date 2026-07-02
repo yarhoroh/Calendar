@@ -1115,14 +1115,19 @@ export default function PdfEditor({ source, path }) {
           y={shapeMenu.y}
           items={[
             { label: 'Rectangle', onClick: () => setInsertMode({ shape: { kind: 'rect' } }) },
-            { label: 'Line', onClick: () => setInsertMode({ shape: { kind: 'line' } }) },
             { label: 'Ellipse', onClick: () => setInsertMode({ shape: { kind: 'ellipse' } }) },
             { label: 'Check ✓', onClick: () => setInsertMode({ shape: { kind: 'check' } }) },
             { label: 'Cross ✕', onClick: () => setInsertMode({ shape: { kind: 'cross' } }) },
-            { label: 'Arrow →', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'open' } }) },
-            { label: 'Arrow ▶', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'filled' } }) },
-            { label: 'Arrow ↔', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'double' } }) },
-            { label: 'Arrow ⊸', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'bar' } }) }
+            {
+              label: 'Line',
+              children: [
+                { label: 'Line —', onClick: () => setInsertMode({ shape: { kind: 'line' } }) },
+                { label: 'Arrow →', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'open' } }) },
+                { label: 'Arrow ▶', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'filled' } }) },
+                { label: 'Arrow ↔', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'double' } }) },
+                { label: 'Arrow ⊸', onClick: () => setInsertMode({ shape: { kind: 'arrow', head: 'bar' } }) }
+              ]
+            }
           ]}
           onClose={() => setShapeMenu(null)}
         />

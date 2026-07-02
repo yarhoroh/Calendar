@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import './ContextMenu.css'
 
-// Small right-click menu. `items` = [{ label, onClick }]. Positioned at (x, y),
-// clamped to the viewport; closes on outside click / another right-click / blur.
+// Small right-click menu. `items` = [{ label, onClick }] or { label, children: [...] } for a
+// hover submenu. Positioned at (x, y), clamped to the viewport; closes on outside click /
+// another right-click / blur.
 export default function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef(null)
+  const [sub, setSub] = useState(null) // index of the item whose submenu is open
 
   useEffect(() => {
     const close = (e) => {
@@ -32,19 +34,36 @@ export default function ContextMenu({ x, y, items, onClose }) {
   return createPortal(
     <div className="ctx-menu" ref={ref} style={{ top: Math.max(8, top), left: Math.max(8, left) }}>
       {items.map((it, i) => (
-        <button
-          key={i}
-          className="ctx-menu__item"
-          // keep focus in the underlying field (an editor open behind a portal
-          // would otherwise blur and auto-commit/close)
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            it.onClick()
-            onClose()
-          }}
-        >
-          {it.label}
-        </button>
+        <div key={i} className="ctx-menu__row" onMouseEnter={() => setSub(it.children ? i : null)}>
+          <button
+            className={'ctx-menu__item' + (it.children ? ' ctx-menu__item--sub' : '')}
+            // keep focus in the underlying field (an editor open behind a portal
+            // would otherwise blur and auto-commit/close)
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (it.children) { setSub(i); return }
+              it.onClick()
+              onClose()
+            }}
+          >
+            {it.label}
+            {it.children && <span className="ctx-menu__arrow">▸</span>}
+          </button>
+          {it.children && sub === i && (
+            <div className="ctx-menu ctx-menu--sub">
+              {it.children.map((c, j) => (
+                <button
+                  key={j}
+                  className="ctx-menu__item"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { c.onClick(); onClose() }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       ))}
     </div>,
     document.body

@@ -27,3 +27,23 @@
   background: var(--accent);
   color: #fff;
 }
+
+/* submenu: the row anchors it, the panel opens to the right of the parent */
+.ctx-menu__row {
+  position: relative;
+}
+.ctx-menu__item--sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ctx-menu__arrow {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.ctx-menu--sub {
+  position: absolute;
+  left: calc(100% + 2px);
+  top: -4px;
+}

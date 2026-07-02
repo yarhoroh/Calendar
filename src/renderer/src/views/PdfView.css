@@ -247,6 +247,44 @@
   padding: 2px 0;
 }
 
+/* full-text index badge on the right of a file row */
+.pdf-idx {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  line-height: 1;
+}
+.pdf-idx--pending {
+  color: var(--muted);
+  opacity: 0.5;
+}
+.pdf-idx--done {
+  color: #1e9e5a;
+}
+.pdf-idx--error {
+  color: #d9534f;
+  font-weight: 700;
+}
+.pdf-idx__spin {
+  width: 11px;
+  height: 11px;
+  border: 1.6px solid var(--border);
+  border-top-color: var(--accent, #1473e6);
+  border-radius: 50%;
+  animation: pdf-idx-spin 0.7s linear infinite;
+}
+@keyframes pdf-idx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* center placeholder (the editor lands here later) */
 .pdf__center {
   flex: 1;

@@ -21,6 +21,14 @@ const FolderGlyph = ({ link }) => (
   </svg>
 )
 
+// full-text index status shown on the right of each file row
+const IndexBadge = ({ st, pages }) => {
+  if (!st || st.status === 'none' || st.status === 'pending') return <span className="pdf-idx pdf-idx--pending" title="Queued for indexing">○</span>
+  if (st.status === 'indexing') return <span className="pdf-idx pdf-idx--busy" title="Indexing…"><span className="pdf-idx__spin" /></span>
+  if (st.status === 'error') return <span className="pdf-idx pdf-idx--error" title="Indexing failed">!</span>
+  return <span className="pdf-idx pdf-idx--done" title={`Indexed${pages ? ` · ${pages} p.` : ''} — searchable`}>✓</span>
+}
+
 // A virtual node is { id, type:'folder'|'linkFolder'|'linkFile', name, path?, mode?, children? }.
 // A scanned disk node is { type:'diskFolder'|'diskFile', name, path } (not persisted).
 export default function PdfView() {
@@ -38,6 +46,8 @@ export default function PdfView() {
   const [editing, setEditing] = useState(null) // { id, name }
   const [query, setQuery] = useState('') // filters the tree by name
   const [info, setInfo] = useState({}) // path → { size, mtime } loaded lazily on hover / select
+  const [idx, setIdx] = useState({}) // path → { status, pages } — full-text index badges
+  const idxTimer = useRef(null)
   const saveTimer = useRef(null)
   // resizable / collapsible panel, like the mail tree
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('pdfCollapsed') === '1')
@@ -78,6 +88,32 @@ export default function PdfView() {
     api.pdf?.watch?.(collect(tree.roots))
   }, [tree])
   useEffect(() => api.pdf?.onTreeChanged?.(() => setScan({})), []) // a watched folder changed → drop scan cache, expanded folders re-scan
+
+  // ---- full-text index status: collect the paths we currently know and fetch their badges ----
+  const collectFilePaths = () => {
+    const set = new Set()
+    const walk = (nodes) => {
+      for (const n of nodes || []) {
+        if (n.type === 'linkFile' && n.path) set.add(n.path)
+        if (n.children) walk(n.children)
+      }
+    }
+    walk(tree.roots)
+    for (const s of Object.values(scan)) for (const f of s?.files || []) if (f.path) set.add(f.path)
+    return [...set]
+  }
+  const refreshIdx = () => {
+    const paths = collectFilePaths()
+    if (!paths.length) return
+    Promise.resolve(api.pdf?.indexStates?.(paths)).then((m) => m && setIdx(m))
+  }
+  // re-fetch when the tree or a scan changes (new rows may be visible now)
+  useEffect(() => { refreshIdx() }, [tree, scan]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the index worker reports progress → debounce a refresh
+  useEffect(() => api.pdf?.onIndexChanged?.(() => {
+    clearTimeout(idxTimer.current)
+    idxTimer.current = setTimeout(refreshIdx, 400)
+  }), []) // eslint-disable-line react-hooks/exhaustive-deps
   const commit = (next) => {
     setTree(next)
     clearTimeout(saveTimer.current)
@@ -505,6 +541,7 @@ export default function PdfView() {
           ) : (
             <span className="pdf-row__name">{node.name}</span>
           )}
+          {isFile(node) && <IndexBadge st={idx[node.path]} pages={idx[node.path]?.pages} />}
           {node.type === 'linkFolder' && (
             <>
               <button

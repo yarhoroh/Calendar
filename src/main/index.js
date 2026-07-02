@@ -14,6 +14,7 @@ import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } 
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
+import { initPdfIndex, syncIndex, reindexPath, indexStates, indexSummary, searchIndex } from './pdfIndex'
 import { getGoogleFont } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
@@ -1193,7 +1194,7 @@ ipcMain.on('settings:set-big-dict', (_e, { lang, on }) => {
 
 // ---- PDF section: the left tree (virtual folders + links to real folders/files) ----
 ipcMain.handle('pdf:get-tree', () => getPdfTree())
-ipcMain.handle('pdf:set-tree', (_e, t) => setPdfTree(t))
+ipcMain.handle('pdf:set-tree', (_e, t) => { const r = setPdfTree(t); scheduleIndexSync(); return r }) // tree changed → reconcile the index
 ipcMain.handle('pdf:pick-folder', () => pickPdfFolder())
 ipcMain.handle('pdf:pick-file', () => pickPdfFile())
 ipcMain.handle('pdf:save-dialog', (_e, defaultPath) => savePdfDialog(defaultPath))
@@ -1202,8 +1203,16 @@ ipcMain.handle('pdf:stat', (_e, path) => statPath(path))
 ipcMain.handle('pdf:open', (_e, path) => openPdfPath(path))
 ipcMain.handle('pdf:reveal', (_e, path) => revealPdfPath(path))
 ipcMain.handle('pdf:read', (_e, path) => readPdfBytes(path))
-ipcMain.handle('pdf:write', (_e, { path, bytes } = {}) => writePdfBytes(path, bytes))
-ipcMain.handle('pdf:watch', (e, paths) => watchPdfFolders(paths, () => e.sender.send('pdf:tree-changed')))
+ipcMain.handle('pdf:write', (_e, { path, bytes } = {}) => { const r = writePdfBytes(path, bytes); if (r?.ok) reindexPath(path); return r }) // edited file → re-index it
+ipcMain.handle('pdf:watch', (e, paths) => watchPdfFolders(paths, () => { e.sender.send('pdf:tree-changed'); scheduleIndexSync() }))
+
+// ---- PDF full-text index (own DB, worker pool) ----
+let indexSyncTimer = null
+const scheduleIndexSync = () => { clearTimeout(indexSyncTimer); indexSyncTimer = setTimeout(() => syncIndex(getPdfTree), 800) }
+ipcMain.handle('pdf:index-states', (_e, paths) => indexStates(paths))
+ipcMain.handle('pdf:index-sync', () => syncIndex(getPdfTree))
+ipcMain.handle('pdf:index-summary', () => indexSummary())
+ipcMain.handle('pdf:search', (_e, q) => searchIndex(q))
 
 // Fonts — available families (for the FORMAT dropdown) and PDF-font substitution.
 ipcMain.handle('fonts:list', () => {
@@ -1325,6 +1334,9 @@ if (!gotLock) {
     createWindow()
     createTray()
     initDb()
+    // PDF full-text index: reconcile once shortly after start (background worker pool)
+    initPdfIndex(() => mainWindow?.webContents?.send('pdf:index-changed'))
+    setTimeout(() => syncIndex(getPdfTree), 2000)
     ensureAiConfig()
     migrateNotesJson()
     initNotify({

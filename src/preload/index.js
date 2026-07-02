@@ -152,6 +152,16 @@ const api = {
       const h = () => cb()
       ipcRenderer.on('pdf:tree-changed', h)
       return () => ipcRenderer.removeListener('pdf:tree-changed', h)
+    },
+    // full-text index
+    indexStates: (paths) => ipcRenderer.invoke('pdf:index-states', paths), // { [path]: {status, pages} }
+    indexSync: () => ipcRenderer.invoke('pdf:index-sync'),
+    indexSummary: () => ipcRenderer.invoke('pdf:index-summary'),
+    search: (q) => ipcRenderer.invoke('pdf:search', q), // { results: [{path,name,pages:[{page,snippet}],rank}] }
+    onIndexChanged: (cb) => {
+      const h = () => cb()
+      ipcRenderer.on('pdf:index-changed', h)
+      return () => ipcRenderer.removeListener('pdf:index-changed', h)
     }
   },
   googleFont: (q) => ipcRenderer.invoke('fonts:google', q),

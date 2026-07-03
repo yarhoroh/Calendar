@@ -13,7 +13,19 @@ const rgbToHex = (rgb) => {
   if (!m) return '#000000'
   return '#' + m.slice(0, 3).map((v) => (+v).toString(16).padStart(2, '0')).join('')
 }
-const ASCENT = 0.8 // baseline ≈ rect.top + fontSize * ASCENT (CSS font box approximation)
+// REAL ascent of the font as the browser renders it (px): the DOM text rect's top is
+// baseline − thisAscent. A fixed 0.8 approximation displaced the visual text during editing
+// (Arial's true ascent is ~0.905) even though the maths cancelled out on commit.
+let measureCtx = null
+const domAscentPx = (style) => {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
+  try {
+    measureCtx.font = `${style.fontStyle || 'normal'} ${style.fontWeight || 400} ${parseFloat(style.fontSize)}px ${style.fontFamily}`
+    const m = measureCtx.measureText('Hg')
+    if (m.fontBoundingBoxAscent > 0) return m.fontBoundingBoxAscent
+  } catch (_) {}
+  return parseFloat(style.fontSize) * 0.8
+}
 
 // DOM → visual lines of styled runs with EXACT page coordinates (pt). Adjacent identically-formatted
 // contiguous text merges into ONE run; a formatting change starts a new run; lines group by rect top.
@@ -40,7 +52,7 @@ function parseRuns(root, pageEl, scale) {
           italic: st.fontStyle === 'italic',
           ls: +((parseFloat(st.letterSpacing) || 0) / scale).toFixed(2), // letter-spacing → Tc
           x: +((r.left - pr.left) / scale).toFixed(2),
-          baseline: +((r.top - pr.top) / scale + size * ASCENT).toFixed(2)
+          baseline: +((r.top - pr.top + domAscentPx(st)) / scale).toFixed(2) // the REAL visual baseline
         })
       } else walk(node)
     }
@@ -59,7 +71,7 @@ function parseRuns(root, pageEl, scale) {
   return lines
 }
 
-const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, initialHTML, anchorLeft, anchorTop, onPipette, onCommit, onCancel }, ref) {
+const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, initialHTML, anchorLeft, anchorBaseline, onPipette, onCommit, onCancel }, ref) {
   const boxRef = useRef(null)
   const savedSel = useRef(null) // selection captured before a toolbar <select> steals focus
   const commitRef = useRef(() => {})
@@ -85,7 +97,7 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
       const pageEl = box?.closest('.pdfed__page')
       const prose = box?.querySelector('.ProseMirror')
       if (!box || !pageEl || !prose) return
-      let r = null
+      let r = null, node = null
       const walk = (el) => {
         for (const n of el.childNodes) {
           if (r) return
@@ -93,16 +105,25 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
             const rg = document.createRange()
             rg.selectNodeContents(n)
             r = rg.getClientRects()[0] || null
+            node = n
           } else if (n.childNodes) walk(n)
         }
       }
       walk(prose)
       const pr = pageEl.getBoundingClientRect()
-      const cur = r || prose.getBoundingClientRect() // empty editor → align the prose box itself
-      setAdj({ dx: anchorLeft * scale - (cur.left - pr.left), dy: anchorTop * scale - (cur.top - pr.top) })
+      if (r && node) {
+        // align the first text node's VISUAL baseline (rect.top + real DOM ascent) onto the
+        // original baseline — the same measurement the commit uses, so what you see while editing
+        // is exactly where the text lands
+        const asc = domAscentPx(getComputedStyle(node.parentElement))
+        setAdj({ dx: anchorLeft * scale - (r.left - pr.left), dy: anchorBaseline * scale - asc - (r.top - pr.top) })
+      } else {
+        const pb = prose.getBoundingClientRect() // empty editor → align the prose box itself
+        setAdj({ dx: anchorLeft * scale - (pb.left - pr.left), dy: anchorBaseline * scale - size * scale * 0.8 - (pb.top - pr.top) })
+      }
     })
     return () => cancelAnimationFrame(id)
-  }, [editor, adj, anchorLeft, anchorTop, scale])
+  }, [editor, adj, anchorLeft, anchorBaseline, scale, size])
 
   // The PDF toolbar drives the editor through this handle. grabSel() is called on the toolbar
   // select's mousedown (a native select collapses the DOM selection on blur — same trick as the

@@ -773,7 +773,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             y={textEdit.y}
             initialHTML={textEdit.initialHTML}
             anchorLeft={textEdit.anchorLeft}
-            anchorTop={textEdit.anchorTop}
+            anchorBaseline={textEdit.anchorBaseline}
             scale={scale}
             font={rte.font}
             color={rte.color}

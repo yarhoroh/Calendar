@@ -1172,12 +1172,11 @@ export default function PdfEditor({ source, path }) {
       return `<span style="font-family: ${cssFontFor(f.name || 'Arial')}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
     }).join('') + '</p>').join('')
     const minX = Math.min(...sorted.map((o) => o.bbox.x))
-    const anchorTop = master.y - 0.8 * (master.size || 12) // 0.8 = the editor's ASCENT constant → committed baseline lands EXACTLY on the original
     onSelect(pageIndex, null)
     setInsertMode(false)
     setTextEdit({
-      page: pageIndex, x: minX, y: anchorTop,
-      initialHTML: html, anchorLeft: minX, anchorTop,
+      page: pageIndex, x: minX, y: master.y - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
+      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y,
       replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
     })
   }

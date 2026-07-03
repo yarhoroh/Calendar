@@ -1229,24 +1229,16 @@ ipcMain.handle('fonts:list', () => {
   return [...fams.values()].sort((a, b) => a.family.localeCompare(b.family))
 })
 ipcMain.handle('fonts:resolve', (_e, fonts) => resolveFonts(fonts))
-// resolution chain for a REAL font file (embeddable TTF): exact installed/bundled/cached face →
-// Google Fonts download of the exact family → Google metric CLONE of the classics (Arial→Arimo,
-// Times→Tinos, Courier→Cousine, Calibri→Carlito) → whatever fallback (Noto)
+// EXACT font only — NO silent substitution. The requested family is delivered verbatim: installed /
+// bundled / cached file, or downloaded from Google Fonts under THE SAME NAME. If we can't get that
+// exact family we return null; the caller shows an error and the user picks a different font. (The
+// old clone chain — Helvetica→Arial, →Noto — was the "auto-substitution" the user wants gone.)
 ipcMain.handle('fonts:file', async (_e, { family, bold, italic } = {}) => {
   const style = { bold, italic }
   const exact = (fam) => { const h = fontFileFor(fam, style); return h && normName(h.family) === normName(fam) ? h : null }
   let hit = exact(family)
-  if (!hit) {
-    if (await getGoogleFontTTF(family, bold, italic)) { invalidateFontCache(); hit = exact(family) }
-  }
-  if (!hit) {
-    const clone = googleCloneFor(family)
-    if (clone) {
-      hit = exact(clone)
-      if (!hit && (await getGoogleFontTTF(clone, bold, italic))) { invalidateFontCache(); hit = exact(clone) }
-    }
-  }
-  return hit ? bytesOf(hit) : fontBytesFor(family, style)
+  if (!hit && (await getGoogleFontTTF(family, bold, italic))) { invalidateFontCache(); hit = exact(family) }
+  return hit ? bytesOf(hit) : null
 })
 ipcMain.handle('fonts:google', (_e, { family, bold, italic } = {}) => getGoogleFont(family, bold, italic))
 

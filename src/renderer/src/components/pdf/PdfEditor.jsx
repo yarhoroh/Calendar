@@ -730,10 +730,11 @@ export default function PdfEditor({ source, path }) {
     // sent every bold doc font to a substitute); asking it as regular is a real restyle → resolve.
     const hasB = /bold|black|heavy/i.test(family), hasI = /italic|oblique/i.test(family)
     if (df && df.tt && !!bold === hasB && !!italic === hasI && !(forNewText && (df.subset || !df.embedded))) return { pdf: family }
-    // resolve to a system-loadable family: the doc font's lookalike, else the decoration-stripped name
-    family = df ? (df.match || baseFamily(df.name)) : baseFamily(family)
-    const f = await api.fonts.file(family, { bold, italic })
-    return f?.bytes ? { bytes: f.bytes, family } : null
+    // EXACT family only — NO substitute (df.match). "Helvetica" resolves to the real Helvetica or
+    // NOTHING (→ the caller errors and the user picks another). The picked family verbatim.
+    const fam = baseFamily(df ? df.name : family)
+    const f = await api.fonts.file(fam, { bold, italic })
+    return f?.bytes ? { bytes: f.bytes, family: fam } : null
   }
 
   // Re-style the SELECTED text objects on the page: delete their units and re-insert the same text
@@ -1060,12 +1061,9 @@ export default function PdfEditor({ source, path }) {
   const pickedFontRef = useRef(null)
   const displayFontName = (name) => {
     const p = pickedFontRef.current
-    if (!p) return name
-    const nb = baseFamily(name)
-    // Helvetica (not a real Windows font) resolves to Arial → the readback is "Arial-BoldMT". Match
-    // the pick through the clone table too, so a picked "Helvetica" keeps showing "Helvetica"
-    const pc = cloneFor(p)?.system
-    return baseFamily(p) === nb || (pc && baseFamily(pc) === nb) ? p : name
+    // no substitution now, so a picked font reads back under its OWN family — collapse the
+    // weight-specific PS name (Arial-BoldMT → Arial) to the pick when the family matches
+    return p && baseFamily(p) === baseFamily(name) ? p : name
   }
 
   const cssFontFor = (family) => {
@@ -1536,7 +1534,7 @@ export default function PdfEditor({ source, path }) {
         // typed character isn't in the subset.
         const src = await fontSourceFor(s.fontName, s.bold, s.italic, !te.replaceItems)
         if (src) fonts[k] = src
-        else console.warn('[pdf][insert-text] NO FONT for', k)
+        else { setEditErr(`Шрифт «${s.fontName}» недоступен для встраивания — выберите другой.`); return } // no substitution: stop (finally resets busy), keep the editor open
       }
       console.log('[pdf][insert-text] fonts:', Object.keys(fonts).map((k) => `${k}${fonts[k].pdf ? ' (pdf)' : ' (file)'}`).join(', ') || 'NONE')
       // every run carries its EXACT page coordinates measured from the editor's real DOM rects

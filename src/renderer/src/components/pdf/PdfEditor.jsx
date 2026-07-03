@@ -651,8 +651,11 @@ export default function PdfEditor({ source, path }) {
   const fontSourceFor = async (family, bold, italic, forNewText = false) => {
     const df = docFonts.find((f) => f.name === family)
     // own bytes only for TrueType document fonts (Type1/CFF mis-encode through our CID insert),
-    // unstyled, and — for NEW text — only full (non-subset) faces
-    if (df && df.tt && !bold && !italic && !(forNewText && (df.subset || !df.embedded))) return { pdf: family }
+    // and — for NEW text — only full (non-subset) faces. The requested style must match the style
+    // BAKED INTO the face: "NimbusSans-Bold" asked as bold IS the exact face (the old !bold guard
+    // sent every bold doc font to a substitute); asking it as regular is a real restyle → resolve.
+    const hasB = /bold|black|heavy/i.test(family), hasI = /italic|oblique/i.test(family)
+    if (df && df.tt && !!bold === hasB && !!italic === hasI && !(forNewText && (df.subset || !df.embedded))) return { pdf: family }
     // resolve to a system-loadable family: the doc font's lookalike, else the decoration-stripped name
     family = df ? (df.match || baseFamily(df.name)) : baseFamily(family)
     const f = await api.fonts.file(family, { bold, italic })

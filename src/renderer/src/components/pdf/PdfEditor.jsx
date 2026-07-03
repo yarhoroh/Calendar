@@ -1750,8 +1750,8 @@ export default function PdfEditor({ source, path }) {
                 // does (one font per run, no silent substitution). covNonce forces a re-eval on load.
                 const ok = covNonce >= 0 && (!textEdit || fontCanRender(f.name, f.bytes))
                 return (
-                  <option key={f.name} value={f.name} disabled={!ok}>
-                    {f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + (ok ? '' : ' — ✗ нет символов')}
+                  <option key={f.name} value={f.name} disabled={!ok} style={ok ? undefined : { color: '#c8c8cc', background: '#f2f2f4' }}>
+                    {(ok ? '' : '⊘ ') + f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + (ok ? '' : ' — нет символов')}
                   </option>
                 )
               })}
@@ -1762,7 +1762,7 @@ export default function PdfEditor({ source, path }) {
             <optgroup label="Similar (≈ PDF)">
               {[...new Map(docFonts.filter((f) => f.match).map((f) => [f.match, f])).entries()].map(([m, f]) => {
                 const ok = covNonce >= 0 && (!textEdit || fontCanRender(m))
-                return <option key={'sim:' + m} value={m} disabled={!ok} style={{ fontFamily: m }}>{`${m} ≈ ${f.name}` + (ok ? '' : ' — ✗')}</option>
+                return <option key={'sim:' + m} value={m} disabled={!ok} style={ok ? { fontFamily: m } : { color: '#c8c8cc', background: '#f2f2f4' }}>{(ok ? '' : '⊘ ') + `${m} ≈ ${f.name}` + (ok ? '' : ' — нет символов')}</option>
               })}
             </optgroup>
           )}

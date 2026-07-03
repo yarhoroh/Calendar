@@ -33,9 +33,12 @@ const rotFrameOf = (o) => {
   const d = { x: -sA, y: cA } // perpendicular, descent side (down-screen at ang=0)
   if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
   if (o.type === 'text') {
-    // metric fallback (ink box unavailable): baseline anchor + font metrics
+    // metric fallback (ink box unavailable): baseline anchor + font metrics — the run carries its
+    // font's EXACT em metrics when the worker could read them, else typographic constants
     const size = o.size || 10
-    const asc = size * 0.78, desc = size * 0.22, h = asc + desc
+    const asc = o.mAsc > 0 ? o.mAsc : size * 0.78
+    const desc = o.mDesc > 0 ? o.mDesc : size * 0.22
+    const h = asc + desc
     const cAb = Math.abs(cA), sAb = Math.abs(sA)
     const w = cAb >= sAb ? (o.bbox.w - h * sAb) / cAb : (o.bbox.h - h * cAb) / sAb
     if (!(w > 1)) return null

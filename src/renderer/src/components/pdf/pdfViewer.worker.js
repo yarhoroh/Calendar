@@ -406,11 +406,13 @@ function getModel(pageIndex) {
     // stays an independent object (frame, restyle and move touch only their own text).
     const runs = []
     const stext = page.toStructuredText('preserve-spans')
+    const fontObjs = [] // parallel: the live mupdf Font per fonts[] entry — exact glyph advances
     const fontRefW = (font) => {
       const name = cleanName(font.getName())
       const key = 'w|' + name
       if (!fontIdx.has(key)) {
         fontIdx.set(key, fonts.length)
+        fontObjs[fonts.length] = font
         fonts.push({
           name,
           generic: font.isMono() ? 'monospace' : font.isSerif() ? 'serif' : 'sans-serif',
@@ -445,13 +447,24 @@ function getModel(pageIndex) {
         // came out NEGATIVE and every consumer downstream (clamp, frame, hit) broke
         const rev = seg.length > 1 && seg[seg.length - 1].x < seg[0].x
         const xsMin = Math.min(...seg.map((ch) => ch.x)), xsMax = Math.max(...seg.map((ch) => ch.x))
-        const lastAdv = seg.length > 1 ? Math.abs(seg[seg.length - 1].x - seg[seg.length - 2].x) : cur.size * 0.6
+        // trailing advance: EXACT from the font when possible — the previous-gap guess clipped a
+        // wide last glyph ("0,00 €" lost part of the €) on runs with no device span to correct it
+        let lastAdv = seg.length > 1 ? Math.abs(seg[seg.length - 1].x - seg[seg.length - 2].x) : cur.size * 0.6
+        const fo = fontObjs[cur.f]
+        if (fo) {
+          try {
+            const cp = seg[seg.length - 1].c.codePointAt(0)
+            const adv = fo.advanceGlyph(fo.encodeCharacter(cp) & 0xffff, 0) * cur.size
+            if (adv > 0) lastAdv = adv
+          } catch (_) {}
+        }
         const padAdv = Math.max(lastAdv, cur.size * 0.35)
         let bx0 = rev ? xsMin - padAdv : xsMin // the trailing advance extends on the LOGICAL end side
         let ex = rev ? xsMax : xsMax + padAdv
-        // the device span carries the EXACT right edge (real advance of the last glyph — a wide
-        // '%'/'W' used to poke out of the approximated frame); sanity-capped against the metric
-        if (!rev && t && t.bbox && t.bbox[2] > bx0 + 0.3 && t.bbox[2] < ex + cur.size * 1.5) ex = t.bbox[2]
+        // the device span carries the exact INK right edge; the advance edge (above) is the
+        // typographic one. Take the WIDER of the two — covers italic overhangs AND keeps identical
+        // texts identical whether or not a span matched (span-only used to differ from advance-only)
+        if (!rev && t && t.bbox && t.bbox[2] > bx0 + 0.3 && t.bbox[2] < ex + cur.size * 1.5) ex = Math.max(ex, t.bbox[2])
         runs.push({
           id: `b${cur.bi}.l${cur.li}` + (segs.length > 1 ? `.s${k}` : ''),
           type: 'text',
@@ -610,7 +623,9 @@ function getModel(pageIndex) {
       console.log(`[pdf worker] Tc read: ${read}/${runs.length} runs matched, ${runs.filter((r) => r.ls).length} with ls≠0`)
     } catch (e) { console.warn('[pdf worker] Tc read failed:', e?.message) }
 
-    tightenBboxes(page, runs) // hug the real glyphs: catch diacritics above and descenders below
+    // per-font em metrics (hhea) — the metric frame experiment reads them; missing → ink fallback
+    for (const f of fonts) { const mm = fontMetricsFor(f.name); if (mm) { f.asc = mm.asc; f.desc = mm.desc } }
+    tightenBboxes(page, runs, fonts) // frame the text: metric em-box (or ink-scan fallback)
     return { width: W, height: H, fonts, colors, runs, images, vectors }
   } finally { page.destroy() }
 }
@@ -649,8 +664,17 @@ function textOnlyPixmap(page, S) {
   }
   return pix
 }
-function tightenBboxes(page, runs) {
+function tightenBboxes(page, runs, fonts = []) {
   if (!runs.length) return
+  // METRIC frames: baseline ± the font's own em metrics — deterministic, identical texts get
+  // identical frames. Runs whose font has no metrics fall through to the ink scan below.
+  const metricOf = (r) => {
+    if (!USE_METRIC_FRAMES) return null
+    const f = fonts[r.f]
+    if (!f || !(f.asc > 0)) return null
+    const size = r.size || 10
+    return { asc: f.asc * size, desc: f.desc * size }
+  }
   const S = 2
   let pix
   try { pix = textOnlyPixmap(page, S) } catch { return }
@@ -681,6 +705,13 @@ function tightenBboxes(page, runs) {
   const rotated = [] // oriented ink scan runs SECOND — it excludes neighbours by their TIGHTENED boxes
   for (const r of runs) {
     if (r.rot) { delete r.sy0; delete r.sy1; rotated.push(r); continue }
+    const mm = metricOf(r)
+    if (mm) {
+      r.mAsc = n2(mm.asc); r.mDesc = n2(mm.desc)
+      r.bbox = { x: r.bbox.x, y: n2(r.y - mm.asc), w: r.bbox.w, h: n2(mm.asc + mm.desc) }
+      delete r.sy0; delete r.sy1
+      continue
+    }
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     const size = r.size || 10
     // Scan OUT FROM THE BASELINE (the one trustworthy coordinate) through the glyph-only ink:
@@ -746,10 +777,16 @@ function tightenBboxes(page, runs) {
     const step = 0.5
     const rowInk = (v) => { for (let t = -size * 0.5; t <= wEst; t += step) if (inkAt(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
     const gapMax = Math.max(1, size * 0.15)
-    let vTop = 0, g = 0
-    for (let v = 0; v >= -size * 1.1; v -= step) { if (rowInk(v)) { vTop = v; g = 0 } else if ((g += step) > gapMax) break }
-    let vBot = 0; g = 0
-    for (let v = step; v <= size * 0.35; v += step) { if (rowInk(v)) { vBot = v; g = 0 } else if ((g += step) > gapMax) break }
+    let vTop = 0, vBot = 0, g = 0
+    const mm = metricOf(r)
+    if (mm) {
+      vTop = -mm.asc; vBot = mm.desc // metric band along the normal; width still ink-scanned
+      r.mAsc = n2(mm.asc); r.mDesc = n2(mm.desc)
+    } else {
+      for (let v = 0; v >= -size * 1.1; v -= step) { if (rowInk(v)) { vTop = v; g = 0 } else if ((g += step) > gapMax) break }
+      g = 0
+      for (let v = step; v <= size * 0.35; v += step) { if (rowInk(v)) { vBot = v; g = 0 } else if ((g += step) > gapMax) break }
+    }
     const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkRaw(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
     let t0 = 0, t1 = 0
     g = 0
@@ -762,6 +799,47 @@ function tightenBboxes(page, runs) {
     }
   }
   pix.destroy()
+}
+
+// EXPERIMENT: text frames from the font's METRIC em-box (hhea ascent/descent) instead of the ink
+// scan — no glyph the designer intended for line layout escapes it, so identical texts get
+// IDENTICAL frames regardless of which letters happen to have ascenders/descenders. Flip to false
+// to fall back to the ink-scan frames.
+const USE_METRIC_FRAMES = true
+const fontMetricsCache = new Map() // font name → { asc, desc } in em units, or null
+
+// hhea ascender/descender + head unitsPerEm from a TrueType buffer → em-normalized metrics
+function sfntMetrics(buf) {
+  try {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const n = dv.getUint16(4)
+    let head = -1, hhea = -1
+    for (let i = 0; i < n; i++) {
+      const r = 12 + i * 16
+      const tag = String.fromCharCode(buf[r], buf[r + 1], buf[r + 2], buf[r + 3])
+      if (tag === 'head') head = dv.getUint32(r + 8)
+      else if (tag === 'hhea') hhea = dv.getUint32(r + 8)
+    }
+    if (head < 0 || hhea < 0) return null
+    const upm = dv.getUint16(head + 18)
+    const asc = dv.getInt16(hhea + 4)
+    const desc = dv.getInt16(hhea + 6) // negative in the table
+    if (!upm || asc <= 0) return null
+    const a = asc / upm, dsc = Math.abs(desc) / upm
+    // plausibility guard: a mismatched font blob (same BaseFont, different unitsPerEm) yields
+    // absurd ratios — reject and let the ink scan take over rather than draw a tiny/huge frame
+    if (a < 0.6 || a > 1.3 || dsc < 0.08 || dsc > 0.6) return null
+    return { asc: a, desc: dsc }
+  } catch { return null }
+}
+function fontMetricsFor(name) {
+  let mm = fontMetricsCache.get(name)
+  if (mm === undefined) {
+    const b = docFontBytes(name)
+    mm = b ? sfntMetrics(b) : null
+    fontMetricsCache.set(name, mm)
+  }
+  return mm
 }
 
 // TrueType face must carry a cmap or the browser's OTS rejects the FontFace
@@ -1756,7 +1834,7 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
   try {
     if (type === 'open') {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
-      insFonts = {}; insFontSeq = 0
+      insFonts = {}; insFontSeq = 0; fontMetricsCache.clear()
       self.postMessage({ id, result: { pageCount: doc.countPages() } })
     } else if (type === 'getModel') {
       if (!doc) throw new Error('no document open')

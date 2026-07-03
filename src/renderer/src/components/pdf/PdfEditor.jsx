@@ -574,6 +574,9 @@ export default function PdfEditor({ source, path }) {
         bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
         x: o.x + dx,
         y: o.y + dy,
+        // the oriented ink box (rotated objects) must travel too, or the frame snaps back
+        ox: o.ox !== undefined ? o.ox + dx : undefined,
+        oy: o.oy !== undefined ? o.oy + dy : undefined,
         // a line/arrow carries its endpoints too — the handles must travel with the move
         line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
       }))
@@ -1080,6 +1083,8 @@ export default function PdfEditor({ source, path }) {
             bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
             x: o.x + dx,
             y: o.y + dy,
+            ox: o.ox !== undefined ? o.ox + dx : undefined,
+            oy: o.oy !== undefined ? o.oy + dy : undefined,
             line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
           }
         })
@@ -1110,6 +1115,7 @@ export default function PdfEditor({ source, path }) {
             ...o,
             bbox: { ...o.bbox, y: o.bbox.y + dy },
             y: o.y + dy,
+            oy: o.oy !== undefined ? o.oy + dy : undefined,
             line: o.line ? { ...o.line, y1: o.line.y1 + dy, y2: o.line.y2 + dy } : undefined
           }
         })

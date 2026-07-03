@@ -1407,7 +1407,9 @@ function blankTextShows(pageIndex, items, strict = false) {
     // LINE SWEEP: blank EVERY show on this baseline inside the range, across ALL units — the
     // nuclear cleanup for an edited line (leftovers of any era can't survive and duplicate)
     if (it.sweep && it.bbox) {
-      const rx0 = it.bbox.x - 0.5, rx1 = it.bbox.x + it.bbox.w + 2
+      // right boundary pulled IN (−0.5): a neighbour starting flush after the line's extent was
+      // caught by a +2 pad and vanished («0ance Due:» after editing the piece before it)
+      const rx0 = it.bbox.x - 0.5, rx1 = it.bbox.x + it.bbox.w - 0.5
       for (const u of units) {
         if (u.type !== 'text' || !u.shows) continue
         for (const sh of u.shows) {

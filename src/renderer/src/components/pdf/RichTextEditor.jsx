@@ -15,6 +15,19 @@ const TextStyleRid = TextStyle.extend({
         default: null,
         parseHTML: (el) => el.getAttribute('data-rid'),
         renderHTML: (attrs) => (attrs.rid == null ? {} : { 'data-rid': attrs.rid })
+      },
+      // explicit per-span weight/slant MUST survive TipTap's normalisation: without these attrs the
+      // style was dropped and a REGULAR piece inherited the container's bold — every reopen saw it
+      // as "changed" and re-rewrote the block (and the editor showed fake-bold digits)
+      fontWeight: {
+        default: null,
+        parseHTML: (el) => el.style.fontWeight || null,
+        renderHTML: (attrs) => (attrs.fontWeight ? { style: `font-weight: ${attrs.fontWeight}` } : {})
+      },
+      fontStyle: {
+        default: null,
+        parseHTML: (el) => el.style.fontStyle || null,
+        renderHTML: (attrs) => (attrs.fontStyle ? { style: `font-style: ${attrs.fontStyle}` } : {})
       }
     }
   }

@@ -102,12 +102,22 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     }
     const snap = (dx, dy) => {
       const th = 4 / scale // ~4 screen pixels
-      const edgesX = [u0.x + dx, u0.x + u0.w + dx] // dragged left, right
-      const edgesY = [u0.y + dy, u0.y + u0.h + dy] // dragged top, bottom
-      let bx = null, by = null
-      for (const e of edgesX) for (const c of candX) { const d = c.v - e; if (Math.abs(d) < th && (!bx || Math.abs(d) < Math.abs(bx.d))) bx = { d, c } }
-      for (const e of edgesY) for (const c of candY) { const d = c.v - e; if (Math.abs(d) < th && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, c } }
-      return { dx: dx + (bx ? bx.d : 0), dy: dy + (by ? by.d : 0), gx: bx?.c || null, gy: by?.c || null }
+      // best correction per axis (nearest edge within threshold)
+      const bestD = (edges, cand) => {
+        let best = null
+        for (const e of edges) for (const c of cand) { const d = c.v - e; if (Math.abs(d) < th && (best === null || Math.abs(d) < Math.abs(best))) best = d }
+        return best
+      }
+      const cx = bestD([u0.x + dx, u0.x + u0.w + dx], candX)
+      const cy = bestD([u0.y + dy, u0.y + u0.h + dy], candY)
+      const ndx = dx + (cx ?? 0), ndy = dy + (cy ?? 0)
+      // AFTER snapping, show a guide for EVERY candidate edge that now coincides with a dragged edge
+      // (so aligning bottoms shows the BOTTOM line, and if tops line up too, both appear)
+      const fex = [u0.x + ndx, u0.x + u0.w + ndx]
+      const fey = [u0.y + ndy, u0.y + u0.h + ndy]
+      const gxs = cx === null ? [] : candX.filter((c) => fex.some((e) => Math.abs(c.v - e) < 0.5))
+      const gys = cy === null ? [] : candY.filter((c) => fey.some((e) => Math.abs(c.v - e) < 0.5))
+      return { dx: ndx, dy: ndy, gxs, gys }
     }
     // Ctrl while dragging → the move is locked to the axis of the FIRST significant displacement
     let axis = null
@@ -118,14 +128,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     }
     const resolve = (rawx, rawy, ev) => {
       const [dx, dy] = lock(rawx, rawy, ev.ctrlKey)
-      if (ev.shiftKey) { const s = snap(dx, dy); return [s.dx, s.dy, s.gx, s.gy] }
-      return [dx, dy, null, null]
+      if (ev.shiftKey) { const s = snap(dx, dy); return [s.dx, s.dy, s.gxs, s.gys] }
+      return [dx, dy, [], []]
     }
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
-      const [dx, dy, gx, gy] = resolve(mx - sx, my - sy, ev)
+      const [dx, dy, gxs, gys] = resolve(mx - sx, my - sy, ev)
       setGhost({ dx, dy })
-      setSnapLines(gx || gy ? { x: gx, y: gy } : null)
+      setSnapLines(gxs.length || gys.length ? { xs: gxs, ys: gys } : null)
       if (u0) onLiveGeo?.({ x: u0.x + dx, y: u0.y + dy, w: u0.w, h: u0.h }) // live X/Y in the panel
     }
     const up = (ev) => {
@@ -426,14 +436,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 <div className="pdfed__guide is-v" style={{ left: (union.x + union.w + ghost.dx) * scale }} />
               </>
             )}
-            {/* magnetic snap guides (Shift): a bright line exactly where the union locks onto another
-                object's edge/centre, spanning both objects so the alignment is obvious */}
-            {!ghost.pending && snapLines?.x && (
-              <div className="pdfed__snap is-v" style={{ left: snapLines.x.v * scale, top: Math.min(snapLines.x.a, union.y + ghost.dy) * scale, height: (Math.max(snapLines.x.z, union.y + union.h + ghost.dy) - Math.min(snapLines.x.a, union.y + ghost.dy)) * scale }} />
-            )}
-            {!ghost.pending && snapLines?.y && (
-              <div className="pdfed__snap is-h" style={{ top: snapLines.y.v * scale, left: Math.min(snapLines.y.a, union.x + ghost.dx) * scale, width: (Math.max(snapLines.y.z, union.x + union.w + ghost.dx) - Math.min(snapLines.y.a, union.x + ghost.dx)) * scale }} />
-            )}
+            {/* magnetic snap guides (Shift): a bright line at every aligned edge, spanning from the
+                other object to the dragged one so the alignment is obvious */}
+            {!ghost.pending && snapLines?.xs?.map((c, i) => (
+              <div key={'sx' + i} className="pdfed__snap is-v" style={{ left: c.v * scale, top: Math.min(c.a, union.y + ghost.dy) * scale, height: (Math.max(c.z, union.y + union.h + ghost.dy) - Math.min(c.a, union.y + ghost.dy)) * scale }} />
+            ))}
+            {!ghost.pending && snapLines?.ys?.map((c, i) => (
+              <div key={'sy' + i} className="pdfed__snap is-h" style={{ top: c.v * scale, left: Math.min(c.a, union.x + ghost.dx) * scale, width: (Math.max(c.z, union.x + union.w + ghost.dx) - Math.min(c.a, union.x + ghost.dx)) * scale }} />
+            ))}
             {/* the dragged content: a transparent sprite of ONLY the selected objects (nothing around
                 them, no clipped neighbours). Until it arrives, per-object raster windows fill in. */}
             {sprite ? (

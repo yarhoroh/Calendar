@@ -1060,7 +1060,12 @@ export default function PdfEditor({ source, path }) {
   const pickedFontRef = useRef(null)
   const displayFontName = (name) => {
     const p = pickedFontRef.current
-    return p && baseFamily(p) === baseFamily(name) ? p : name
+    if (!p) return name
+    const nb = baseFamily(name)
+    // Helvetica (not a real Windows font) resolves to Arial → the readback is "Arial-BoldMT". Match
+    // the pick through the clone table too, so a picked "Helvetica" keeps showing "Helvetica"
+    const pc = cloneFor(p)?.system
+    return baseFamily(p) === nb || (pc && baseFamily(pc) === nb) ? p : name
   }
 
   const cssFontFor = (family) => {

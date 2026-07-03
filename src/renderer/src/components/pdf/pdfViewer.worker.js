@@ -431,7 +431,10 @@ function getModel(pageIndex) {
     // span with its own anchor, so a glued line is SPLIT back at the span boundaries: each piece
     // stays an independent object (frame, restyle and move touch only their own text).
     const runs = []
-    const stext = page.toStructuredText('preserve-spans')
+    // inhibit-spaces: NO synthesized spaces — mupdf used to invent them in positional gaps (fake
+    // spaces in sparse text, phantom widths). Only REAL space glyphs from the stream remain; word
+    // gaps encoded as pure positioning are OUR job (the editor's column-gap heuristic covers it).
+    const stext = page.toStructuredText('preserve-spans,inhibit-spaces')
     const fontObjs = [] // parallel: the live mupdf Font per fonts[] entry — exact glyph advances
     const fontRefW = (font) => {
       const name = cleanName(font.getName())

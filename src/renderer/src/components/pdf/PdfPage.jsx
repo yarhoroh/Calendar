@@ -353,12 +353,28 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
       <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode === 'text' ? 'text' : insertMode ? 'crosshair' : undefined }} onMouseDown={onDown} onContextMenu={onContext}>
-        {/* "All" — faint grey outline around every non-empty element, an element map of the page */}
-        {showAll && objects.map((o) => (
-          o.bbox.w > 1 && o.bbox.h > 0.5
+        {/* "All" — faint grey outline map of the page. Follows the cursor mode: 'block' outlines whole
+            text GROUPS (bN), 'single' outlines individual elements — same granularity a click selects */}
+        {showAll && (() => {
+          let boxes = objects
+          if (selMode === 'block') {
+            const groups = new Map(); boxes = []
+            for (const o of objects) {
+              const b = o.type === 'text' ? String(o.id).split('.')[0] : null
+              if (!b) { boxes.push(o); continue }
+              const g = groups.get(b)
+              if (!g) { const nb = { id: 'g' + b, bbox: { ...o.bbox } }; groups.set(b, nb); boxes.push(nb) }
+              else {
+                const x0 = Math.min(g.bbox.x, o.bbox.x), y0 = Math.min(g.bbox.y, o.bbox.y)
+                const x1 = Math.max(g.bbox.x + g.bbox.w, o.bbox.x + o.bbox.w), y1 = Math.max(g.bbox.y + g.bbox.h, o.bbox.y + o.bbox.h)
+                g.bbox = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+              }
+            }
+          }
+          return boxes.map((o) => (o.bbox.w > 1 && o.bbox.h > 0.5
             ? <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
-            : null
-        ))}
+            : null))
+        })()}
         {/* a single line/arrow gets a ROTATED frame hugging its path (an axis-aligned box around a
             slanted line is huge and misleading); it travels with the ghost/nudge */}
         {selObjs.length === 1 && selObjs[0].line && (() => {

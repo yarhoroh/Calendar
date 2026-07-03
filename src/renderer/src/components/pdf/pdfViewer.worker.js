@@ -108,7 +108,11 @@ function buildUnits(cs, streamNum, H) {
     else if (t === 'n') { start = end; reset() } // clip finaliser (re W n): keep clip paths OUT of paint units so a move never shifts a clip
     else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
       const d = dev(tm[4], tm[5])
-      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1], tc, font: fontRes, stream: streamNum, ta: tlm[0] || 1, td: tlm[3] || 1 })
+      // effective rotation of this show (Tm×CTM): rotated text breaks every baseline-anchored
+      // heuristic downstream, so the model must know the angle
+      const eff = matMul(tm, ctm)
+      const rot = Math.atan2(eff[1], eff[0]) * 180 / Math.PI
+      shows.push({ start: operandStart !== null ? operandStart : mt.index, end, px: d[0], py: d[1], tc, font: fontRes, stream: streamNum, ta: tlm[0] || 1, td: tlm[3] || 1, rot: Math.abs(rot) > 0.5 ? rot : 0 })
       operandStart = null
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
@@ -495,6 +499,7 @@ function getModel(pageIndex) {
         }
         if (best) read++
         r.ls = best && best.tc ? n2(best.tc) : 0
+        if (best && best.rot) r.rot = n2(best.rot) // rotation angle (deg, PDF space)
         // our own run → decode the true text from the stream (gid→char via the font's own map)
         const rec = best && best.font ? efByName[best.font] : null
         if (rec) {
@@ -601,6 +606,7 @@ function tightenBboxes(page, runs) {
     const rx0 = r.bbox.x, rx1 = r.bbox.x + r.bbox.w
     for (const o of runs) {
       if (o === r) continue
+      if (o.rot) continue // a rotated run's baseline (first-glyph py) says nothing about its extent
       if (Math.min(o.bbox.x + o.bbox.w, rx1) - Math.max(o.bbox.x, rx0) < 0.3 * Math.min(o.bbox.w, r.bbox.w)) continue
       if (o.y < r.y - 1 && o.y > above) above = o.y
       else if (o.y > r.y + 1 && o.y < below) below = o.y
@@ -608,6 +614,9 @@ function tightenBboxes(page, runs) {
     nb.set(r, [above, below])
   }
   for (const r of runs) {
+    // ROTATED text: the baseline-anchored scan model breaks entirely (ink runs diagonally) — keep
+    // the stext quad box, it covers the slanted ink; don't cut it at baseline+0.55em
+    if (r.rot) { delete r.sy0; delete r.sy1; continue }
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     const size = r.size || 10
     // Scan OUT FROM THE BASELINE (the one trustworthy coordinate) through the glyph-only ink:
@@ -616,6 +625,16 @@ function tightenBboxes(page, runs) {
     const base = Math.round(r.y * S)
     let hardTop = Math.max(0, Math.round((r.y - size * 1.4) * S))
     let hardBot = Math.min(ph, Math.round((r.y + size * 0.55) * S))
+    // a ROTATED neighbour's slanted ink can invade the scan window and bridge the ink-growth (its
+    // baseline demarcation is skipped above) — clamp the window to plain metrics on the invaded side
+    for (const o of runs) {
+      if (o === r || !o.rot) continue
+      const rx0 = r.bbox.x, rx1 = r.bbox.x + r.bbox.w
+      if (Math.min(o.bbox.x + o.bbox.w, rx1) <= Math.max(o.bbox.x, rx0)) continue
+      const ob = o.bbox.y + o.bbox.h
+      if (ob > r.y - size * 1.4 && o.bbox.y < r.y) hardTop = Math.max(hardTop, Math.round((r.y - size * 0.85) * S))
+      if (o.bbox.y < r.y + size * 0.55 && ob > r.y) hardBot = Math.min(hardBot, Math.round((r.y + size * 0.3) * S))
+    }
     const [above, below] = nb.get(r)
     if (isFinite(above)) hardTop = Math.max(hardTop, Math.round((above + 0.28 * (r.y - above)) * S))
     if (isFinite(below)) hardBot = Math.min(hardBot, Math.round((r.y + 0.72 * (below - r.y)) * S))

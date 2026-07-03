@@ -182,6 +182,7 @@ export default function PdfEditor({ source, path }) {
   const [imgs, setImgs] = useState([]) // [{ pageIndex, url, width, height }] — re-rendered per scale
   const [pageCount, setPageCount] = useState(0)
   const [fontsNonce, setFontsNonce] = useState(0) // bumped after inserts: new EF faces need FontFaces
+  const [lsEdit, setLsEdit] = useState(null) // string while the LS value is being typed manually
   const [scale, setScale] = useState(1.5)
   const [status, setStatus] = useState('idle')
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -1734,7 +1735,23 @@ export default function PdfEditor({ source, path }) {
           LS
           <span className="pdfed__ls">
             <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS - 0.1).toFixed(2))} title="Tighter (−0.1)">−</button>
-            <span className="pdfed__lsval" style={{ cursor: 'pointer' }} title="Click = reset to 0" onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(0)}>{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
+            {lsEdit != null ? (
+              <input
+                className="pdfed__lsinput"
+                autoFocus
+                value={lsEdit}
+                onChange={(e) => setLsEdit(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') { const v = parseFloat(lsEdit.replace(',', '.')); pickLS(isNaN(v) ? 0 : Math.max(-10, Math.min(20, v))); setLsEdit(null) }
+                  else if (e.key === 'Escape') setLsEdit(null)
+                }}
+                onBlur={() => { const v = parseFloat(lsEdit.replace(',', '.')); if (!isNaN(v)) pickLS(Math.max(-10, Math.min(20, v))); setLsEdit(null) }}
+              />
+            ) : (
+              <span className="pdfed__lsval" style={{ cursor: 'pointer' }} title="Click = type a value" onMouseDown={(e) => e.preventDefault()} onClick={() => setLsEdit(String(+letterS.toFixed(2)))}>{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
+            )}
             <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.1).toFixed(2))} title="Wider (+0.1)">+</button>
           </span>
         </label>

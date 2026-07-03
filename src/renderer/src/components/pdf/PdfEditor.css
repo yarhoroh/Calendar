@@ -276,6 +276,17 @@
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
+.pdfed__lsinput {
+  width: 44px;
+  height: 22px;
+  border: 1px solid var(--accent, #1473e6);
+  border-radius: 5px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  font-size: 11px;
+  text-align: center;
+  outline: none;
+}
 
 /* context-menu item content: icon + label. Block flex — an inline box would sit on the text
    baseline and leave extra descender space below the row. */

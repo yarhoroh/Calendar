@@ -371,9 +371,14 @@ export default function PdfEditor({ source, path }) {
     if (!rep) return
     const f = selPg.fonts?.[rep.f]
     if (f) {
-      const inList = docFonts.some((d) => d.name === f.name) || sysFonts.includes(f.name)
-      console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" (b=${!!f.bold} i=${!!f.italic}); in dropdown list: ${inList}`)
-      setFontSel(f.name); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
+      // show the FAMILY, not the weight-specific PS name: a bold Arial reads back as "Arial-BoldMT",
+      // and a picked "Helvetica" resolves to Arial → showing "Arial" (+ the B button) is stable and
+      // recognisable, instead of jumping to "Arial-BoldMT" (looked like a random substitution)
+      const base = baseFamily(f.name)
+      const asFamily = !docFonts.some((d) => d.name === f.name) && (sysFonts.includes(base) || docFonts.some((d) => d.match === base))
+      const shown = asFamily ? base : f.name
+      console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" → shown "${shown}" (b=${!!f.bold} i=${!!f.italic})`)
+      setFontSel(shown); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
     }
     if (rep.c !== undefined && selPg.colors?.[rep.c]) setColorSel(selPg.colors[rep.c])
     if (rep.size) setFontSize(rep.size)

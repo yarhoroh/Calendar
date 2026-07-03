@@ -1227,20 +1227,24 @@ export default function PdfEditor({ source, path }) {
     if (!texts.length) return
     const pg = model.find((p) => p.pageIndex === pageIndex)
     if (!pg) return
-    // line tolerance scales with the type size: pieces from older commits can carry a slightly
-    // drifted baseline (±2-4pt) — a fixed 3pt threshold exiled them to a "separate line" at the
-    // END of the editor ("U убежало в конец")
-    const master0 = [...texts].sort((a, b) => a.y - b.y || a.x - b.x)[0]
-    const lineTol = Math.max(3, (master0?.size || 12) * 0.45)
-    const sorted = [...texts].sort((a, b) => (Math.abs(a.y - b.y) > lineTol ? a.y - b.y : a.x - b.x))
+    // TWO-PHASE ordering: cluster into visual lines first (y-sweep with a size-adaptive tolerance),
+    // then sort each line's pieces by x. The old single comparator (same-line→x, else→y) is NOT
+    // transitive when baselines drift a little — Array.sort shuffled mixed-font pieces randomly.
+    const byY = [...texts].sort((a, b) => a.y - b.y || a.x - b.x)
+    const lineTol = Math.max(3, (byY[0]?.size || 12) * 0.45)
+    const lines = []
+    for (const o of byY) {
+      const last = lines[lines.length - 1]
+      if (last && Math.abs(o.y - last[0].y) < lineTol) last.push(o)
+      else lines.push([o])
+    }
+    for (const l of lines) l.sort((a, b) => a.x - b.x)
+    const sorted = lines.flat()
     const master = sorted[0]
     const mf = pg.fonts?.[master.f] || {}
     // the toolbar mirrors the edited block's master style
     setFontSel(mf.name || 'Arial'); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
     setBoldSel(!!mf.bold); setItalicSel(!!mf.italic)
-    // visual lines by baseline; line-height from the first two
-    const lines = []
-    for (const o of sorted) { const last = lines[lines.length - 1]; if (last && Math.abs(last[0].y - o.y) < lineTol) last.push(o); else lines.push([o]) }
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // every piece carries data-rid through the session — the commit DIFFS by it and leaves

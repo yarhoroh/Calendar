@@ -324,8 +324,8 @@ export default function PdfEditor({ source, path }) {
           // fonts:file runs the full chain in main (installed → Google exact → Google metric clone
           // → Noto) — so an exotic family downloads its REAL face and the editor shows true glyphs
           const loadLookalike = () => Promise.resolve(api.fonts.file(baseFamily(f.name), {})).then((sys) => {
-            if (sys?.bytes) { noteSubst(sys.family); return addFace(sys.bytes) }
-            return Promise.resolve(api.fonts.file(look, {})).then((s2) => { if (s2?.bytes) { noteSubst(s2.family); return addFace(s2.bytes) } })
+            if (sys?.bytes) { noteSubst(sys.family); ensureDomFace(sys.family, sys.bytes, sys.bold, sys.italic); return addFace(sys.bytes) }
+            return Promise.resolve(api.fonts.file(look, {})).then((s2) => { if (s2?.bytes) { noteSubst(s2.family); ensureDomFace(s2.family, s2.bytes, s2.bold, s2.italic); return addFace(s2.bytes) } })
           }).catch(() => {})
           // real bytes when the browser accepts them; if OTS rejects the face (subset without a
           // cmap etc.) the SAME name still gets the substitute — the editor never falls to a blank
@@ -635,6 +635,19 @@ export default function PdfEditor({ source, path }) {
     }
     return fallbackRef.current
   }
+  // every REAL face the chain resolves gets a DOM FontFace under its own family name (with proper
+  // weight/style descriptors): the editor then MEASURES with the same bytes the PDF embeds — the
+  // browser's default-font fallback had different digit widths, so committed gaps didn't match
+  const domFacesRef = useRef(new Set())
+  const ensureDomFace = (family, bytes, bold = false, italic = false) => {
+    const k = `${family}|${bold ? 1 : 0}${italic ? 1 : 0}`
+    if (!family || !bytes || domFacesRef.current.has(k)) return
+    domFacesRef.current.add(k)
+    try {
+      new FontFace(family, bytes.slice(0), { weight: bold ? '700' : '400', style: italic ? 'italic' : 'normal' })
+        .load().then((ff) => document.fonts.add(ff)).catch(() => {})
+    } catch (_) {}
+  }
   // per-(family+style) substitute through the FULL chain (installed → Google exact → metric clone →
   // Noto) — nothing hardcoded: NimbusSans-Bold gets Arimo Bold, an exotic family gets its own real
   // face. Cached per session.
@@ -646,6 +659,8 @@ export default function PdfEditor({ source, path }) {
       let f = await Promise.resolve(api.fonts.file(baseFamily(family), { bold, italic })).catch(() => null)
       if (!f?.bytes) f = await Promise.resolve(api.fonts.file('Arial', { bold, italic })).catch(() => null) // last resort
       c.set(kk, f?.bytes ? { bytes: f.bytes, family: f.family || baseFamily(family) } : null)
+      const hit = c.get(kk)
+      if (hit) ensureDomFace(hit.family, hit.bytes, bold, italic) // the editor must measure with the SAME face
     }
     return c.get(kk)
   }

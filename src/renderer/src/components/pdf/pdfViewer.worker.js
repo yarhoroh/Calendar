@@ -1259,46 +1259,35 @@ function invertM(m) {
 // document's own TrueType, else the provided file), VALIDATE they can encode this key's actual
 // text, fall back to the provided fallback font, and only then embed. Throws BEFORE any mutation —
 // so no operation built on top of it can ever delete content and then fail to draw ("aaaa…").
+// which non-space chars of `text` the font can't encode (gid 0), or null if the bytes won't load
+function missingChars(bytes, family, text) {
+  if (!bytes) return null
+  let font = null
+  try {
+    font = new mupdf.Font(family || 'F', new Uint8Array(bytes))
+    const miss = []
+    for (const ch of new Set([...String(text || '')])) {
+      if (!ch.trim()) continue
+      if ((font.encodeCharacter(ch.codePointAt(0)) & 0xffff) === 0) miss.push(ch)
+    }
+    return miss
+  } catch (_) { return null } finally { try { font?.destroy?.() } catch (_) {} }
+}
+
+// ONE font per run — NO silent substitution, NO per-glyph mixing. If the chosen font can't cover
+// the run's text we THROW (atomic, before any write); the UI shows this and the user picks a font
+// that CAN render it (incapable fonts are disabled in the dropdown). Throws BEFORE any mutation.
 function prepareInsFonts(pageIndex, fonts, fallback, samples) {
   const recs = {}
-  // the fallback must match BOTH the segment's style AND its document font: the renderer resolves
-  // a per-key substitute through the clone chain (NimbusSans-Bold → Arimo Bold, exotic → Google
-  // download, …) — nothing is hardcoded to one family, any PDF's fonts get their own equivalents
-  const fbFor = (k) => {
-    if (fallback?.byKey && fallback.byKey[k]) return fallback.byKey[k]
-    const s = k.split('|')[1] || ''
-    if (fallback?.byStyle) return fallback.byStyle[s] || fallback.byStyle[''] || fallback
-    return fallback || null
-  }
   for (const k of Object.keys(fonts || {})) {
     const f = fonts[k]
     const sample = samples[k] || 'Ag1'
-    const fb = fbFor(k)
-    let bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf) : null)
-    let family = f.family || f.pdf || k
-    if (!bytes || !fontEncodes(bytes, family, sample)) {
-      if (fb?.bytes && fontEncodes(fb.bytes, fb.family, sample)) {
-        console.warn(`[pdf worker] font "${family}" cannot encode the text → fallback "${fb.family}"`)
-        bytes = fb.bytes
-        family = fb.family || 'Arial'
-      } else {
-        throw new Error(`font "${family}" cannot encode the text and no usable fallback`)
-      }
-    }
-    recs[k] = ensureInsFont(pageIndex, family + '|' + (bytes === fb?.bytes ? 'fb' + (k.split('|')[1] || '') : k), bytes, family)
-    // PARTIAL coverage (a subset missing some of the text's chars): those chars would render as
-    // blank .notdef — prepare the style-matched fallback face alongside
-    if (bytes !== fb?.bytes) {
-      const miss = [...new Set([...sample])].filter((ch) => ch.trim() && (recs[k].font.encodeCharacter(ch.codePointAt(0)) & 0xffff) === 0)
-      if (miss.length) {
-        if (!fb?.bytes || !fontEncodes(fb.bytes, fb.family, miss.join(''))) {
-          throw new Error(`font "${family}" is missing "${miss.join('')}" and the fallback can't cover them`)
-        }
-        const sKey = k.split('|')[1] || ''
-        recs['__fb|' + sKey] = ensureInsFont(pageIndex, (fb.family || 'Arial') + '|fb' + sKey, fb.bytes, fb.family || 'Arial')
-        console.warn(`[pdf worker] font "${family}" misses "${miss.join('')}" → those chars go to "${fb.family}"`)
-      }
-    }
+    const bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf) : null)
+    const family = f.family || f.pdf || k
+    const miss = missingChars(bytes, family, sample)
+    if (miss === null) throw new Error(`FONT_UNUSABLE|${family}`)
+    if (miss.length) throw new Error(`FONT_MISS|${family}|${miss.join('')}`)
+    recs[k] = ensureInsFont(pageIndex, family + '|' + k, bytes, family)
   }
   return recs
 }
@@ -1331,48 +1320,23 @@ function insertTextWithRecs(pageIndex, spec, recs) {
     for (const s of line) {
       const rec = recs[s.fontKey]
       if (!rec || !s.text) continue
-      // MIXED-FONT split: chars the (subset) font can encode stay in it; the rest go to the
-      // fallback face — consecutive Tj's continue the line naturally (Tj advances the text matrix),
-      // so a missing letter no longer renders as a blank .notdef box
-      const fb = recs['__fb|' + (s.fontKey.split('|')[1] || '')] || recs['__fb|']
-      const parts = [] // { rec, hex, nat, len }
+      // ONE font for the whole piece (prepareInsFonts guaranteed it covers every char)
+      let hex = '', nat = 0
       for (const ch of s.text) {
-        let r2 = rec
-        let gid = rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
-        if (gid === 0 && fb && fb !== rec) {
-          const g2 = fb.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
-          if (g2 > 0) { r2 = fb; gid = g2 }
-        }
-        const last = parts[parts.length - 1]
-        const adv = r2.font.advanceGlyph(gid, 0)
-        if (last && last.rec === r2) { last.hex += gid.toString(16).padStart(4, '0'); last.nat += adv; last.len++ }
-        else parts.push({ rec: r2, hex: gid.toString(16).padStart(4, '0'), nat: adv, len: 1 })
+        const gid = rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
+        nat += rec.font.advanceGlyph(gid, 0)
+        hex += gid.toString(16).padStart(4, '0')
       }
-      if (!parts.length) continue
       // no explicit LS but a target width → fit Tc so the new run spans EXACTLY the original width
       // (covers spacing baked in as TJ kerning / per-glyph positions, which can't be read as one number)
       let ls = s.ls
-      const natAll = parts.reduce((a, p) => a + p.nat, 0)
       if ((ls === undefined || ls === null) && s.fitW > 0 && s.text.length > 1) {
-        ls = Math.max(-3, Math.min(10, (s.fitW - natAll * (s.size || 12)) / (s.text.length - 1)))
+        ls = Math.max(-3, Math.min(10, (s.fitW - nat * (s.size || 12)) / (s.text.length - 1)))
       }
       const tx = s.x, ty = H - s.baseline
       const pos = curX === null ? `1 0 0 1 ${n2(tx)} ${n2(ty)} Tm` : `${n2(tx - curX)} ${n2(ty - curY)} Td`
-      body += `${hexRgbOps(s.color)} rg ${n2(ls || 0)} Tc ${pos}`
-      // explicit Td between the parts (we know each part's exact width): the stream parser anchors
-      // every show by its own pen position — relying on Tj auto-advance collapsed all anchors into
-      // one px and the model mis-attributed the pieces
-      let penX = tx
-      parts.forEach((p, i) => {
-        if (i > 0) {
-          const w = parts[i - 1].nat * (s.size || 12) + (ls || 0) * parts[i - 1].len
-          body += ` ${n2(w)} 0 Td`
-          penX += w
-        }
-        body += ` /${p.rec.name} ${n2(s.size || 12)} Tf <${p.hex}> Tj`
-      })
-      body += '\n'
-      curX = penX; curY = ty
+      curX = tx; curY = ty
+      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc ${pos} <${hex}> Tj\n`
     }
   }
   const ops = body ? '\nq BT\n' + body + 'ET Q\n' : '\n'

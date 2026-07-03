@@ -5,6 +5,7 @@ import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
 import { cloneFor } from '../../../../shared/fontClones'
+import { fontCoverageOf, fontCovers } from './fontCoverage'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
 
@@ -183,6 +184,10 @@ export default function PdfEditor({ source, path }) {
   const [pageCount, setPageCount] = useState(0)
   const [fontsNonce, setFontsNonce] = useState(0) // bumped after inserts: new EF faces need FontFaces
   const [lsEdit, setLsEdit] = useState(null) // string while the LS value is being typed manually
+  const [editText, setEditText] = useState('') // live plain text of the open editor (coverage check)
+  const [editErr, setEditErr] = useState(null) // "font X can't render …" — keeps the editor open
+  const [covNonce, setCovNonce] = useState(0) // bumped when a font's glyph coverage finishes loading
+  const covRef = useRef(new Map()) // family(lower) → {has} | null | 'loading'
   const [scale, setScale] = useState(1.5)
   const [status, setStatus] = useState('idle')
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -339,6 +344,14 @@ export default function PdfEditor({ source, path }) {
     })()
     return () => { alive = false }
   }, [pageCount, fontsNonce])
+
+  // starting/ending a text edit: reset the coverage-dropdown state; preload doc-font coverage so
+  // the dropdown can grey out incapable fonts from the first frame
+  useEffect(() => {
+    if (!textEdit) { setEditText(''); setEditErr(null); return }
+    for (const f of docFonts) ensureCoverage(f.name, f.bytes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textEdit])
 
   // every colour used in the document (text + art), merged across pages — the colour dropdown
   const docColors = [...new Set(model.flatMap((p) => p.colors || []))]
@@ -994,6 +1007,27 @@ export default function PdfEditor({ source, path }) {
 
   // CSS family for a font name: a document font falls back to its system lookalike, so the editor
   // previews something sensible even when the embedded face couldn't be loaded into the browser
+  // glyph coverage per font family (from its bytes' cmap). doc fonts carry bytes; anything else is
+  // fetched through the same chain the commit uses, so "can this font render it" is authoritative.
+  const ensureCoverage = (family, bytes) => {
+    const key = String(family || '').toLowerCase()
+    if (!key || covRef.current.has(key)) return
+    covRef.current.set(key, 'loading')
+    const done = (ab) => { covRef.current.set(key, ab ? fontCoverageOf(ab) : null); setCovNonce((n) => n + 1) }
+    if (bytes) { done(bytes); return }
+    Promise.resolve(api.fonts.file(family, {})).then((f) => done(f?.bytes || null)).catch(() => done(null))
+  }
+  // can this family render the whole current edit text? unknown coverage → optimistic (true), and a
+  // load is kicked off so the answer arrives shortly
+  const fontCanRender = (family, bytes) => {
+    if (!editText.trim()) return true
+    const key = String(family || '').toLowerCase()
+    const c = covRef.current.get(key)
+    if (c === undefined) { ensureCoverage(family, bytes); return true }
+    if (c === 'loading') return true
+    return fontCovers(c, editText)
+  }
+
   const cssFontFor = (family) => {
     const df = docFonts.find((f) => f.name === family)
     // second family = what ACTUALLY substitutes (subst — the same face the commit chain resolves),
@@ -1484,8 +1518,19 @@ export default function PdfEditor({ source, path }) {
       const grouped = allOf(m).filter((o) => (o.type === 'text' && blocks.has(String(o.id).split('.')[0])) || added.includes(o))
       console.log(`[pdf][insert-text] page ${te.page}, ${lines.length} line(s) → ${added.length} new, ${grouped.length} in block(s)`)
       setFontsNonce((n) => n + 1) // freshly embedded EF faces get their FontFaces for the next edit
+      setEditErr(null)
       onSelect(te.page, grouped.length ? grouped : added) // the inserted block comes out selected whole
-    } catch (err) { console.error('[pdf] insert text failed (editor kept open):', err) } finally { busyRef.current = false }
+    } catch (err) {
+      // a font that can't render the text → keep the editor open and TELL the user which font/chars,
+      // so they switch to a supported one (incapable fonts are already disabled in the dropdown)
+      const msg = String(err?.message || '')
+      const mMiss = msg.match(/FONT_MISS\|([^|]+)\|(.+)/)
+      const mBad = msg.match(/FONT_UNUSABLE\|(.+)/)
+      if (mMiss) setEditErr(`Шрифт «${mMiss[1]}» не содержит символы: ${mMiss[2]} — выберите шрифт с ними в списке.`)
+      else if (mBad) setEditErr(`Шрифт «${mBad[1]}» не загрузился — выберите другой.`)
+      else setEditErr('Не удалось сохранить текст — см. консоль.')
+      console.error('[pdf] insert text failed (editor kept open):', err)
+    } finally { busyRef.current = false }
   }
 
   // ---- copy / paste: duplicate the selected objects straight into the PDF stream ----
@@ -1700,18 +1745,25 @@ export default function PdfEditor({ source, path }) {
         >
           {docFonts.length > 0 && (
             <optgroup label="PDF">
-              {docFonts.map((f) => (
-                /* "≈ Family" = this doc font is SUBSTITUTED by that equivalent (real bytes didn't load) */
-                <option key={f.name} value={f.name}>{f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '')}</option>
-              ))}
+              {docFonts.map((f) => {
+                // a font that CAN'T render the current text is disabled — the user must pick one that
+                // does (one font per run, no silent substitution). covNonce forces a re-eval on load.
+                const ok = covNonce >= 0 && (!textEdit || fontCanRender(f.name, f.bytes))
+                return (
+                  <option key={f.name} value={f.name} disabled={!ok}>
+                    {f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + (ok ? '' : ' — ✗ нет символов')}
+                  </option>
+                )
+              })}
             </optgroup>
           )}
           {docFonts.some((f) => f.match) && (
             /* system lookalikes of the document's fonts — full faces, safe for typing NEW text */
             <optgroup label="Similar (≈ PDF)">
-              {[...new Map(docFonts.filter((f) => f.match).map((f) => [f.match, f])).entries()].map(([m, f]) => (
-                <option key={'sim:' + m} value={m} style={{ fontFamily: m }}>{`${m} ≈ ${f.name}`}</option>
-              ))}
+              {[...new Map(docFonts.filter((f) => f.match).map((f) => [f.match, f])).entries()].map(([m, f]) => {
+                const ok = covNonce >= 0 && (!textEdit || fontCanRender(m))
+                return <option key={'sim:' + m} value={m} disabled={!ok} style={{ fontFamily: m }}>{`${m} ≈ ${f.name}` + (ok ? '' : ' — ✗')}</option>
+              })}
             </optgroup>
           )}
           <optgroup label="System">
@@ -1924,6 +1976,12 @@ export default function PdfEditor({ source, path }) {
         />
       )}
 
+      {editErr && (
+        <div className="pdfed__editerr">
+          {editErr}
+          <button className="pdfed__editerr-x" onClick={() => setEditErr(null)} title="Скрыть">×</button>
+        </div>
+      )}
       <div className="pdfed__body">
         <div
           className="pdfed__viewport"
@@ -1955,7 +2013,8 @@ export default function PdfEditor({ source, path }) {
                   lineHeight: lineH,
                   letterSpacing: letterS,
                   pipette,
-                  onPipette: () => setPipette((v) => !v)
+                  onPipette: () => setPipette((v) => !v),
+                  onText: setEditText // live plain text → drives coverage-aware font dropdown
                 }}
                 onSelect={onSelect}
                 onMove={moveSelected}

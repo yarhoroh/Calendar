@@ -791,6 +791,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             letterSpacing={rte.letterSpacing}
             pipette={rte.pipette}
             onPipette={rte.onPipette}
+            onText={rte.onText}
             onCommit={(lines) => onTextCommit(lines)}
             onCancel={onTextCancel}
           />

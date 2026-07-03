@@ -109,18 +109,23 @@ function parseRuns(root, pageEl, scale) {
   return lines
 }
 
-const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, initialHTML, anchorLeft, anchorBaseline, onPipette, onCommit, onCancel }, ref) {
+const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, initialHTML, anchorLeft, anchorBaseline, onPipette, onText, onCommit, onCancel }, ref) {
   const boxRef = useRef(null)
   const savedSel = useRef(null) // selection captured before a toolbar <select> steals focus
   const commitRef = useRef(() => {})
   const pipetteRef = useRef(pipette)
   pipetteRef.current = pipette
 
+  const onTextRef = useRef(onText)
+  onTextRef.current = onText
   const editor = useEditor({
     extensions: [StarterKit, TextStyleRid, Color, FontFamily, FontSize],
     content: initialHTML || '', // EDIT mode arrives pre-filled with the block's original styled text
-    autofocus: 'end'
+    autofocus: 'end',
+    onUpdate: ({ editor }) => onTextRef.current?.(editor.getText())
   })
+  // report the initial text too (coverage dropdown needs it before the first keystroke)
+  useEffect(() => { if (editor) onTextRef.current?.(editor.getText()) }, [editor])
 
   // ZOOM while the editor is open: every explicit fontSize mark is in PX at the zoom it was typed
   // at — rescale them by the ratio and re-run the anchor alignment, or the editor detaches from

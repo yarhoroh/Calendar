@@ -276,6 +276,25 @@
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
+.pdfed__editerr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #fbe9e7;
+  color: #b3261e;
+  font-size: 12px;
+  border-bottom: 1px solid #f3c0bb;
+}
+.pdfed__editerr-x {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #b3261e;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
 .pdfed__lsinput {
   width: 44px;
   height: 22px;

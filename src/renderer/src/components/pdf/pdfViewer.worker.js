@@ -1421,8 +1421,10 @@ function blankTextShows(pageIndex, items, strict = false) {
     }
     // one visual run is often painted by SEVERAL show ops ("(L) Tj (eon…) Tj") that the device pass
     // merges into one span — blank EVERY show of this unit that falls inside the item's own line
-    // range, or the leftovers would keep drawing under the replacement
-    const x0 = (it.bbox?.x ?? it.x) - 1, x1 = (it.bbox ? it.bbox.x + it.bbox.w : it.x) + 1
+    // range, or the leftovers would keep drawing under the replacement. The RIGHT boundary is
+    // pulled in: with metric (advance) widths the NEXT piece starts EXACTLY at x+w — an inclusive
+    // range blanked the neighbour (restyling "3" ate the "2" after it)
+    const x0 = (it.bbox?.x ?? it.x) - 0.5, x1 = it.bbox ? Math.max(it.bbox.x + 0.5, it.bbox.x + it.bbox.w - 0.5) : it.x + 0.5
     for (const sh of bestU.shows) {
       if (used.has(sh)) continue
       if (Math.abs(sh.py - it.y) < 2 && sh.px >= x0 && sh.px <= x1) {

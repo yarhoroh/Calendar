@@ -1238,33 +1238,37 @@ export default function PdfEditor({ source, path }) {
     for (const o of sorted) { const last = lines[lines.length - 1]; if (last && Math.abs(last[0].y - o.y) < 3) last.push(o); else lines.push([o]) }
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const sigLines = [] // style-merged signature — compared against the parsed commit to skip no-op rewrites
-    const html = lines.map((l) => {
-      const segs = []
-      const p = '<p>' + l.map((o, i) => {
-        const f = pg.fonts?.[o.f] || {}
-        const color = (pg.colors?.[o.c] || '#000000').toLowerCase()
-        let raw = String(o.text || '')
-        // a space only for REAL column gaps (> 0.75em): the sub-em gaps between pieces of one word
-        // (leftovers of a mixed-font split) must join seamlessly — the injected space "came back"
-        // every time the user deleted it
-        if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.75) raw = ' ' + raw }
-        const style = `${f.name || 'Arial'}|${o.size || 12}|${color}|${f.bold ? 1 : 0}${f.italic ? 1 : 0}`
-        const last = segs[segs.length - 1]
-        if (last && last.style === style) last.text += raw
-        else segs.push({ text: raw, style })
-        let t = esc(raw)
-        if (f.bold) t = `<strong>${t}</strong>`
-        if (f.italic) t = `<em>${t}</em>`
-        // cssFontFor returns double-QUOTED families — inside a double-quoted style attribute they
-        // terminated it, the browser dropped the whole style and every span lost its font/size/colour
-        const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
-        return `<span style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
-      }).join('') + '</p>'
-      sigLines.push(segs.map((s) => `${s.text}⎮${s.style}`).join('‖'))
-      return p
-    }).join('')
-    const origSig = sigLines.join('¶')
+    // every piece carries data-rid through the session — the commit DIFFS by it and leaves
+    // untouched runs alone in the stream (no rewrite → no font/position churn at all)
+    const origPieces = []
+    const html = lines.map((l) => '<p>' + l.map((o, i) => {
+      const f = pg.fonts?.[o.f] || {}
+      const color = (pg.colors?.[o.c] || '#000000').toLowerCase()
+      let raw = String(o.text || '')
+      // a space only for REAL column gaps (> 0.75em): the sub-em gaps between pieces of one word
+      // (leftovers of a mixed-font split) must join seamlessly — the injected space "came back"
+      // every time the user deleted it
+      if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.75) raw = ' ' + raw }
+      const rid = origPieces.length
+      origPieces.push({
+        text: raw,
+        fontName: f.name || 'Arial',
+        size: o.size || 12,
+        color,
+        bold: !!f.bold,
+        italic: !!f.italic,
+        x: o.x,
+        baseline: o.y,
+        item: { type: 'text', bbox: o.bbox, x: o.x, y: o.y } // the stream anchor for a targeted blank
+      })
+      let t = esc(raw)
+      if (f.bold) t = `<strong>${t}</strong>`
+      if (f.italic) t = `<em>${t}</em>`
+      // cssFontFor returns double-QUOTED families — inside a double-quoted style attribute they
+      // terminated it, the browser dropped the whole style and every span lost its font/size/colour
+      const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
+      return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
+    }).join('') + '</p>').join('')
     const minX = Math.min(...sorted.map((o) => o.bbox.x))
     // the ORIGINAL text hides under a page-background cover while it's being edited — otherwise it
     // shines through behind the editor as a double; commit/cancel removes the cover automatically
@@ -1276,7 +1280,7 @@ export default function PdfEditor({ source, path }) {
     setInsertMode(false)
     setTextEdit({
       page: pageIndex, x: minX, y: master.y - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
-      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origSig,
+      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origPieces,
       cover: { ...coverRect, color: coverColor },
       replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
     })
@@ -1371,13 +1375,31 @@ export default function PdfEditor({ source, path }) {
     if (!te || busyRef.current) return
     // EDIT mode, nothing changed → close WITHOUT touching the stream: a no-op rewrite re-resolved
     // fonts every time (Nimbus→Arial→…) and the text "randomly" drifted between edit sessions
-    if (te.origSig) {
-      // EXACT text, spaces included: deleting a real space must count as a change (a whitespace-
-      // insensitive compare silently resurrected deleted spaces). The orig side is built from the
-      // SAME string the editor was opened with, so an untouched open-close still matches strictly.
-      const parsedSig = lines.map((l) => l.map((s) => `${s.text}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
-      if (parsedSig === te.origSig) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
-      console.log('[pdf][edit] changed:\n  was:', te.origSig, '\n  now:', parsedSig)
+    // EDIT diff by rid: pieces whose text/style/position are untouched are NOT rewritten at all —
+    // the stream keeps their original bytes (no font churn, no reflow). Only changed/new pieces
+    // are replaced, deleted pieces are blanked.
+    let replaceItems = te?.replaceItems || null
+    if (te?.origPieces) {
+      const groups = new Map() // rid → { text, first }
+      for (const l of lines) for (const s of l) {
+        if (s.rid == null) continue
+        const g = groups.get(s.rid)
+        if (g) { g.text += s.text; g.styles.add(`${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`) }
+        else groups.set(s.rid, { text: s.text, first: s, styles: new Set([`${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`]) })
+      }
+      const untouched = new Set()
+      te.origPieces.forEach((op, rid) => {
+        const g = groups.get(String(rid))
+        if (!g) return // piece deleted → must be blanked
+        const style = `${op.fontName}|${op.size}|${op.color}|${op.bold ? 1 : 0}${op.italic ? 1 : 0}`
+        if (g.text === op.text && g.styles.size === 1 && g.styles.has(style) &&
+            Math.abs(g.first.x - op.x) < 0.35 && Math.abs(g.first.baseline - op.baseline) < 0.35) untouched.add(String(rid))
+      })
+      // strip untouched pieces from BOTH sides of the operation
+      lines = lines.map((l) => l.filter((s) => s.rid == null || !untouched.has(String(s.rid)))).filter((l) => l.length)
+      replaceItems = te.origPieces.filter((_, rid) => !untouched.has(String(rid))).map((op) => op.item)
+      console.log(`[pdf][edit] diff: ${untouched.size}/${te.origPieces.length} piece(s) untouched, ${lines.reduce((a, l) => a + l.length, 0)} to write, ${replaceItems.length} to blank`)
+      if (!lines.length && !replaceItems.length) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
     }
     busyRef.current = true
     try {
@@ -1401,8 +1423,10 @@ export default function PdfEditor({ source, path }) {
       const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls }))) }
       const before = new Set(allOf(model.find((p) => p.pageIndex === te.page) || { runs: [] }).map(sigOf))
       // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
-      if (te.replaceItems) await engineRef.current.replaceText(te.page, te.replaceItems, spec, fonts, await getFallbacksFor(fonts), true)
-      else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts))
+      if (replaceItems) {
+        if (replaceItems.length) await engineRef.current.replaceText(te.page, replaceItems, spec, fonts, await getFallbacksFor(fonts), true)
+        else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts)) // only NEW pieces — nothing to blank
+      } else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts))
       // the editor (and the cover hiding the ORIGINAL text) stays up until the refreshed page
       // image lands — closing earlier flashed the OLD text before it jumped to the new one
       const m = await refreshPage(te.page)

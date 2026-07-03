@@ -4,6 +4,22 @@ import StarterKit from '@tiptap/starter-kit'
 import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-style'
 import { PipetteIcon } from '../icons'
 
+// textStyle carries the ORIGINAL RUN ID (data-rid) through the whole editing session: the commit
+// diffs pieces by this id and leaves untouched runs alone in the stream — no more font/position
+// churn from a mere open-close (finding pieces back by coordinates was the fragile part)
+const TextStyleRid = TextStyle.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      rid: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-rid'),
+        renderHTML: (attrs) => (attrs.rid == null ? {} : { 'data-rid': attrs.rid })
+      }
+    }
+  }
+})
+
 // Floating rich-text editor for INSERTING new text into the PDF — the app's own Tiptap engine
 // (same as notes/mail), headless: the PDF toolbar drives it through ref.exec(). Grows with its
 // content; the box corner is resizable. On commit every text node's REAL on-screen rect becomes
@@ -43,9 +59,11 @@ function parseRuns(root, pageEl, scale) {
         const r = range.getClientRects()[0]
         if (!r) continue
         const size = +(parseFloat(st.fontSize) / scale).toFixed(2)
+        const ridEl = node.parentElement.closest('[data-rid]')
         runs.push({
           text,
           size,
+          rid: ridEl ? ridEl.getAttribute('data-rid') : null, // original-run identity (edit diff)
           fontName: (st.fontFamily.split(',')[0] || '').replace(/["']/g, '').trim(),
           color: rgbToHex(st.color),
           bold: (parseInt(st.fontWeight, 10) || 400) >= 600,
@@ -64,7 +82,7 @@ function parseRuns(root, pageEl, scale) {
     const last = lines[lines.length - 1]
     if (last && Math.abs(last[0].baseline - run.baseline) < 2) {
       const p = last[last.length - 1]
-      if (p.fontName === run.fontName && p.size === run.size && p.color === run.color && p.bold === run.bold && p.italic === run.italic && p.ls === run.ls) p.text += run.text
+      if (p.fontName === run.fontName && p.size === run.size && p.color === run.color && p.bold === run.bold && p.italic === run.italic && p.ls === run.ls && p.rid === run.rid) p.text += run.text
       else last.push(run)
     } else lines.push([run])
   }
@@ -79,7 +97,7 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
   pipetteRef.current = pipette
 
   const editor = useEditor({
-    extensions: [StarterKit, TextStyle, Color, FontFamily, FontSize],
+    extensions: [StarterKit, TextStyleRid, Color, FontFamily, FontSize],
     content: initialHTML || '', // EDIT mode arrives pre-filled with the block's original styled text
     autofocus: 'end'
   })

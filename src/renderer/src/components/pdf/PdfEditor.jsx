@@ -371,11 +371,12 @@ export default function PdfEditor({ source, path }) {
     if (!rep) return
     const f = selPg.fonts?.[rep.f]
     if (f) {
-      // show the FAMILY, not the weight-specific PS name: a bold Arial reads back as "Arial-BoldMT"
-      // (and it IS a doc-font name here, so the old doc-font guard wrongly kept it). If the base
-      // family is a real dropdown option (system / similar) → show it + the B button; that matches
-      // what the user picked ("Arial") and is stable across re-selects
-      const shown = displayFontName(f.name)
+      // show the run's ACTUAL font. Only right AFTER a pick (pickApplyRef) do we collapse the
+      // weight-specific readback (Arial-BoldMT) to what the user just chose (Arial) — a plain
+      // selection must NOT inherit a stale pick from earlier (that showed "Arial Black" for a
+      // real Arial-Bold run).
+      const shown = pickApplyRef.current ? displayFontName(f.name) : f.name
+      pickApplyRef.current = false
       console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" → shown "${shown}" (b=${!!f.bold} i=${!!f.italic})`)
       setFontSel(shown); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
     }
@@ -1065,6 +1066,7 @@ export default function PdfEditor({ source, path }) {
   // "Arial-BoldMT" stays "Arial-BoldMT". Only collapse to the pick when the family matches (same
   // font, different weight); otherwise show the real readback name.
   const pickedFontRef = useRef(null)
+  const pickApplyRef = useRef(false) // true for the ONE selection sync right after a pick — then off
   const displayFontName = (name) => {
     const p = pickedFontRef.current
     // no substitution now, so a picked font reads back under its OWN family — collapse the
@@ -1086,7 +1088,7 @@ export default function PdfEditor({ source, path }) {
   const deferMutation = (fn) => { clearTimeout(deferRef.current); deferRef.current = setTimeout(fn, 450) }
 
   // toolbar controls: an open rich-editor gets the command; otherwise the page selection is restyled
-  const pickFont = (family) => { pickedFontRef.current = family; setFontSel(family); if (textEdit) rteRef.current?.exec('fontName', cssFontFor(family)); else restyleSelected({ family }) }
+  const pickFont = (family) => { pickedFontRef.current = family; pickApplyRef.current = true; setFontSel(family); if (textEdit) rteRef.current?.exec('fontName', cssFontFor(family)); else restyleSelected({ family }) }
   const pickColor = (hex) => { setColorSel(hex); if (textEdit) rteRef.current?.exec('foreColor', hex); else restyleSelected({ color: hex }) }
   const pickSize = (v) => { const s = Math.max(4, Math.min(200, v || 12)); setFontSize(s); if (textEdit) rteRef.current?.exec('size', s); else deferMutation(() => restyleSelected({ size: s })) }
   const allBold = () => { const pg = model.find((p) => p.pageIndex === selected?.page); return !!pg && selected.objs.filter((o) => o.type === 'text').every((o) => pg.fonts?.[o.f]?.bold) }

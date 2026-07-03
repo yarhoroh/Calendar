@@ -318,12 +318,16 @@ export default function PdfEditor({ source, path }) {
       for (const f of fonts) {
         try {
           const look = f.match || similar(f.name)
-          const loadLookalike = () => Promise.resolve(api.fonts.file(look, {})).then((sys) => {
-            if (sys?.bytes) new FontFace(f.name, sys.bytes).load().then((ff) => document.fonts.add(ff)).catch(() => {})
+          const addFace = (bytes) => new FontFace(f.name, bytes).load().then((ff) => document.fonts.add(ff))
+          // fonts:file runs the full chain in main (installed → Google exact → Google metric clone
+          // → Noto) — so an exotic family downloads its REAL face and the editor shows true glyphs
+          const loadLookalike = () => Promise.resolve(api.fonts.file(baseFamily(f.name), {})).then((sys) => {
+            if (sys?.bytes) return addFace(sys.bytes)
+            return Promise.resolve(api.fonts.file(look, {})).then((s2) => { if (s2?.bytes) return addFace(s2.bytes) })
           }).catch(() => {})
           // real bytes when the browser accepts them; if OTS rejects the face (subset without a
-          // cmap etc.) the SAME name still gets the lookalike — the editor never falls to a blank
-          if (f.bytes) new FontFace(f.name, f.bytes).load().then((ff) => document.fonts.add(ff)).catch(loadLookalike)
+          // cmap etc.) the SAME name still gets the substitute — the editor never falls to a blank
+          if (f.bytes) addFace(f.bytes).catch(loadLookalike)
           else loadLookalike()
         } catch (_) {}
       }
@@ -1359,8 +1363,10 @@ export default function PdfEditor({ source, path }) {
       // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
       if (te.replaceItems) await engineRef.current.replaceText(te.page, te.replaceItems, spec, fonts, await getFallback(), true)
       else await engineRef.current.insertText(te.page, spec, fonts, await getFallback())
-      setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
+      // the editor (and the cover hiding the ORIGINAL text) stays up until the refreshed page
+      // image lands — closing earlier flashed the OLD text before it jumped to the new one
       const m = await refreshPage(te.page)
+      setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
       const added = allOf(m).filter((o) => !before.has(sigOf(o)))
       // the insertion is ONE text block now — select it WHOLE (every bN.lK line), same as a
       // block-mode click would

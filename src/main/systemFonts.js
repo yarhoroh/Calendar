@@ -216,6 +216,11 @@ export function fontFileFor(family, { bold = false, italic = false } = {}) {
 export function fontBytesFor(family, style) {
   const hit = fontFileFor(family, style)
   if (!hit) return null
-  const buf = readFileSync(hit.path)
-  return { family: hit.family, bold: hit.bold, italic: hit.italic, bytes: new Uint8Array(buf).buffer }
+  return bytesOf(hit)
 }
+export function bytesOf(hit) {
+  const buf = readFileSync(hit.path)
+  return { family: hit.family, bold: !!hit.bold, italic: !!hit.italic, bytes: new Uint8Array(buf).buffer }
+}
+export const normName = (s) => norm(s)
+export function invalidateFontCache() { cache = null } // a freshly downloaded face appears on the next lookup

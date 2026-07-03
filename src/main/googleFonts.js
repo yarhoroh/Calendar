@@ -16,6 +16,54 @@ const cacheDir = () => {
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
+// PDF base names → Google families that are METRIC CLONES of the classics (same widths)
+const CLONES = [
+  [/^(arial|helvetica|nimbus ?sans|liberation ?sans|arimo)/i, 'Arimo'],
+  [/^(times|nimbus ?roman|nimbus ?serif|liberation ?serif|tinos)/i, 'Tinos'],
+  [/^(courier|nimbus ?mono|liberation ?mono|cousine)/i, 'Cousine'],
+  [/^(calibri|carlito)/i, 'Carlito']
+]
+export function googleCloneFor(family) {
+  const s = String(family || '').trim()
+  for (const [re, fam] of CLONES) if (re.test(s)) return fam
+  return null
+}
+
+// family + style → REAL TrueType file cached in userData/fonts — that folder is scanned by
+// systemFonts, so once downloaded the face resolves like any installed font (and CAN be embedded
+// by the PDF insert pipeline, unlike woff2). The old-IE UA makes css2 serve static TTF urls.
+const UA_TTF = 'Mozilla/5.0 (Windows NT 6.1; Trident/5.0)'
+const inflight = new Map()
+export async function getGoogleFontTTF(family, bold = false, italic = false) {
+  const fam = String(family || '').trim()
+  if (!fam || !/^[\w \-]+$/.test(fam)) return null
+  const key = `${fam}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
+  if (inflight.has(key)) return inflight.get(key)
+  const p = (async () => {
+    const dir = join(app.getPath('userData'), 'fonts')
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${fam.replace(/[^\w]/g, '_')}-${italic ? 1 : 0}${bold ? 700 : 400}.ttf`)
+    if (existsSync(file)) return file
+    try {
+      const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam).replace(/%20/g, '+')}:ital,wght@${italic ? 1 : 0},${bold ? 700 : 400}`
+      const res = await net.fetch(url, { headers: { 'User-Agent': UA_TTF } })
+      if (!res.ok) return null
+      const css = await res.text()
+      const m = css.match(/url\((https:[^)]+\.ttf)\)/)
+      if (!m) return null
+      const fr = await net.fetch(m[1])
+      if (!fr.ok) return null
+      const buf = Buffer.from(await fr.arrayBuffer())
+      if (buf.length < 1000) return null
+      writeFileSync(file, buf)
+      console.log(`[fonts] Google TTF cached: ${fam}${bold ? ' bold' : ''}${italic ? ' italic' : ''}`)
+      return file
+    } catch { return null }
+  })().finally(() => inflight.delete(key))
+  inflight.set(key, p)
+  return p
+}
+
 // family + weight/style → font bytes (woff2), cached on disk. Returns { ok, data } or { ok:false }.
 export async function getGoogleFont(family, bold, italic) {
   const variant = `${italic ? 'i' : 'r'}${bold ? '700' : '400'}`

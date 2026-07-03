@@ -84,6 +84,30 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
     autofocus: 'end'
   })
 
+  // ZOOM while the editor is open: every explicit fontSize mark is in PX at the zoom it was typed
+  // at — rescale them by the ratio and re-run the anchor alignment, or the editor detaches from
+  // the page (stays huge at 10% zoom) and the commit lands at garbage coordinates
+  const prevScaleRef = useRef(scale)
+  useEffect(() => {
+    const prev = prevScaleRef.current
+    if (!editor || scale === prev) return
+    prevScaleRef.current = scale
+    const ratio = scale / prev
+    const { state, view } = editor
+    const tr = state.tr
+    state.doc.descendants((node, pos) => {
+      if (!node.isText) return
+      node.marks.forEach((m) => {
+        if (m.type.name === 'textStyle' && m.attrs.fontSize) {
+          const px2 = parseFloat(m.attrs.fontSize)
+          if (px2 > 0) tr.addMark(pos, pos + node.nodeSize, m.type.create({ ...m.attrs, fontSize: `${+(px2 * ratio).toFixed(3)}px` }))
+        }
+      })
+    })
+    if (tr.steps.length) view.dispatch(tr)
+    setAdj(null) // re-measure the alignment at the new zoom
+  }, [scale, editor])
+
   // EDIT mode: the committed coordinates come from the REAL DOM rects of the text (parseRuns), so
   // the alignment must use the SAME measurement — the first text node's client rect (which already
   // includes every toolbar/padding/margin/half-leading offset) is shifted onto the anchor. The

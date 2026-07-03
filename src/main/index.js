@@ -15,8 +15,8 @@ import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex, getVariables, setVariables } from './pdfIndex'
-import { getGoogleFont } from './googleFonts'
-import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor } from './systemFonts'
+import { getGoogleFont, getGoogleFontTTF, googleCloneFor } from './googleFonts'
+import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor, fontFileFor, bytesOf, normName, invalidateFontCache } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
 import {
   initDb,
@@ -1229,7 +1229,25 @@ ipcMain.handle('fonts:list', () => {
   return [...fams.values()].sort((a, b) => a.family.localeCompare(b.family))
 })
 ipcMain.handle('fonts:resolve', (_e, fonts) => resolveFonts(fonts))
-ipcMain.handle('fonts:file', (_e, { family, bold, italic } = {}) => fontBytesFor(family, { bold, italic }))
+// resolution chain for a REAL font file (embeddable TTF): exact installed/bundled/cached face →
+// Google Fonts download of the exact family → Google metric CLONE of the classics (Arial→Arimo,
+// Times→Tinos, Courier→Cousine, Calibri→Carlito) → whatever fallback (Noto)
+ipcMain.handle('fonts:file', async (_e, { family, bold, italic } = {}) => {
+  const style = { bold, italic }
+  const exact = (fam) => { const h = fontFileFor(fam, style); return h && normName(h.family) === normName(fam) ? h : null }
+  let hit = exact(family)
+  if (!hit) {
+    if (await getGoogleFontTTF(family, bold, italic)) { invalidateFontCache(); hit = exact(family) }
+  }
+  if (!hit) {
+    const clone = googleCloneFor(family)
+    if (clone) {
+      hit = exact(clone)
+      if (!hit && (await getGoogleFontTTF(clone, bold, italic))) { invalidateFontCache(); hit = exact(clone) }
+    }
+  }
+  return hit ? bytesOf(hit) : fontBytesFor(family, style)
+})
 ipcMain.handle('fonts:google', (_e, { family, bold, italic } = {}) => getGoogleFont(family, bold, italic))
 
 // silent text notification (toast near the clock, no voice)

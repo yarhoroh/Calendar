@@ -97,13 +97,13 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     for (const o of objects) {
       if (selIds.has(o.id)) continue
       const b = o.bbox
-      candX.push({ v: b.x, a: b.y, z: b.y + b.h }, { v: b.x + b.w / 2, a: b.y, z: b.y + b.h }, { v: b.x + b.w, a: b.y, z: b.y + b.h })
-      candY.push({ v: b.y, a: b.x, z: b.x + b.w }, { v: b.y + b.h / 2, a: b.x, z: b.x + b.w }, { v: b.y + b.h, a: b.x, z: b.x + b.w })
+      candX.push({ v: b.x, a: b.y, z: b.y + b.h }, { v: b.x + b.w, a: b.y, z: b.y + b.h }) // left, right edges
+      candY.push({ v: b.y, a: b.x, z: b.x + b.w }, { v: b.y + b.h, a: b.x, z: b.x + b.w }) // top, bottom edges
     }
     const snap = (dx, dy) => {
-      const th = 3 / scale // ~3 screen pixels
-      const edgesX = [u0.x + dx, u0.x + u0.w / 2 + dx, u0.x + u0.w + dx]
-      const edgesY = [u0.y + dy, u0.y + u0.h / 2 + dy, u0.y + u0.h + dy]
+      const th = 4 / scale // ~4 screen pixels
+      const edgesX = [u0.x + dx, u0.x + u0.w + dx] // dragged left, right
+      const edgesY = [u0.y + dy, u0.y + u0.h + dy] // dragged top, bottom
       let bx = null, by = null
       for (const e of edgesX) for (const c of candX) { const d = c.v - e; if (Math.abs(d) < th && (!bx || Math.abs(d) < Math.abs(bx.d))) bx = { d, c } }
       for (const e of edgesY) for (const c of candY) { const d = c.v - e; if (Math.abs(d) < th && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, c } }

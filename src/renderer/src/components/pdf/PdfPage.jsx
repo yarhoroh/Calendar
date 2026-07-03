@@ -109,7 +109,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onResizeRot, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onResizeRot, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onEditText, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -524,6 +524,18 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     window.addEventListener('mouseup', up)
   }
 
+  // double-click on a text object → edit its whole block in the rich editor (original styles)
+  const onDblClick = (e) => {
+    if (textEdit || insertMode || pipette) return
+    const [x, y] = toPt(e, e.currentTarget)
+    const hit = hitTest(objects, x, y)
+    if (!hit || hit.type !== 'text') return
+    e.preventDefault(); e.stopPropagation()
+    const b = String(hit.id).split('.')[0]
+    const grp = objects.filter((o) => o.type === 'text' && String(o.id).split('.')[0] === b)
+    onEditText?.(pageIndex, grp.length ? grp : [hit])
+  }
+
   const onContext = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -539,7 +551,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   return (
     <div className="pdfed__page" style={{ width: W, height: H }}>
       {image && <img className="pdfed__img" src={image.url} width={W} height={H} draggable={false} alt="" />}
-      <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode === 'text' ? 'text' : insertMode ? 'crosshair' : undefined }} onMouseDown={onDown} onContextMenu={onContext}>
+      <div className="pdfed__overlay" style={{ cursor: pipette ? 'copy' : insertMode === 'text' ? 'text' : insertMode ? 'crosshair' : undefined }} onMouseDown={onDown} onDoubleClick={onDblClick} onContextMenu={onContext}>
         {/* "All" — faint grey outline map of the page. Follows the cursor mode: 'block' outlines whole
             text GROUPS (bN), 'single' outlines individual elements — same granularity a click selects */}
         {showAll && (() => {
@@ -758,6 +770,9 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             ref={rte.ref}
             x={textEdit.x}
             y={textEdit.y}
+            initialHTML={textEdit.initialHTML}
+            anchorLeft={textEdit.anchorLeft}
+            anchorTop={textEdit.anchorTop}
             scale={scale}
             font={rte.font}
             color={rte.color}

@@ -59,7 +59,7 @@ function parseRuns(root, pageEl, scale) {
   return lines
 }
 
-const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, onPipette, onCommit, onCancel }, ref) {
+const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, color, size = 12, bold = false, italic = false, lineHeight = 1.25, letterSpacing = 0, pipette = false, initialHTML, anchorLeft, anchorTop, onPipette, onCommit, onCancel }, ref) {
   const boxRef = useRef(null)
   const savedSel = useRef(null) // selection captured before a toolbar <select> steals focus
   const commitRef = useRef(() => {})
@@ -68,9 +68,24 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
 
   const editor = useEditor({
     extensions: [StarterKit, TextStyle, Color, FontFamily, FontSize],
-    content: '',
+    content: initialHTML || '', // EDIT mode arrives pre-filled with the block's original styled text
     autofocus: 'end'
   })
+
+  // EDIT mode: align the CONTENT (not the box) to the anchor — the box has a toolbar and padding
+  // above/left of the text, so shift by the measured offset. parseRuns then measures the real DOM
+  // rects, which makes the committed baselines land EXACTLY on the original ones.
+  useEffect(() => {
+    if (anchorLeft === undefined || !boxRef.current) return
+    const box = boxRef.current
+    const prose = box.querySelector('.ProseMirror')
+    if (!prose) return
+    const br = box.getBoundingClientRect()
+    const pr = prose.getBoundingClientRect()
+    box.style.left = `${anchorLeft * scale - (pr.left - br.left)}px`
+    box.style.top = `${anchorTop * scale - (pr.top - br.top)}px`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor])
 
   // The PDF toolbar drives the editor through this handle. grabSel() is called on the toolbar
   // select's mousedown (a native select collapses the DOM selection on blur — same trick as the

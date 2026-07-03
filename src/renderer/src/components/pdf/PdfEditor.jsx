@@ -1141,6 +1141,47 @@ export default function PdfEditor({ source, path }) {
     setTextEdit({ page: pageIndex, x, y })
   }
 
+  // ---- EDIT existing text: double-click opens the SAME rich editor pre-filled with the block's
+  // text in its original fonts/sizes/colours; commit atomically replaces the stream text (the
+  // originals are blanked by their own anchors — Escape cancels without touching anything) ----
+  const startEditSelected = (pageIndex, objs) => {
+    if (busyRef.current || textEdit) return
+    const texts = (objs || []).filter((o) => o.type === 'text' && !o.rot) // rotated text editing: later
+    if (!texts.length) return
+    const pg = model.find((p) => p.pageIndex === pageIndex)
+    if (!pg) return
+    const sorted = [...texts].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    const master = sorted[0]
+    const mf = pg.fonts?.[master.f] || {}
+    // the toolbar mirrors the edited block's master style
+    setFontSel(mf.name || 'Arial'); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
+    setBoldSel(!!mf.bold); setItalicSel(!!mf.italic)
+    // visual lines by baseline; line-height from the first two
+    const lines = []
+    for (const o of sorted) { const last = lines[lines.length - 1]; if (last && Math.abs(last[0].y - o.y) < 3) last.push(o); else lines.push([o]) }
+    if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const html = lines.map((l) => '<p>' + l.map((o, i) => {
+      const f = pg.fonts?.[o.f] || {}
+      const color = pg.colors?.[o.c] || '#000000'
+      let t = esc(o.text || '')
+      // keep a visible gap between separate pieces of one visual line
+      if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.2) t = ' ' + t }
+      if (f.bold) t = `<strong>${t}</strong>`
+      if (f.italic) t = `<em>${t}</em>`
+      return `<span style="font-family: ${cssFontFor(f.name || 'Arial')}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
+    }).join('') + '</p>').join('')
+    const minX = Math.min(...sorted.map((o) => o.bbox.x))
+    const anchorTop = master.y - 0.8 * (master.size || 12) // 0.8 = the editor's ASCENT constant → committed baseline lands EXACTLY on the original
+    onSelect(pageIndex, null)
+    setInsertMode(false)
+    setTextEdit({
+      page: pageIndex, x: minX, y: anchorTop,
+      initialHTML: html, anchorLeft: minX, anchorTop,
+      replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
+    })
+  }
+
   // ---- insert image: pick a PNG/JPEG/SVG, then click the page where it goes ----
   // PDF has no native SVG — an SVG is rasterised to PNG at 3x for headroom before embedding
   const svgToPng = (svgBytes) => new Promise((resolve, reject) => {
@@ -1245,7 +1286,9 @@ export default function PdfEditor({ source, path }) {
       // every run carries its EXACT page coordinates measured from the editor's real DOM rects
       const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls }))) }
       const before = new Set(allOf(model.find((p) => p.pageIndex === te.page) || { runs: [] }).map(sigOf))
-      await engineRef.current.insertText(te.page, spec, fonts, await getFallback())
+      // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
+      if (te.replaceItems) await engineRef.current.replaceText(te.page, te.replaceItems, spec, fonts, await getFallback(), true)
+      else await engineRef.current.insertText(te.page, spec, fonts, await getFallback())
       setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
       const m = await refreshPage(te.page)
       const added = allOf(m).filter((o) => !before.has(sigOf(o)))
@@ -1720,6 +1763,7 @@ export default function PdfEditor({ source, path }) {
                 onSprite={spriteFor}
                 onMenu={setMenu}
                 onInsertAt={startInsertAt}
+                onEditText={startEditSelected}
                 onPipettePick={pipettePick}
                 onTextCommit={commitText}
                 onTextCancel={() => setTextEdit(null)}

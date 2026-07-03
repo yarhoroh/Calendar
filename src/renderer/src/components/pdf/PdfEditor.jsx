@@ -550,13 +550,16 @@ export default function PdfEditor({ source, path }) {
     if (objs.length === 1 && objs[0].type === 'text' && sharesLine(pageIndex, objs[0])) {
       busyRef.current = true
       try {
-        const pg = model.find((p) => p.pageIndex === pageIndex)
-        const before = new Set(allOf(pg).map(sigOf))
-        await detachMoveText(pageIndex, objs[0], dx, dy)
+        const o = objs[0]
+        await detachMoveText(pageIndex, o, dx, dy)
         const m = await refreshPage(pageIndex)
-        const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
-        console.log(`[pdf][move] detached "${objs[0].text}" d=(${dx.toFixed(1)},${dy.toFixed(1)})`)
-        onSelect(pageIndex, changed)
+        // select ONLY the re-inserted piece at its new spot — NOT a signature diff: blanking this
+        // run nudges the raster width of its old line-mates, which a diff would wrongly grab too
+        const tx = o.x + dx, ty = o.y + dy
+        const moved = allOf(m).filter((r) => r.type === 'text' && (r.text || '').trim() === (o.text || '').trim())
+          .sort((a, b) => Math.hypot(a.x - tx, a.y - ty) - Math.hypot(b.x - tx, b.y - ty))[0]
+        console.log(`[pdf][move] detached "${o.text}" d=(${dx.toFixed(1)},${dy.toFixed(1)})`)
+        onSelect(pageIndex, moved ? [moved] : [])
       } catch (err) { console.error('[pdf] detach-move failed:', err) } finally { busyRef.current = false }
       return
     }

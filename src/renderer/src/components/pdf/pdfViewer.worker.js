@@ -425,9 +425,10 @@ function getModel(pageIndex) {
       if (!cur || !cur.chars.length) { cur = null; return }
       const chars = cur.chars
       const x0 = chars[0].x, x1 = chars[chars.length - 1].x
+      const lo = Math.min(x0, x1), hi = Math.max(x0, x1) // UPSIDE-DOWN text advances right-to-left
       // device spans anchored on this baseline inside the line → cut points
       const cands = scan.texts
-        .filter((t) => t.ax !== undefined && Math.abs(t.ay - cur.baseline) < 2 && t.ax >= x0 - 1 && t.ax <= x1 + 1)
+        .filter((t) => t.ax !== undefined && Math.abs(t.ay - cur.baseline) < 2 && t.ax >= lo - 1 && t.ax <= hi + 1)
         .sort((a, b) => a.ax - b.ax)
       const cuts = cands.length > 1 ? cands.map((t) => t.ax) : [x0]
       const segs = cuts.map(() => [])
@@ -439,16 +440,22 @@ function getModel(pageIndex) {
       segs.forEach((seg, k) => {
         if (!seg.length || !seg.some((ch) => ch.c.trim())) return
         const t = cands.length ? cands[Math.min(k, cands.length - 1)] : null
-        const sx = seg[0].x
-        const lastAdv = seg.length > 1 ? seg[seg.length - 1].x - seg[seg.length - 2].x : cur.size * 0.6
-        let ex = seg[seg.length - 1].x + Math.max(lastAdv, cur.size * 0.35)
+        const sx = seg[0].x // the LOGICAL start — stays the anchor (matches the show's Tm point)
+        // reversed (rotated past ±90°): glyphs march right-to-left — box from min/max, or the width
+        // came out NEGATIVE and every consumer downstream (clamp, frame, hit) broke
+        const rev = seg.length > 1 && seg[seg.length - 1].x < seg[0].x
+        const xsMin = Math.min(...seg.map((ch) => ch.x)), xsMax = Math.max(...seg.map((ch) => ch.x))
+        const lastAdv = seg.length > 1 ? Math.abs(seg[seg.length - 1].x - seg[seg.length - 2].x) : cur.size * 0.6
+        const padAdv = Math.max(lastAdv, cur.size * 0.35)
+        let bx0 = rev ? xsMin - padAdv : xsMin // the trailing advance extends on the LOGICAL end side
+        let ex = rev ? xsMax : xsMax + padAdv
         // the device span carries the EXACT right edge (real advance of the last glyph — a wide
         // '%'/'W' used to poke out of the approximated frame); sanity-capped against the metric
-        if (t && t.bbox && t.bbox[2] > sx + 0.3 && t.bbox[2] < ex + cur.size * 1.5) ex = t.bbox[2]
+        if (!rev && t && t.bbox && t.bbox[2] > bx0 + 0.3 && t.bbox[2] < ex + cur.size * 1.5) ex = t.bbox[2]
         runs.push({
           id: `b${cur.bi}.l${cur.li}` + (segs.length > 1 ? `.s${k}` : ''),
           type: 'text',
-          bbox: { x: n2(sx), y: n2(cur.bbox[1]), w: n2(ex - sx), h: n2(cur.bbox[3] - cur.bbox[1]) },
+          bbox: { x: n2(bx0), y: n2(cur.bbox[1]), w: n2(ex - bx0), h: n2(cur.bbox[3] - cur.bbox[1]) },
           f: cur.f,
           size: n2(t && t.size > 0 ? t.size : cur.size),
           c: t ? colorRef(t.color) : 0,
@@ -697,12 +704,18 @@ function tightenBboxes(page, runs) {
     // glyph leans up to ~1em beyond it, and a tight clamp CUT that ink (the frame drifted with angle)
     const pad = size
     const excl = runs.filter((o) => o !== r && o.bbox.x < sb.x + sb.w + pad && o.bbox.x + o.bbox.w > sb.x - pad && o.bbox.y < sb.y + sb.h + pad && o.bbox.y + o.bbox.h > sb.y - pad).map((o) => o.bbox)
-    const inkAt = (x, y) => {
+    // raw ink: only the quad clamp + pixels. Neighbour boxes are excluded ONLY for the vertical
+    // band (they inflated it through gap-chaining) — the along-axis extent must NOT exclude them:
+    // past ±90° our own diagonal ink CROSSES neighbour boxes and would get cut mid-word.
+    const inkRaw = (x, y) => {
       if (x < sb.x - pad || x > sb.x + sb.w + pad || y < sb.y - pad || y > sb.y + sb.h + pad) return false
-      for (const b of excl) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return false
       const X = Math.round(x * S), Y = Math.round(y * S)
       if (X < 0 || X >= pw || Y < 0 || Y >= ph) return false
       return px[Y * stride + X * nc + ai] > 16
+    }
+    const inkAt = (x, y) => {
+      for (const b of excl) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return false
+      return inkRaw(x, y)
     }
     const wEst = Math.max(r.bbox.w, r.bbox.h) + size
     const step = 0.5
@@ -712,7 +725,7 @@ function tightenBboxes(page, runs) {
     for (let v = 0; v >= -size * 1.1; v -= step) { if (rowInk(v)) { vTop = v; g = 0 } else if ((g += step) > gapMax) break }
     let vBot = 0; g = 0
     for (let v = step; v <= size * 0.35; v += step) { if (rowInk(v)) { vBot = v; g = 0 } else if ((g += step) > gapMax) break }
-    const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkAt(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
+    const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkRaw(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
     let t0 = 0, t1 = 0
     g = 0
     const wordGap = size * 0.7 // spaces poke holes wider than letter gaps — keep growing across them

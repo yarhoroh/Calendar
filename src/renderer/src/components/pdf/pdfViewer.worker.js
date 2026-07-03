@@ -524,12 +524,21 @@ function getModel(pageIndex) {
           return isNaN(n) ? undefined : n
         } catch { return undefined }
       }
+      // rotation angle of a unit's ctm (PDF space, like run.rot): the page flip gives 0, our
+      // rotation wrap shows up as ± the wrapped angle
+      const unitRot = (u) => {
+        if (!u.ctm) return 0
+        const a = Math.atan2(u.ctm[1], u.ctm[0]) * 180 / Math.PI
+        return Math.abs(a) > 0.5 ? a : 0
+      }
       for (const v of [...vectors, ...images]) {
         const cx = (v.bbox.x + v.bbox.w / 2), cy = (v.bbox.y + v.bbox.h / 2)
         const want = v.type === 'vector' ? 'path' : 'image'
         for (const u of units) {
-          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl)) continue
+          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl && !unitRot(u))) continue
           if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
+            const ur = unitRot(u)
+            if (ur) v.rot = n2(ur)
             if (u.efr !== undefined) v.radius = u.efr
             if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
             if (u.gs) { const a = gsCa(u.gs); if (a !== undefined) v.opacity = Math.round(a * 100) }
@@ -1035,8 +1044,29 @@ function resizeObject(pageIndex, item, nb) {
   const seg = balanceSeg(cs.slice(u.start, segEnd))
   // leading/trailing newlines are ESSENTIAL: units start flush against the previous operator, and
   // "…W n" + "q…" would fuse into the invalid token "nq" (breaks the whole page)
-  const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n'
+  // preserve the segment's net cm leak for the content painted after it (see segNetCm)
+  const net = segNetCm(cs.slice(u.start, segEnd))
+  const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + (net ? `${net.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end))
+}
+
+// Net graphics-state leak of a segment: the composed effect of its cm ops (respecting q/Q) that the
+// ORIGINAL bytes imposed on everything painted after. Some generators translate with "T cm … −T cm"
+// pairs instead of q/Q — the unit holds the forward cm, the inverse lies BEYOND it, so wrapping the
+// unit in q…Q erases a translation the followers rely on (they teleport). The wrapper must re-emit
+// this net cm after its closing Q. A previously-wrapped (balanced) segment nets to identity.
+function segNetCm(segRaw) {
+  let net = [1, 0, 0, 1, 0, 0]; const stk = []; const num = []
+  for (const mt of mask(segRaw).matchAll(TOKENS)) {
+    const t = mt[0]
+    if (isNum(t)) { num.push(t); continue }
+    if (t === 'q') stk.push(net.slice())
+    else if (t === 'Q') { if (stk.length) net = stk.pop() }
+    else if (t === 'cm') { const m = num.slice(-6).map(Number); if (m.length === 6) net = matMul(m, net) }
+    num.length = 0
+  }
+  const id = [1, 0, 0, 1, 0, 0]
+  return net.some((v, i) => Math.abs(v - id[i]) > 1e-6) ? net : null
 }
 
 // Rotate objects around a pivot (device pt, top-left): each matched unit is wrapped in a conjugated
@@ -1075,7 +1105,9 @@ function rotateObjectsImpl(pageIndex, items, angle, cx, cy) {
         const p1 = rotDev(+x1, +y1), p2 = rotDev(+x2, +y2)
         return `%EFL ${head} ${n2(p1[0])} ${n2(p1[1])} ${n2(p2[0])} ${n2(p2[1])}`
       })
-      const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n'
+      // preserve the segment's net cm leak for the content after it (see segNetCm)
+      const net = segNetCm(cs.slice(u.start, segEnd))
+      const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + (net ? `${net.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
       cs = cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end)
     }
     writeStream(pageObj, s, cs)

@@ -91,6 +91,20 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]
   }
 
+  // ROTATED frame of a single rotated object (like the line frames): the model only has the
+  // axis-aligned quad box; solve the true w×h from quad + angle (Wq = w·cos+h·sin, Hq = w·sin+h·cos).
+  // Near 45° the system degenerates — fall back to the quad.
+  const rotFrameOf = (o, gdx = 0, gdy = 0) => {
+    if (!o?.rot) return null
+    const th = Math.abs(o.rot) * Math.PI / 180
+    const c = Math.cos(th), s = Math.sin(th), den = c * c - s * s
+    if (Math.abs(den) < 0.15) return null
+    const w = (o.bbox.w * c - o.bbox.h * s) / den
+    const h = (o.bbox.h * c - o.bbox.w * s) / den
+    if (w < 2 || h < 2) return null
+    return { cx: o.bbox.x + o.bbox.w / 2 + gdx, cy: o.bbox.y + o.bbox.h / 2 + gdy, w, h, ang: -o.rot } // screen angle = −pdf rot
+  }
+
   // drag the rotate handle: live angle around the pivot; Shift snaps to 15° steps (0/45/90…).
   // The PDF changes once, on drop — same contract as move/resize.
   const startRotate = (e, c) => {
@@ -99,12 +113,15 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     onSprite?.(pageIndex, selObjs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
     const [sx0, sy0] = toPt(e, el)
     const a0 = Math.atan2(sy0 - c.y, sx0 - c.x)
+    // Shift snaps the object's TOTAL angle to 15° steps relative to the PAGE (0/45/90…), not the
+    // drag delta — so a tilted text can be squared up straight to 0°
+    const rot0 = selObjs.length === 1 ? -(selObjs[0].rot || 0) : 0
     let cur = 0
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
       let a = (Math.atan2(my - c.y, mx - c.x) - a0) * 180 / Math.PI
       a = ((a + 540) % 360) - 180 // normalize to (-180, 180]
-      if (ev.shiftKey) a = Math.round(a / 15) * 15
+      if (ev.shiftKey) a = Math.round((rot0 + a) / 15) * 15 - rot0
       cur = a
       setRotDrag({ angle: a, cx: c.x, cy: c.y })
     }
@@ -446,31 +463,50 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           )
         })()}
         {/* selection frame — the same light dashed box for one object or a whole group; while a
-            ghost is up it travels with it; while a handle is dragged it shows the live box */}
-        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && (
-          <div
-            className="pdfed__frame"
-            style={px(resizeBox
-              ? resizeBox
-              : {
-                  x: union.x + (ghost?.dx || 0) + (nudge?.dx || 0),
-                  y: union.y + (ghost?.dy || 0) + (nudge?.dy || 0),
-                  w: union.w,
-                  h: union.h
-                })}
-          />
-        )}
+            ghost is up it travels with it; while a handle is dragged it shows the live box.
+            A single ROTATED object gets a frame ALONG its own axis (like the line frames) — the
+            axis-aligned quad box would look like it cuts / overshoots the slanted content. */}
+        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && (() => {
+          const gdx = (ghost?.dx || 0) + (nudge?.dx || 0), gdy = (ghost?.dy || 0) + (nudge?.dy || 0)
+          const fr = !resizeBox && selObjs.length === 1 ? rotFrameOf(selObjs[0], gdx, gdy) : null
+          if (fr) {
+            return (
+              <div
+                className="pdfed__frame pdfed__frame--rot"
+                style={{ left: (fr.cx - fr.w / 2) * scale, top: (fr.cy - fr.h / 2) * scale, width: fr.w * scale, height: fr.h * scale, transform: `rotate(${fr.ang}deg)` }}
+              />
+            )
+          }
+          return (
+            <div
+              className="pdfed__frame"
+              style={px(resizeBox
+                ? resizeBox
+                : { x: union.x + gdx, y: union.y + gdy, w: union.w, h: union.h })}
+            />
+          )
+        })()}
         {/* rotation UI: pivot dot (draggable — the rotation centre) + a rotate grip at the bottom-right
             corner. Dragging the grip previews the rotation live (frame + sprite); Shift snaps to 15°.
             Works for a single object or a whole multi-selection (rotates as a group). */}
         {union && !ghost && !resizeBox && !textEdit && !insertMode && !lineDrag && (() => {
           const c = pivot || { x: union.x + union.w / 2, y: union.y + union.h / 2 }
+          // the rotate grip sits at the OBJECT'S OWN bottom-right corner — for a rotated object that
+          // corner turns with it (the grip follows the text's orientation, not the quad box)
+          const fr0 = selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null
+          const gb = fr0 || { cx: union.x + union.w / 2, cy: union.y + union.h / 2, w: union.w, h: union.h, ang: 0 }
+          const grad = gb.ang * Math.PI / 180
+          const pad = 10 / scale
+          const gx = gb.cx + (gb.w / 2 + pad) * Math.cos(grad) - (gb.h / 2 + pad) * Math.sin(grad)
+          const gy = gb.cy + (gb.w / 2 + pad) * Math.sin(grad) + (gb.h / 2 + pad) * Math.cos(grad)
           return (
             <>
               {rotDrag && (
                 <div
                   className="pdfed__frame pdfed__frame--rot"
-                  style={{ ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }}
+                  style={fr0
+                    ? { left: (fr0.cx - fr0.w / 2) * scale, top: (fr0.cy - fr0.h / 2) * scale, width: fr0.w * scale, height: fr0.h * scale, transform: `rotate(${fr0.ang + rotDrag.angle}deg)`, transformOrigin: `${(c.x - (fr0.cx - fr0.w / 2)) * scale}px ${(c.y - (fr0.cy - fr0.h / 2)) * scale}px` }
+                    : { ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }}
                 />
               )}
               {rotDrag && sprite && (
@@ -487,9 +523,9 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
               {!rotDrag && (
                 <div
                   className="pdfed__rotate"
-                  style={{ left: (union.x + union.w) * scale + 4, top: (union.y + union.h) * scale + 4 }}
+                  style={{ left: gx * scale - 9, top: gy * scale - 9 }}
                   onMouseDown={(e) => startRotate(e, c)}
-                  title="Rotate around the pivot (Shift = 15° steps)"
+                  title="Rotate around the pivot (Shift = squares to the page: 15° steps of the total angle)"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
                     <path d="M21 12a9 9 0 1 1-3-6.7" />

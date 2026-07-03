@@ -163,6 +163,9 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
         const pb = prose.getBoundingClientRect() // empty editor → align the prose box itself
         setAdj({ dx: anchorLeft * scale - (pb.left - pr.left), dy: anchorBaseline * scale - size * scale * 0.8 - (pb.top - pr.top) })
       }
+      // the box was hidden until now (no jump flash) — focus lands only on a VISIBLE editor,
+      // caret straight to the end of the text
+      requestAnimationFrame(() => { try { editor?.commands.focus('end') } catch (_) {} })
     })
     return () => cancelAnimationFrame(id)
   }, [editor, adj, anchorLeft, anchorBaseline, scale, size])

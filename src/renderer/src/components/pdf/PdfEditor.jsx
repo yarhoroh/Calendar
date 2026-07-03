@@ -9,7 +9,6 @@ import './PdfEditor.css'
 
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
-const LS_OPTS = [-2, -1.5, -1, -0.5, -0.25, 0, 0.25, 0.5, 1, 1.5, 2, 3, 5]
 
 // Colour swatch button + dropdown panel: the document's palette, Transparent, and a custom picker.
 // Used for vector stroke/fill (value may be 'none').
@@ -1521,9 +1520,13 @@ export default function PdfEditor({ source, path }) {
             disabled={!textEdit && !!selected && selected.objs.filter((o) => o.type === 'text').length < 2}
           />
         </label>
-        <label className="pdfed__mini" title="Letter spacing, pt (Tc): applies to the selected text / the insert editor">
+        <label className="pdfed__mini" title="Letter spacing: − / + nudge the selected text's spacing from its CURRENT value (there is no single stored value in PDF — this adjusts relative to what's there)">
           LS
-          <ComboNum value={letterS} onPick={pickLS} opts={LS_OPTS} step={0.1} min={-10} max={20} width={64} disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} />
+          <span className="pdfed__ls">
+            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS - 0.25).toFixed(2))} title="Tighter (−0.25)">−</button>
+            <span className="pdfed__lsval">{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
+            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.25).toFixed(2))} title="Wider (+0.25)">+</button>
+          </span>
         </label>
         <div className="pdfed__colorwrap">
           <button

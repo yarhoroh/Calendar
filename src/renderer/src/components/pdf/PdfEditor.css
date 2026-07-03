@@ -243,6 +243,39 @@
   color: var(--muted);
   flex: 0 0 auto;
 }
+/* letter-spacing relative nudge: − [value] + */
+.pdfed__ls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.pdfed__lsbtn {
+  width: 20px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: var(--hover, rgba(0, 0, 0, 0.05));
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+.pdfed__lsbtn:hover:not(:disabled) {
+  background: var(--active, rgba(20, 115, 230, 0.15));
+  color: var(--accent, #1473e6);
+}
+.pdfed__lsbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdfed__lsval {
+  min-width: 30px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
 
 /* context-menu item content: icon + label. Block flex — an inline box would sit on the text
    baseline and leave extra descender space below the row. */

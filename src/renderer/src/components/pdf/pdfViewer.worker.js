@@ -93,7 +93,7 @@ function buildUnits(cs, streamNum, H) {
       // the outer block open forever → the whole page flips/shifts.
       if (!unitDirty) { start = end; startCtm = ctm.slice() }
     }
-    else if (t === 'cm') { const m = N(6); if (m.length === 6) { cmPre = { sa: ctm[0] || 1, sd: ctm[3] || 1 }; ctm = matMul(m, ctm) } }
+    else if (t === 'cm') { const m = N(6); if (m.length === 6) { cmPre = { sa: ctm[0] || 1, sd: ctm[3] || 1, m: ctm.slice() }; ctm = matMul(m, ctm) } }
     else if (t === 'BT') { tm = [1, 0, 0, 1, 0, 0]; tlm = [1, 0, 0, 1, 0, 0] }
     else if (t === 'Tf') { const s = N(1); if (s.length) fontSize = s[0]; fontRes = pend }
     else if (t === 'Tc') { const v = N(1); if (v.length) tc = v[0] } // letter spacing — read back into the model as run.ls
@@ -119,7 +119,7 @@ function buildUnits(cs, streamNum, H) {
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }) } shows = []; start = end; reset() }
     else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], lb: [lx0, ly0, lx1, ly1], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
-    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
+    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, cpm: cmPre?.m, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
   }
   return units
@@ -190,7 +190,16 @@ function shiftSeg(u, seg, dx, dy) {
   if (u.type === 'image') {
     const ms = [...seg.matchAll(/(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+cm/g)]
     if (ms.length) {
-      const ide = dx / (u.csa || 1), idf = -dy / (u.csd || 1)
+      // the last cm's e/f live in the space BEFORE it — full inverse of that ctm, or moving a
+      // ROTATED image drifts along its tilted axes (same class of bug as text/paths had)
+      let ide, idf
+      const pm = u.cpm
+      const pdet = pm ? pm[0] * pm[3] - pm[1] * pm[2] : 0
+      if (pm && Math.abs(pdet) > 1e-9) {
+        const px2 = dx, py2 = -dy
+        ide = (px2 * pm[3] - py2 * pm[2]) / pdet
+        idf = (-px2 * pm[1] + py2 * pm[0]) / pdet
+      } else { ide = dx / (u.csa || 1); idf = -dy / (u.csd || 1) }
       const m = ms[ms.length - 1] // the LAST cm before Do positions the image
       return seg.slice(0, m.index) + `${m[1]} ${m[2]} ${m[3]} ${m[4]} ${(parseFloat(m[5]) + ide).toFixed(3)} ${(parseFloat(m[6]) + idf).toFixed(3)} cm` + seg.slice(m.index + m[0].length)
     }

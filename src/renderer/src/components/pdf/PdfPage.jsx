@@ -25,7 +25,22 @@ const lineHitPad = (o) => (o.strokeW || 1) / 2 + 3 // half stroke + finger paddi
 // Text: exact ink box from the worker, else baseline+metrics fallback. Vector/image: worker's
 // oriented box. Returns { x, y (top-left, pt), w, h, ang (screen deg), u, d (axis unit vectors) }.
 const rotFrameOf = (o) => {
-  if (!o?.rot) return null
+  if (!o) return null
+  // a LINE/ARROW frames along its own path — its endpoints (device pt) are the truth, whatever the
+  // ctm says; the axis bbox of a slanted line is a huge misleading square
+  if (o.line) {
+    const L = o.line
+    const dx = L.x2 - L.x1, dy = L.y2 - L.y1
+    const len = Math.hypot(dx, dy)
+    if (!(len > 0.01)) return null
+    const angL = Math.atan2(dy, dx) * 180 / Math.PI
+    const radL = angL * Math.PI / 180
+    const uL = { x: Math.cos(radL), y: Math.sin(radL) }
+    const dL = { x: -uL.y, y: uL.x }
+    const pad = 3 + (o.strokeW || 1) / 2 + (L.head && L.head !== 'line' ? Math.max(7, (o.strokeW || 1) * 4) * 0.5 : 0)
+    return { x: L.x1 - uL.x * pad - dL.x * pad, y: L.y1 - uL.y * pad - dL.y * pad, w: len + pad * 2, h: pad * 2, ang: angL, u: uL, d: dL }
+  }
+  if (!o.rot) return null
   const ang = -o.rot // screen angle = −pdf rot
   const rad = ang * Math.PI / 180
   const cA = Math.cos(rad), sA = Math.sin(rad)
@@ -540,49 +555,26 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           }
           return boxes.map((o) => {
             if (!(o.bbox.w > 1 && o.bbox.h > 0.5)) return null
-            // SAME frame math as the blue selection frame: a rotated object gets its oriented box
-            const fr = o.rot ? rotFrameOf(o) : null
+            // SAME frame math as the blue selection frame (rotated objects, lines, arrows — all)
+            const fr = rotFrameOf(o)
             return fr
               ? <div key={'a' + o.id} className="pdfed__allbox" style={{ left: fr.x * scale, top: fr.y * scale, width: fr.w * scale, height: fr.h * scale, transform: `rotate(${fr.ang}deg)`, transformOrigin: '0 0' }} />
               : <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
           })
         })()}
-        {/* a single line/arrow gets a ROTATED frame hugging its path (an axis-aligned box around a
-            slanted line is huge and misleading); it travels with the ghost/nudge */}
-        {selObjs.length === 1 && selObjs[0].line && (() => {
-          const o = selObjs[0]
-          const L = lineDrag || o.line
-          const gdx = ((ghost?.dx || 0) + (nudge?.dx || 0)) * scale, gdy = ((ghost?.dy || 0) + (nudge?.dy || 0)) * scale
-          const x1 = L.x1 * scale + gdx, y1 = L.y1 * scale + gdy, x2 = L.x2 * scale + gdx, y2 = L.y2 * scale + gdy
-          const padPx = 3 + ((o.strokeW || 1) / 2) * scale + (o.line.head && o.line.head !== 'line' ? Math.max(7, (o.strokeW || 1) * 4) * 0.5 * scale : 0)
-          const len = Math.hypot(x2 - x1, y2 - y1) + padPx * 2
-          const ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI
-          return (
-            <div
-              className="pdfed__frame pdfed__frame--rot"
-              style={{
-                left: (x1 + x2) / 2 - len / 2,
-                top: (y1 + y2) / 2 - padPx,
-                width: len,
-                height: padPx * 2,
-                transform: `rotate(${ang}deg)`
-              }}
-            />
-          )
-        })()}
-        {/* selection frame — the same light dashed box for one object or a whole group; while a
-            ghost is up it travels with it; while a handle is dragged it shows the live box.
-            A single ROTATED object gets a frame ALONG its own axis (like the line frames) — the
-            axis-aligned quad box would look like it cuts / overshoots the slanted content. */}
+        {/* selection frame — ONE path for every object kind: rotFrameOf covers rotated text/art,
+            lines and arrows (frame hugs the path; live endpoints via lineDrag). While a ghost is up
+            it travels with it; while a handle is dragged it shows the live box. */}
         {/* the ONE parked frame: any committed op (move/rotate/resize, any type) froze it at mouseup */}
         {parked && (
           parked.ang
             ? <div className="pdfed__frame pdfed__frame--rot" style={{ left: parked.x * scale, top: parked.y * scale, width: parked.w * scale, height: parked.h * scale, transform: `rotate(${parked.ang}deg)`, transformOrigin: '0 0' }} />
             : <div className="pdfed__frame" style={px(parked)} />
         )}
-        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && !parked && (() => {
+        {union && !rotDrag && !parked && (() => {
           const gdx = (ghost?.dx || 0) + (nudge?.dx || 0), gdy = (ghost?.dy || 0) + (nudge?.dy || 0)
-          const fr = rotResize || (!resizeBox && selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null)
+          const one = selObjs.length === 1 ? selObjs[0] : null
+          const fr = rotResize || (!resizeBox && one ? rotFrameOf(one.line && lineDrag ? { ...one, line: lineDrag } : one) : null)
           if (fr) {
             // top-left is re-derived from the angle every render; origin 0 0 keeps it exact
             return (

@@ -1274,9 +1274,11 @@ export default function PdfEditor({ source, path }) {
       if (f.bold) t = `<strong>${t}</strong>`
       if (f.italic) t = `<em>${t}</em>`
       // cssFontFor returns double-QUOTED families — inside a double-quoted style attribute they
-      // terminated it, the browser dropped the whole style and every span lost its font/size/colour
+      // terminated it, the browser dropped the whole style and every span lost its font/size/colour.
+      // font-weight/style are EXPLICIT per span: the container carries the master's bold, and a
+      // regular piece (fallback digits) inherited it — looked bold in the editor, thin in the PDF
       const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
-      return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
+      return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}; font-weight: ${f.bold ? 700 : 400}; font-style: ${f.italic ? 'italic' : 'normal'}">${t}</span>`
     }).join('') + '</p>').join('')
     const minX = Math.min(...sorted.map((o) => o.bbox.x))
     // the ORIGINAL text hides under a page-background cover while it's being edited — otherwise it

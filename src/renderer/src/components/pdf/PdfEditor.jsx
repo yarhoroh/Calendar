@@ -989,7 +989,18 @@ export default function PdfEditor({ source, path }) {
       const objs = selected.objs
       const minX = Math.min(...objs.map((o) => o.bbox.x))
       const minY = Math.min(...objs.map((o) => o.bbox.y))
-      const dOf = (o) => ({ dx: edge === 'left' ? minX - o.bbox.x : 0, dy: edge === 'top' ? minY - o.bbox.y : 0 })
+      // align-left works PER LINE: every piece of a line shifts by the SAME delta (that of the
+      // line's leftmost piece) so advance-chained continuations ("Horokho"+"v") follow their leader
+      // instead of each being dragged to minX independently
+      const lineOf = new Map()
+      let li = 0, prevY = null
+      for (const o of [...objs].sort((a, b) => a.bbox.y - b.bbox.y)) {
+        if (prevY !== null && o.bbox.y - prevY > 6) li++
+        lineOf.set(o, li); prevY = o.bbox.y
+      }
+      const lineLeft = new Map()
+      for (const o of objs) { const k = lineOf.get(o); lineLeft.set(k, Math.min(lineLeft.has(k) ? lineLeft.get(k) : Infinity, o.bbox.x)) }
+      const dOf = (o) => ({ dx: edge === 'left' ? minX - lineLeft.get(lineOf.get(o)) : 0, dy: edge === 'top' ? minY - o.bbox.y : 0 })
       const items = objs
         .map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, ...dOf(o) }))
         .filter((it) => Math.abs(it.dx) > 0.01 || Math.abs(it.dy) > 0.01)

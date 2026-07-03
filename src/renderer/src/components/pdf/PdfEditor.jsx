@@ -1412,6 +1412,13 @@ export default function PdfEditor({ source, path }) {
     }
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const o of selected.objs) { x0 = Math.min(x0, o.bbox.x); y0 = Math.min(y0, o.bbox.y); x1 = Math.max(x1, o.bbox.x + o.bbox.w); y1 = Math.max(y1, o.bbox.y + o.bbox.h) }
+    // a single rotated object: show its screen angle (∠, clockwise-positive) and its OWN w×h
+    const rot = selected.objs.length === 1 ? selected.objs[0].rot || 0 : 0
+    if (rot) {
+      const o = selected.objs[0]
+      const w = o.obw > 0 ? o.obw : x1 - x0, h = o.obh > 0 ? o.obh : y1 - y0
+      return `X ${r1((o.ox ?? x0) + ndx)} · Y ${r1((o.oy ?? y0) + ndy)} · W ${r1(w)} · H ${r1(h)} · ∠ ${(-rot).toFixed(1)}°`
+    }
     return `X ${r1(x0 + ndx)} · Y ${r1(y0 + ndy)} · W ${r1(x1 - x0)} · H ${r1(y1 - y0)}`
   }
 

@@ -693,9 +693,12 @@ function tightenBboxes(page, runs) {
     const ang = -r.rot * Math.PI / 180 // screen angle
     const cA = Math.cos(ang), sA = Math.sin(ang)
     const sb = r.bbox // the stext quad — this run's ink lives inside it
-    const excl = runs.filter((o) => o !== r && o.bbox.x < sb.x + sb.w && o.bbox.x + o.bbox.w > sb.x && o.bbox.y < sb.y + sb.h && o.bbox.y + o.bbox.h > sb.y).map((o) => o.bbox)
+    // generous pad: the quad's x-span comes from glyph ORIGINS (a projection) — ink of a tilted
+    // glyph leans up to ~1em beyond it, and a tight clamp CUT that ink (the frame drifted with angle)
+    const pad = size
+    const excl = runs.filter((o) => o !== r && o.bbox.x < sb.x + sb.w + pad && o.bbox.x + o.bbox.w > sb.x - pad && o.bbox.y < sb.y + sb.h + pad && o.bbox.y + o.bbox.h > sb.y - pad).map((o) => o.bbox)
     const inkAt = (x, y) => {
-      if (x < sb.x - 2 || x > sb.x + sb.w + 2 || y < sb.y - 2 || y > sb.y + sb.h + 2) return false
+      if (x < sb.x - pad || x > sb.x + sb.w + pad || y < sb.y - pad || y > sb.y + sb.h + pad) return false
       for (const b of excl) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return false
       const X = Math.round(x * S), Y = Math.round(y * S)
       if (X < 0 || X >= pw || Y < 0 || Y >= ph) return false

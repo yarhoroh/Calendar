@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-style'
@@ -72,20 +72,37 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
     autofocus: 'end'
   })
 
-  // EDIT mode: align the CONTENT (not the box) to the anchor — the box has a toolbar and padding
-  // above/left of the text, so shift by the measured offset. parseRuns then measures the real DOM
-  // rects, which makes the committed baselines land EXACTLY on the original ones.
+  // EDIT mode: the committed coordinates come from the REAL DOM rects of the text (parseRuns), so
+  // the alignment must use the SAME measurement — the first text node's client rect (which already
+  // includes every toolbar/padding/margin/half-leading offset) is shifted onto the anchor. The
+  // delta lives in state: a re-render with the prop position would otherwise wipe an imperative
+  // style tweak and the text would land displaced even on an untouched commit.
+  const [adj, setAdj] = useState(null)
   useEffect(() => {
-    if (anchorLeft === undefined || !boxRef.current) return
-    const box = boxRef.current
-    const prose = box.querySelector('.ProseMirror')
-    if (!prose) return
-    const br = box.getBoundingClientRect()
-    const pr = prose.getBoundingClientRect()
-    box.style.left = `${anchorLeft * scale - (pr.left - br.left)}px`
-    box.style.top = `${anchorTop * scale - (pr.top - br.top)}px`
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor])
+    if (anchorLeft === undefined || adj || !editor) return
+    const id = requestAnimationFrame(() => {
+      const box = boxRef.current
+      const pageEl = box?.closest('.pdfed__page')
+      const prose = box?.querySelector('.ProseMirror')
+      if (!box || !pageEl || !prose) return
+      let r = null
+      const walk = (el) => {
+        for (const n of el.childNodes) {
+          if (r) return
+          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) {
+            const rg = document.createRange()
+            rg.selectNodeContents(n)
+            r = rg.getClientRects()[0] || null
+          } else if (n.childNodes) walk(n)
+        }
+      }
+      walk(prose)
+      const pr = pageEl.getBoundingClientRect()
+      const cur = r || prose.getBoundingClientRect() // empty editor → align the prose box itself
+      setAdj({ dx: anchorLeft * scale - (cur.left - pr.left), dy: anchorTop * scale - (cur.top - pr.top) })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [editor, adj, anchorLeft, anchorTop, scale])
 
   // The PDF toolbar drives the editor through this handle. grabSel() is called on the toolbar
   // select's mousedown (a native select collapses the DOM selection on blur — same trick as the
@@ -143,7 +160,12 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
     <div
       ref={boxRef}
       className="pdfed__rte"
-      style={{ left: x * scale, top: y * scale }}
+      style={{
+        left: x * scale + (adj?.dx || 0),
+        top: y * scale + (adj?.dy || 0),
+        // edit mode: invisible for the one frame before the alignment measure lands (no jump flash)
+        visibility: anchorLeft !== undefined && !adj ? 'hidden' : undefined
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onCancel() } e.stopPropagation() }}
     >

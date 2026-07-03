@@ -559,7 +559,7 @@ export default function PdfEditor({ source, path }) {
       [{ type: 'text', bbox: o.bbox, x: o.x, y: o.y }], // blank ONLY this run's show
       { lines: [[{ text: o.text, size: o.size, color: pg.colors?.[o.c] || '#000000', fontKey: k, x: o.x + dx, baseline: o.y + dy, ls: undefined, fitW: o.bbox.w }]] },
       fonts,
-      await getFallback(),
+      await getFallbacksFor(fonts),
       true // textOnly: blank the show, don't redact
     )
     return true
@@ -629,10 +629,37 @@ export default function PdfEditor({ source, path }) {
   const fallbackRef = useRef(null)
   const getFallback = async () => {
     if (!fallbackRef.current) {
-      const f = await api.fonts.file('Arial', {}).catch(() => null)
-      if (f?.bytes) fallbackRef.current = { bytes: f.bytes, family: 'Arial' }
+      const f = await Promise.resolve(api.fonts.file('Arial', {})).catch(() => null)
+      if (f?.bytes) fallbackRef.current = { bytes: f.bytes, family: f.family || 'Arial' }
     }
     return fallbackRef.current
+  }
+  // per-(family+style) substitute through the FULL chain (installed → Google exact → metric clone →
+  // Noto) — nothing hardcoded: NimbusSans-Bold gets Arimo Bold, an exotic family gets its own real
+  // face. Cached per session.
+  const fbCacheRef = useRef(new Map())
+  const fallbackFor = async (family, bold, italic) => {
+    const kk = `${family}|${bold ? 1 : 0}${italic ? 1 : 0}`
+    const c = fbCacheRef.current
+    if (!c.has(kk)) {
+      let f = await Promise.resolve(api.fonts.file(baseFamily(family), { bold, italic })).catch(() => null)
+      if (!f?.bytes) f = await Promise.resolve(api.fonts.file('Arial', { bold, italic })).catch(() => null) // last resort
+      c.set(kk, f?.bytes ? { bytes: f.bytes, family: f.family || baseFamily(family) } : null)
+    }
+    return c.get(kk)
+  }
+  // fallback bundle for a fonts map (key = "Family|bi"): every key gets ITS OWN style-matched
+  // substitute — the worker uses it for whole-run fallback AND per-char mixed-font splits
+  const getFallbacksFor = async (fonts) => {
+    const byKey = {}
+    for (const k of Object.keys(fonts || {})) {
+      const fam = fonts[k].pdf || fonts[k].family || k.split('|')[0]
+      const st = k.split('|')[1] || ''
+      const fb = await fallbackFor(fam, st.includes('b'), st.includes('i'))
+      if (fb) byKey[k] = fb
+    }
+    const def = byKey[Object.keys(byKey)[0]] || (await getFallback())
+    return def ? { ...def, byKey } : null
   }
 
   // Resolve the font FILE for a family+style. A document font reuses its own bytes (pdf: name → the
@@ -715,7 +742,7 @@ export default function PdfEditor({ source, path }) {
         texts.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), // x/y anchors → each run's OWN show op is blanked, neighbours untouched
         { lines },
         fonts,
-        await getFallback()
+        await getFallbacksFor(fonts)
       )
       const m = await refreshPage(selected.page)
       const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
@@ -903,7 +930,7 @@ export default function PdfEditor({ source, path }) {
             specLines.push([{ text: line, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline + li * lh, ls: o.ls || 0 }])
           })
         }
-        await engineRef.current.replaceText(pageIndex, items, { lines: specLines }, fonts, await getFallback(), true) // textOnly: don't redact already-blanked pieces
+        await engineRef.current.replaceText(pageIndex, items, { lines: specLines }, fonts, await getFallbacksFor(fonts), true) // textOnly: don't redact already-blanked pieces
         await refreshPage(pageIndex)
       }
     } catch (e) { console.error('[pdf][variable] apply failed:', e) } finally { busyRef.current = false }
@@ -953,7 +980,10 @@ export default function PdfEditor({ source, path }) {
   // previews something sensible even when the embedded face couldn't be loaded into the browser
   const cssFontFor = (family) => {
     const df = docFonts.find((f) => f.name === family)
-    return df?.match ? `"${family}", "${df.match}"` : `"${family}"`
+    // second family = what ACTUALLY substitutes (subst — the same face the commit chain resolves),
+    // so per-glyph CSS fallback in the editor matches the letters the PDF will get
+    const alt = df?.subst || df?.match
+    return alt ? `"${family}", "${alt}"` : `"${family}"`
   }
 
   // typing into a number box fires per keystroke — batch the page-mutations into ONE (450ms after
@@ -1215,12 +1245,14 @@ export default function PdfEditor({ source, path }) {
         const f = pg.fonts?.[o.f] || {}
         const color = (pg.colors?.[o.c] || '#000000').toLowerCase()
         let raw = String(o.text || '')
-        // keep a visible gap between separate pieces of one visual line
-        if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.2) raw = ' ' + raw }
+        // a space only for REAL column gaps (> 0.75em): the sub-em gaps between pieces of one word
+        // (leftovers of a mixed-font split) must join seamlessly — the injected space "came back"
+        // every time the user deleted it
+        if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.75) raw = ' ' + raw }
         const style = `${f.name || 'Arial'}|${o.size || 12}|${color}|${f.bold ? 1 : 0}${f.italic ? 1 : 0}`
         const last = segs[segs.length - 1]
-        if (last && last.style === style) last.text += raw.replace(/\s+/g, '')
-        else segs.push({ text: raw.replace(/\s+/g, ''), style })
+        if (last && last.style === style) last.text += raw
+        else segs.push({ text: raw, style })
         let t = esc(raw)
         if (f.bold) t = `<strong>${t}</strong>`
         if (f.italic) t = `<em>${t}</em>`
@@ -1340,10 +1372,10 @@ export default function PdfEditor({ source, path }) {
     // EDIT mode, nothing changed → close WITHOUT touching the stream: a no-op rewrite re-resolved
     // fonts every time (Nimbus→Arial→…) and the text "randomly" drifted between edit sessions
     if (te.origSig) {
-      // whitespace-insensitive: the piece-gap heuristic inserts spaces the DOM may re-flow — they
-      // must never count as "changes" (an untouched open-close has to be a strict no-op)
-      const clean = (t) => String(t).replace(/\s+/g, '')
-      const parsedSig = lines.map((l) => l.map((s) => `${clean(s.text)}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
+      // EXACT text, spaces included: deleting a real space must count as a change (a whitespace-
+      // insensitive compare silently resurrected deleted spaces). The orig side is built from the
+      // SAME string the editor was opened with, so an untouched open-close still matches strictly.
+      const parsedSig = lines.map((l) => l.map((s) => `${s.text}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
       if (parsedSig === te.origSig) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
       console.log('[pdf][edit] changed:\n  was:', te.origSig, '\n  now:', parsedSig)
     }
@@ -1369,8 +1401,8 @@ export default function PdfEditor({ source, path }) {
       const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls }))) }
       const before = new Set(allOf(model.find((p) => p.pageIndex === te.page) || { runs: [] }).map(sigOf))
       // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
-      if (te.replaceItems) await engineRef.current.replaceText(te.page, te.replaceItems, spec, fonts, await getFallback(), true)
-      else await engineRef.current.insertText(te.page, spec, fonts, await getFallback())
+      if (te.replaceItems) await engineRef.current.replaceText(te.page, te.replaceItems, spec, fonts, await getFallbacksFor(fonts), true)
+      else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts))
       // the editor (and the cover hiding the ORIGINAL text) stays up until the refreshed page
       // image lands — closing earlier flashed the OLD text before it jumped to the new one
       const m = await refreshPage(te.page)

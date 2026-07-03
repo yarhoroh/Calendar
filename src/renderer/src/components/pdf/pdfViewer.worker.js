@@ -1258,36 +1258,45 @@ function invertM(m) {
 // so no operation built on top of it can ever delete content and then fail to draw ("aaaa…").
 function prepareInsFonts(pageIndex, fonts, fallback, samples) {
   const recs = {}
-  let needFb = false
+  // the fallback must match BOTH the segment's style AND its document font: the renderer resolves
+  // a per-key substitute through the clone chain (NimbusSans-Bold → Arimo Bold, exotic → Google
+  // download, …) — nothing is hardcoded to one family, any PDF's fonts get their own equivalents
+  const fbFor = (k) => {
+    if (fallback?.byKey && fallback.byKey[k]) return fallback.byKey[k]
+    const s = k.split('|')[1] || ''
+    if (fallback?.byStyle) return fallback.byStyle[s] || fallback.byStyle[''] || fallback
+    return fallback || null
+  }
   for (const k of Object.keys(fonts || {})) {
     const f = fonts[k]
     const sample = samples[k] || 'Ag1'
+    const fb = fbFor(k)
     let bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf) : null)
     let family = f.family || f.pdf || k
     if (!bytes || !fontEncodes(bytes, family, sample)) {
-      if (fallback?.bytes && fontEncodes(fallback.bytes, fallback.family, sample)) {
-        console.warn(`[pdf worker] font "${family}" cannot encode the text → fallback "${fallback.family}"`)
-        bytes = fallback.bytes
-        family = fallback.family || 'Arial'
+      if (fb?.bytes && fontEncodes(fb.bytes, fb.family, sample)) {
+        console.warn(`[pdf worker] font "${family}" cannot encode the text → fallback "${fb.family}"`)
+        bytes = fb.bytes
+        family = fb.family || 'Arial'
       } else {
         throw new Error(`font "${family}" cannot encode the text and no usable fallback`)
       }
     }
-    recs[k] = ensureInsFont(pageIndex, family + '|' + (bytes === fallback?.bytes ? 'fb' : k), bytes, family)
+    recs[k] = ensureInsFont(pageIndex, family + '|' + (bytes === fb?.bytes ? 'fb' + (k.split('|')[1] || '') : k), bytes, family)
     // PARTIAL coverage (a subset missing some of the text's chars): those chars would render as
-    // blank .notdef — mark that the mixed-font split needs the fallback face alongside
-    if (bytes !== fallback?.bytes) {
+    // blank .notdef — prepare the style-matched fallback face alongside
+    if (bytes !== fb?.bytes) {
       const miss = [...new Set([...sample])].filter((ch) => ch.trim() && (recs[k].font.encodeCharacter(ch.codePointAt(0)) & 0xffff) === 0)
       if (miss.length) {
-        if (!fallback?.bytes || !fontEncodes(fallback.bytes, fallback.family, miss.join(''))) {
+        if (!fb?.bytes || !fontEncodes(fb.bytes, fb.family, miss.join(''))) {
           throw new Error(`font "${family}" is missing "${miss.join('')}" and the fallback can't cover them`)
         }
-        needFb = true
-        console.warn(`[pdf worker] font "${family}" misses "${miss.join('')}" → those chars go to "${fallback.family}"`)
+        const sKey = k.split('|')[1] || ''
+        recs['__fb|' + sKey] = ensureInsFont(pageIndex, (fb.family || 'Arial') + '|fb' + sKey, fb.bytes, fb.family || 'Arial')
+        console.warn(`[pdf worker] font "${family}" misses "${miss.join('')}" → those chars go to "${fb.family}"`)
       }
     }
   }
-  if (needFb) recs.__fb = ensureInsFont(pageIndex, (fallback.family || 'Arial') + '|fb', fallback.bytes, fallback.family || 'Arial')
   return recs
 }
 const samplesOf = (spec) => {
@@ -1322,7 +1331,7 @@ function insertTextWithRecs(pageIndex, spec, recs) {
       // MIXED-FONT split: chars the (subset) font can encode stay in it; the rest go to the
       // fallback face — consecutive Tj's continue the line naturally (Tj advances the text matrix),
       // so a missing letter no longer renders as a blank .notdef box
-      const fb = recs.__fb
+      const fb = recs['__fb|' + (s.fontKey.split('|')[1] || '')] || recs['__fb|']
       const parts = [] // { rec, hex, nat, len }
       for (const ch of s.text) {
         let r2 = rec

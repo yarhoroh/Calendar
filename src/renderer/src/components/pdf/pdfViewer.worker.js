@@ -563,11 +563,17 @@ function getModel(pageIndex) {
               const sw = Math.hypot(u.ctm[0], u.ctm[1]), sh = Math.hypot(u.ctm[2], u.ctm[3])
               const lb = v.type === 'vector' ? u.lb : [0, 0, 1, 1] // an image unit is the unit square
               if (lb && isFinite(lb[0])) {
-                v.obw = n2((lb[2] - lb[0]) * sw)
-                v.obh = n2((lb[3] - lb[1]) * sh)
-                const dxc = u.ctm[0] * lb[0] + u.ctm[2] * lb[3] + u.ctm[4] // local (x0, y1) = top-left in y-up space
-                const dyc = u.ctm[1] * lb[0] + u.ctm[3] * lb[3] + u.ctm[5]
-                v.ox = n2(dxc); v.oy = n2(H - dyc)
+                const obw = (lb[2] - lb[0]) * sw, obh = (lb[3] - lb[1]) * sh
+                v.obw = n2(obw); v.obh = n2(obh)
+                // anchor via the CENTRE (symmetric — immune to the page flip in the ctm, which used
+                // to map the local "top" corner to the screen BOTTOM: the frame sat one height low)
+                const cxl = (lb[0] + lb[2]) / 2, cyl = (lb[1] + lb[3]) / 2
+                const scx = u.ctm[0] * cxl + u.ctm[2] * cyl + u.ctm[4]
+                const scy = H - (u.ctm[1] * cxl + u.ctm[3] * cyl + u.ctm[5])
+                const angR = Math.atan2(-u.ctm[1], u.ctm[0]) // screen angle (= −v.rot)
+                const ca = Math.cos(angR), sa = Math.sin(angR)
+                v.ox = n2(scx - ca * obw / 2 + sa * obh / 2) // top-left = centre − u·w/2 − d·h/2
+                v.oy = n2(scy - sa * obw / 2 - ca * obh / 2)
               }
             }
             if (u.efr !== undefined) v.radius = u.efr

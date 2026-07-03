@@ -181,6 +181,7 @@ export default function PdfEditor({ source, path }) {
   const [model, setModel] = useState([]) // [{ pageIndex, width, height, runs }]
   const [imgs, setImgs] = useState([]) // [{ pageIndex, url, width, height }] — re-rendered per scale
   const [pageCount, setPageCount] = useState(0)
+  const [fontsNonce, setFontsNonce] = useState(0) // bumped after inserts: new EF faces need FontFaces
   const [scale, setScale] = useState(1.5)
   const [status, setStatus] = useState('idle')
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -336,7 +337,7 @@ export default function PdfEditor({ source, path }) {
       if (fonts.length) setFontSel((v) => v || fonts[0].name)
     })()
     return () => { alive = false }
-  }, [pageCount])
+  }, [pageCount, fontsNonce])
 
   // every colour used in the document (text + art), merged across pages — the colour dropdown
   const docColors = [...new Set(model.flatMap((p) => p.colors || []))]
@@ -1218,8 +1219,8 @@ export default function PdfEditor({ source, path }) {
         if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.2) raw = ' ' + raw }
         const style = `${f.name || 'Arial'}|${o.size || 12}|${color}|${f.bold ? 1 : 0}${f.italic ? 1 : 0}`
         const last = segs[segs.length - 1]
-        if (last && last.style === style) last.text += raw
-        else segs.push({ text: raw, style })
+        if (last && last.style === style) last.text += raw.replace(/\s+/g, '')
+        else segs.push({ text: raw.replace(/\s+/g, ''), style })
         let t = esc(raw)
         if (f.bold) t = `<strong>${t}</strong>`
         if (f.italic) t = `<em>${t}</em>`
@@ -1339,8 +1340,12 @@ export default function PdfEditor({ source, path }) {
     // EDIT mode, nothing changed → close WITHOUT touching the stream: a no-op rewrite re-resolved
     // fonts every time (Nimbus→Arial→…) and the text "randomly" drifted between edit sessions
     if (te.origSig) {
-      const parsedSig = lines.map((l) => l.map((s) => `${s.text}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
+      // whitespace-insensitive: the piece-gap heuristic inserts spaces the DOM may re-flow — they
+      // must never count as "changes" (an untouched open-close has to be a strict no-op)
+      const clean = (t) => String(t).replace(/\s+/g, '')
+      const parsedSig = lines.map((l) => l.map((s) => `${clean(s.text)}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
       if (parsedSig === te.origSig) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
+      console.log('[pdf][edit] changed:\n  was:', te.origSig, '\n  now:', parsedSig)
     }
     busyRef.current = true
     try {
@@ -1376,6 +1381,7 @@ export default function PdfEditor({ source, path }) {
       const blocks = new Set(added.filter((o) => o.type === 'text').map((o) => String(o.id).split('.')[0]))
       const grouped = allOf(m).filter((o) => (o.type === 'text' && blocks.has(String(o.id).split('.')[0])) || added.includes(o))
       console.log(`[pdf][insert-text] page ${te.page}, ${lines.length} line(s) → ${added.length} new, ${grouped.length} in block(s)`)
+      setFontsNonce((n) => n + 1) // freshly embedded EF faces get their FontFaces for the next edit
       onSelect(te.page, grouped.length ? grouped : added) // the inserted block comes out selected whole
     } catch (err) { console.error('[pdf] insert text failed (editor kept open):', err) } finally { busyRef.current = false }
   }

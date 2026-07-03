@@ -20,18 +20,43 @@ const distSeg = (px, py, x1, y1, x2, y2) => {
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 }
 const lineHitPad = (o) => (o.strokeW || 1) / 2 + 3 // half stroke + finger padding, pt
+// ONE source for the oriented frame of a rotated object — the blue frame, the grey "All" frames,
+// hit-testing and the move-grab all go through here (pure: reads only the object's model fields).
+// Text: exact ink box from the worker, else baseline+metrics fallback. Vector/image: worker's
+// oriented box. Returns { x, y (top-left, pt), w, h, ang (screen deg), u, d (axis unit vectors) }.
+const rotFrameOf = (o) => {
+  if (!o?.rot) return null
+  const ang = -o.rot // screen angle = −pdf rot
+  const rad = ang * Math.PI / 180
+  const cA = Math.cos(rad), sA = Math.sin(rad)
+  const u = { x: cA, y: sA } // along the object
+  const d = { x: -sA, y: cA } // perpendicular, descent side (down-screen at ang=0)
+  if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
+  if (o.type === 'text') {
+    // metric fallback (ink box unavailable): baseline anchor + font metrics
+    const size = o.size || 10
+    const asc = size * 0.78, desc = size * 0.22, h = asc + desc
+    const cAb = Math.abs(cA), sAb = Math.abs(sA)
+    const w = cAb >= sAb ? (o.bbox.w - h * sAb) / cAb : (o.bbox.h - h * cAb) / sAb
+    if (!(w > 1)) return null
+    return { x: o.x - d.x * asc, y: o.y - d.y * asc, w, h, ang, u, d } // top-left = baseline − d·asc
+  }
+  return null
+}
+// point-in-oriented-box: the SAME projection everywhere (click hit + selection grab)
+const pointInOriented = (o, x, y, pad = 2) => {
+  const fr = rotFrameOf(o)
+  if (!fr) return null
+  const lx = (x - fr.x) * fr.u.x + (y - fr.y) * fr.u.y
+  const ly = (x - fr.x) * fr.d.x + (y - fr.y) * fr.d.y
+  return lx >= -pad && lx <= fr.w + pad && ly >= -pad && ly <= fr.h + pad
+}
 const hitTest = (objects, x, y) => {
   const under = (o) => {
     if (o.line) return distSeg(x, y, o.line.x1, o.line.y1, o.line.x2, o.line.y2) <= lineHitPad(o)
-    // a ROTATED object is hit by its ORIENTED box (the blue frame), not the huge axis quad —
-    // project the click onto the object's own axes
-    if (o.rot && o.obw > 0 && o.ox !== undefined) {
-      const rad = -o.rot * Math.PI / 180
-      const cA = Math.cos(rad), sA = Math.sin(rad)
-      const lx = (x - o.ox) * cA + (y - o.oy) * sA
-      const ly = -(x - o.ox) * sA + (y - o.oy) * cA
-      return lx >= -2 && lx <= o.obw + 2 && ly >= -2 && ly <= o.obh + 2
-    }
+    // a ROTATED object is hit by its ORIENTED box (the blue frame), not the huge axis quad
+    const po = pointInOriented(o, x, y)
+    if (po !== null) return po
     const padX = o.bbox.w < PAD ? PAD : 0
     const padY = o.bbox.h < PAD ? PAD : 0
     return x >= o.bbox.x - padX && x <= o.bbox.x + o.bbox.w + padX && y >= o.bbox.y - padY && y <= o.bbox.y + o.bbox.h + padY
@@ -117,31 +142,6 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const toPt = (e, el) => {
     const r = el.getBoundingClientRect()
     return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]
-  }
-
-  // ROTATED frame of a single rotated object, anchored at its TOP-LEFT re-derived from the angle
-  // (render with transform-origin 0 0). Text: exact baseline anchor from the stream + font metrics
-  // (asc 0.78em / desc 0.22em). Vector/image: the worker's oriented box (local bounds × ctm — exact
-  // at ANY angle). Returns { x, y (top-left, pt), w, h, ang (screen deg), u, d (axis unit vectors) }.
-  const rotFrameOf = (o) => {
-    if (!o?.rot) return null
-    const ang = -o.rot // screen angle = −pdf rot
-    const rad = ang * Math.PI / 180
-    const cA = Math.cos(rad), sA = Math.sin(rad)
-    const u = { x: cA, y: sA } // along the object
-    const d = { x: -sA, y: cA } // perpendicular, descent side (down-screen at ang=0)
-    // the worker's oriented box (ink-scanned for text, local-bounds for vectors/images) — exact
-    if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
-    if (o.type === 'text') {
-      // metric fallback (ink box unavailable): baseline anchor + font metrics
-      const size = o.size || 10
-      const asc = size * 0.78, desc = size * 0.22, h = asc + desc
-      const cAb = Math.abs(cA), sAb = Math.abs(sA)
-      const w = cAb >= sAb ? (o.bbox.w - h * sAb) / cAb : (o.bbox.h - h * cAb) / sAb
-      if (!(w > 1)) return null
-      return { x: o.x - d.x * asc, y: o.y - d.y * asc, w, h, ang, u, d } // top-left = baseline − d·asc
-    }
-    return null
   }
 
   // resize a ROTATED object by its handles: deltas are projected onto the object's OWN axes, the
@@ -385,17 +385,11 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     // (huge for a slanted line) must not swallow clicks on other content. A single ROTATED object
     // likewise grabs only by its ORIENTED frame, not the inflated quad.
     const selIsLine = selObjs.length === 1 && selObjs[0].line
-    const selRot = selObjs.length === 1 && selObjs[0].rot && selObjs[0].obw > 0 && selObjs[0].ox !== undefined ? selObjs[0] : null
+    const selRotHit = selObjs.length === 1 ? pointInOriented(selObjs[0], x, y) : null // same projection as hitTest
     const onSel = selIsLine
       ? distSeg(x, y, selObjs[0].line.x1, selObjs[0].line.y1, selObjs[0].line.x2, selObjs[0].line.y2) <= lineHitPad(selObjs[0]) + 2
-      : selRot
-        ? (() => {
-            const rad = -selRot.rot * Math.PI / 180
-            const cA = Math.cos(rad), sA = Math.sin(rad)
-            const lx = (x - selRot.ox) * cA + (y - selRot.oy) * sA
-            const ly = -(x - selRot.ox) * sA + (y - selRot.oy) * cA
-            return lx >= -2 && lx <= selRot.obw + 2 && ly >= -2 && ly <= selRot.obh + 2
-          })()
+      : selRotHit !== null
+        ? selRotHit
         : inside(union, x, y)
     if (onSel) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 

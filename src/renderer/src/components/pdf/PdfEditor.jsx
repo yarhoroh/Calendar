@@ -510,6 +510,19 @@ export default function PdfEditor({ source, path }) {
 
   // drag → shift the objects' coordinates inside the PDF stream, then re-render. The objects arrive
   // as an argument (not from state) so press-and-drag works in ONE gesture, before the state lands.
+  // ONE client-side selection shift for every op (move/align/distribute): bbox, anchors, the
+  // oriented ink box of rotated objects AND line endpoints all travel together — partial copies of
+  // this kept drifting apart (the frame snapped back to stale coordinates)
+  const shiftObj = (o, dx, dy) => ({
+    ...o,
+    bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
+    x: o.x + dx,
+    y: o.y + dy,
+    ox: o.ox !== undefined ? o.ox + dx : undefined,
+    oy: o.oy !== undefined ? o.oy + dy : undefined,
+    line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
+  })
+
   // does this text run share its baseline with another run of the SAME block? (then a plain stream
   // move would drag the whole line — "June" would pull "TES developing" along)
   const sharesLine = (pageIndex, o) => {
@@ -569,17 +582,7 @@ export default function PdfEditor({ source, path }) {
       // keep the SAME selection, just shifted — no re-computing from the fresh model (which could
       // return inflated/merged boxes when the objects land next to other content). The selection
       // lives until the user clicks something else.
-      const shifted = objs.map((o) => ({
-        ...o,
-        bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
-        x: o.x + dx,
-        y: o.y + dy,
-        // the oriented ink box (rotated objects) must travel too, or the frame snaps back
-        ox: o.ox !== undefined ? o.ox + dx : undefined,
-        oy: o.oy !== undefined ? o.oy + dy : undefined,
-        // a line/arrow carries its endpoints too — the handles must travel with the move
-        line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
-      }))
+      const shifted = objs.map((o) => shiftObj(o, dx, dy))
       console.log(`[pdf][move] d=(${dx.toFixed(1)},${dy.toFixed(1)}), ${shifted.length} object(s) shifted`)
       onSelect(pageIndex, shifted)
     } catch (err) { console.error('[pdf] move failed:', err) }
@@ -1076,18 +1079,7 @@ export default function PdfEditor({ source, path }) {
       if (items.length) {
         await engineRef.current.moveObjects(selected.page, items)
         await refreshPage(selected.page)
-        const shifted = objs.map((o) => {
-          const { dx, dy } = dOf(o)
-          return {
-            ...o,
-            bbox: { ...o.bbox, x: o.bbox.x + dx, y: o.bbox.y + dy },
-            x: o.x + dx,
-            y: o.y + dy,
-            ox: o.ox !== undefined ? o.ox + dx : undefined,
-            oy: o.oy !== undefined ? o.oy + dy : undefined,
-            line: o.line ? { ...o.line, x1: o.line.x1 + dx, y1: o.line.y1 + dy, x2: o.line.x2 + dx, y2: o.line.y2 + dy } : undefined
-          }
-        })
+        const shifted = objs.map((o) => { const { dx, dy } = dOf(o); return shiftObj(o, dx, dy) })
         onSelect(selected.page, shifted)
       }
     } catch (err) { console.error('[pdf] align failed:', err) } finally { busyRef.current = false }
@@ -1109,16 +1101,7 @@ export default function PdfEditor({ source, path }) {
       if (items.length) {
         await engineRef.current.moveObjects(selected.page, items)
         await refreshPage(selected.page)
-        const shifted = selected.objs.map((o) => {
-          const dy = dyOf.get(o) || 0
-          return {
-            ...o,
-            bbox: { ...o.bbox, y: o.bbox.y + dy },
-            y: o.y + dy,
-            oy: o.oy !== undefined ? o.oy + dy : undefined,
-            line: o.line ? { ...o.line, y1: o.line.y1 + dy, y2: o.line.y2 + dy } : undefined
-          }
-        })
+        const shifted = selected.objs.map((o) => shiftObj(o, 0, dyOf.get(o) || 0))
         onSelect(selected.page, shifted)
       }
     } catch (err) { console.error('[pdf] distribute failed:', err) } finally { busyRef.current = false }
@@ -1313,32 +1296,6 @@ export default function PdfEditor({ source, path }) {
     const x0 = Math.min(...clip.items.map((it) => it.bbox.x))
     const y0 = Math.min(...clip.items.map((it) => it.bbox.y))
     return doPaste(x - x0, y - y0)
-  }
-
-  // "Group into one object": collapse a chain of text pieces (advance-linked digits, split runs)
-  // into ONE clean text element — blank the whole chain, insert the joined text at the first anchor
-  // in a single font. Afterwards it's a normal single object you can turn into a variable.
-  const groupSelected = async () => {
-    if (!selected || busyRef.current) return
-    const texts = selected.objs.filter((o) => o.type === 'text')
-    if (texts.length < 2) return
-    busyRef.current = true
-    const page = selected.page
-    try {
-      const o = occFromRuns(page, texts)
-      const value = joinRuns(texts).replace(/\s+/g, ' ').trim()
-      const k = `${o.family}|${o.bold ? 'b' : ''}${o.italic ? 'i' : ''}`
-      const fonts = {}
-      const src = await fontSourceFor(o.family, o.bold, o.italic) // the PDF's own font, not a system face
-      if (src) fonts[k] = src
-      const items = [{ type: 'text', bbox: o.chainBox || o.bbox, x: o.x, y: o.baseline }]
-      const lh = (o.size || 10) * 1.25
-      const lines = value.split('\n').map((line, li) => [{ text: line, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline + li * lh, ls: o.ls || 0 }])
-      await engineRef.current.replaceText(page, items, { lines }, fonts, await getFallback(), true)
-      const m = await refreshPage(page)
-      const r = (m.runs || []).find((rr) => Math.abs(rr.x - o.x) < 2 && Math.abs(rr.y - o.baseline) < 2)
-      onSelect(page, r ? [r] : null)
-    } catch (e) { console.error('[pdf] group failed:', e) } finally { busyRef.current = false }
   }
 
   // copy the TEXT of every selected text object to the OS clipboard (reading order: top-to-bottom,
@@ -1861,7 +1818,6 @@ export default function PdfEditor({ source, path }) {
               ? [
                   { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><CopyIcon /> Copy text</span>, onClick: copyTextSelected }] : []),
-                  ...(selected?.objs.filter((o) => o.type === 'text').length > 1 ? [{ label: <span className="pdfed__mi"><VariableIcon /> Group into one object</span>, onClick: groupSelected }] : []),
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><VariableIcon /> Create variable</span>, onClick: startCreateVariable }] : []),
                   ...(selInVar ? [{ label: <span className="pdfed__mi"><VariableIcon /> Remove from variable</span>, onClick: removeSelectionFromVars }] : []),
                   { label: <span className="pdfed__mi"><TrashIcon /> Delete</span>, onClick: deleteSelected }

@@ -1617,8 +1617,12 @@ function moveObjectsImpl(pageIndex, items) {
     const spread = pys.length > 1 ? Math.max(...pys) - Math.min(...pys) : 0
     if (spread > 3 && it.type === 'text' && it.y !== undefined) {
       // a multi-line BT..ET block: shift ONLY the picked line — a Td before its first show and the
-      // INVERSE Td after its last one, so the text line matrix (and every following line) stays put
-      const k = best.start + '|' + Math.round(it.y * 2)
+      // INVERSE Td after its last one, so the text line matrix (and every following line) stays put.
+      // Dedupe by the ROW'S ACTUAL SHOW SET: two selected items on near-equal baselines (Δ≈1pt)
+      // both catch the same shows (|py−y|<2) — keying by rounded y made two jobs write overlapping
+      // Td pairs into the same bytes and mangled a TJ array ("syntax error in array").
+      const row = best.shows.filter((sh) => Math.abs(sh.py - it.y) < 2)
+      const k = best.start + '|' + (row.length ? Math.min(...row.map((sh) => sh.start)) : Math.round(it.y * 2))
       if (!lineSeen.has(k)) { lineSeen.add(k); lineJobs.push({ u: best, y: it.y, dx: it.dx, dy: it.dy }) }
     } else if (!jobMap.has(best)) jobMap.set(best, { dx: it.dx, dy: it.dy })
   }

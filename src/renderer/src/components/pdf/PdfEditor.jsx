@@ -1277,7 +1277,11 @@ export default function PdfEditor({ source, path }) {
       for (const l of lines) for (const s of l) {
         const k = keyOf(s)
         if (fonts[k]) continue
-        const src = await fontSourceFor(s.fontName, s.bold, s.italic, true) // new text → full fonts only
+        // INSERT: brand-new text → full system faces only (a subset can't be trusted for arbitrary
+        // chars). EDIT: keep the DOCUMENT'S OWN font (NimbusSans stays NimbusSans — same glyphs,
+        // same heights); the worker still validates encodability and falls back per-run if a newly
+        // typed character isn't in the subset.
+        const src = await fontSourceFor(s.fontName, s.bold, s.italic, !te.replaceItems)
         if (src) fonts[k] = src
         else console.warn('[pdf][insert-text] NO FONT for', k)
       }

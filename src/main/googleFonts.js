@@ -16,17 +16,10 @@ const cacheDir = () => {
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
-// PDF base names → Google families that are METRIC CLONES of the classics (same widths)
-const CLONES = [
-  [/^(arial|helvetica|nimbus ?sans|liberation ?sans|arimo)/i, 'Arimo'],
-  [/^(times|nimbus ?roman|nimbus ?serif|liberation ?serif|tinos)/i, 'Tinos'],
-  [/^(courier|nimbus ?mono|liberation ?mono|cousine)/i, 'Cousine'],
-  [/^(calibri|carlito)/i, 'Carlito']
-]
+// ONE common clone table (src/shared/fontClones) — the same the renderer's similar() uses
+import { cloneFor } from '../shared/fontClones'
 export function googleCloneFor(family) {
-  const s = String(family || '').trim()
-  for (const [re, fam] of CLONES) if (re.test(s)) return fam
-  return null
+  return cloneFor(family)?.google || null
 }
 
 // family + style → REAL TrueType file cached in userData/fonts — that folder is scanned by

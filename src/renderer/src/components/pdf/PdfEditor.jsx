@@ -4,6 +4,7 @@ import api from '../../lib/api'
 import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
+import { cloneFor } from '../../../../shared/fontClones'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
 
@@ -303,11 +304,8 @@ export default function PdfEditor({ source, path }) {
         const n = norm(name)
         const hit = nf.find(([k]) => k === n) || nf.find(([k]) => k.length > 3 && (n.includes(k) || k.includes(n)))
         if (hit) return hit[1]
-        // well-known clone families first, then a generic guess
-        if (/nimbussans|helvetica|arimo|liberationsans/i.test(name)) return 'Arial'
-        if (/nimbusroman|nimbusserif|tinos|liberationserif|times|roman|georgia|garamond|book|serif/i.test(name)) return 'Times New Roman'
-        if (/nimbusmono|cousine|liberationmono|courier|mono/i.test(name)) return 'Courier New'
-        return 'Arial'
+        // ONE common clone table (src/shared/fontClones) — the same one main uses for Google downloads
+        return cloneFor(name)?.system || 'Arial'
       }
       // every PDF font may need a lookalike for NEW text (subset / non-embedded / non-loadable)
       const fonts = (info.fonts || []).map((f) => ({ ...f, match: f.embedded && !f.subset ? null : similar(f.name) }))
@@ -319,11 +317,13 @@ export default function PdfEditor({ source, path }) {
         try {
           const look = f.match || similar(f.name)
           const addFace = (bytes) => new FontFace(f.name, bytes).load().then((ff) => document.fonts.add(ff))
+          // remember which family ACTUALLY substitutes this doc font — the dropdown shows "≈ Family"
+          const noteSubst = (fam) => { if (fam && alive) setDocFonts((prev) => prev.map((x) => (x.name === f.name ? { ...x, subst: fam } : x))) }
           // fonts:file runs the full chain in main (installed → Google exact → Google metric clone
           // → Noto) — so an exotic family downloads its REAL face and the editor shows true glyphs
           const loadLookalike = () => Promise.resolve(api.fonts.file(baseFamily(f.name), {})).then((sys) => {
-            if (sys?.bytes) return addFace(sys.bytes)
-            return Promise.resolve(api.fonts.file(look, {})).then((s2) => { if (s2?.bytes) return addFace(s2.bytes) })
+            if (sys?.bytes) { noteSubst(sys.family); return addFace(sys.bytes) }
+            return Promise.resolve(api.fonts.file(look, {})).then((s2) => { if (s2?.bytes) { noteSubst(s2.family); return addFace(s2.bytes) } })
           }).catch(() => {})
           // real bytes when the browser accepts them; if OTS rejects the face (subset without a
           // cmap etc.) the SAME name still gets the substitute — the editor never falls to a blank
@@ -1590,7 +1590,8 @@ export default function PdfEditor({ source, path }) {
           {docFonts.length > 0 && (
             <optgroup label="PDF">
               {docFonts.map((f) => (
-                <option key={f.name} value={f.name}>{f.name + (f.match ? ` → ${f.match}` : '')}</option>
+                /* "≈ Family" = this doc font is SUBSTITUTED by that equivalent (real bytes didn't load) */
+                <option key={f.name} value={f.name}>{f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '')}</option>
               ))}
             </optgroup>
           )}

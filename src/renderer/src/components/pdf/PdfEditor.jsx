@@ -1220,16 +1220,8 @@ export default function PdfEditor({ source, path }) {
         const dh = kind === 'line' || kind === 'arrow' ? 0 : kind === 'check' || kind === 'cross' ? 16 : 80
         geo = { x, y, w: dw, h: dh, x1: x, y1: y, x2: x + dw, y2: y + dh }
       }
-      if (kind === 'line') {
-        // a line snaps to the drag's dominant axis: strictly horizontal or strictly vertical
-        if (Math.abs(geo.x2 - geo.x1) >= Math.abs(geo.y2 - geo.y1)) {
-          const lx = Math.min(geo.x1, geo.x2), rx = Math.max(geo.x1, geo.x2)
-          geo = { ...geo, x1: lx, x2: rx, y1: geo.y1, y2: geo.y1, x: lx, y: geo.y1, w: rx - lx, h: 0 }
-        } else {
-          const ty = Math.min(geo.y1, geo.y2), by = Math.max(geo.y1, geo.y2)
-          geo = { ...geo, y1: ty, y2: by, x1: geo.x1, x2: geo.x1, x: geo.x1, y: ty, w: 0, h: by - ty }
-        }
-      }
+      // lines and arrows are FREE-ANGLE: drawn exactly from the press point to the release point
+      // (the old axis snap forced every line to 0° or 90°)
       placeShape(pageIndex, mode.shape, geo)
     }
   }

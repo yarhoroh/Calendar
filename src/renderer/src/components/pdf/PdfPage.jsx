@@ -354,11 +354,16 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     // NOT select whatever element happens to be under the cursor
     if (textEdit) return
 
-    // shape mode: click places a default-size shape, drag draws it to size (marquee preview)
+    // shape mode: click places a default-size shape, drag draws it to size. Preview: a dashed LINE
+    // from the press point to the cursor for lines/arrows (they land free-angle exactly there),
+    // a marquee box for area shapes.
     if (insertMode?.shape) {
+      const isLinear = insertMode.shape.kind === 'line' || insertMode.shape.kind === 'arrow'
       const move = (ev) => {
         const [mx, my] = toPt(ev, el)
-        setMarquee({ x: Math.min(x, mx), y: Math.min(y, my), w: Math.abs(mx - x), h: Math.abs(my - y) })
+        setMarquee(isLinear
+          ? { line: { x1: x, y1: y, x2: mx, y2: my } }
+          : { x: Math.min(x, mx), y: Math.min(y, my), w: Math.abs(mx - x), h: Math.abs(my - y) })
       }
       const up = (ev) => {
         window.removeEventListener('mousemove', move)
@@ -741,7 +746,13 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             )}
           </>
         )}
-        {marquee && <div className="pdfed__marquee" style={px(marquee)} />}
+        {marquee && !marquee.line && <div className="pdfed__marquee" style={px(marquee)} />}
+        {marquee?.line && (() => {
+          const L = marquee.line
+          const len = Math.hypot(L.x2 - L.x1, L.y2 - L.y1) * scale
+          const ang = Math.atan2(L.y2 - L.y1, L.x2 - L.x1) * 180 / Math.PI
+          return <div className="pdfed__rubber" style={{ left: L.x1 * scale, top: L.y1 * scale, width: len, transform: `rotate(${ang}deg)` }} />
+        })()}
         {textEdit && textEdit.page === pageIndex && (
           <RichTextEditor
             ref={rte.ref}

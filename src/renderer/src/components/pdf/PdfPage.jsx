@@ -211,8 +211,9 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     const [sx0, sy0] = toPt(e, el)
     const a0 = Math.atan2(sy0 - c.y, sx0 - c.x)
     // Shift snaps the object's TOTAL angle to 15° steps relative to the PAGE (0/45/90…), not the
-    // drag delta — so a tilted text can be squared up straight to 0°
-    const rot0 = selObjs.length === 1 ? -(selObjs[0].rot || 0) : 0
+    // drag delta — so a tilted text OR line/arrow can be squared up straight to 0°/90°. The base
+    // angle comes from the SAME rotFrameOf (a line's angle lives in its endpoints, not in rot)
+    const rot0 = selObjs.length === 1 ? (fr0 ? fr0.ang : -(selObjs[0].rot || 0)) : 0
     let cur = 0
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)

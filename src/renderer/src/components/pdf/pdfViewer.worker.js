@@ -485,6 +485,25 @@ function getModel(pageIndex) {
       })
     } finally { stext.destroy?.() }
 
+    // Runs whose show never matched a device span (z=-1) got palette[0] as a colour GUESS — wrong:
+    // one BT..ET block shares its inherited fill colour, so they take colour/z from the nearest
+    // MATCHED sibling of the same block (else a detach-move/restyle bakes the wrong colour in).
+    {
+      const lastByBlock = new Map()
+      for (const r of runs) {
+        const b = String(r.id).split('.')[0]
+        if (r.z !== -1) lastByBlock.set(b, r)
+        else { const p = lastByBlock.get(b); if (p) { r.c = p.c; r.z = p.z } }
+      }
+      const nextByBlock = new Map()
+      for (let i = runs.length - 1; i >= 0; i--) { // and backwards, for unmatched FIRST lines
+        const r = runs[i]
+        const b = String(r.id).split('.')[0]
+        if (r.z !== -1) nextByBlock.set(b, r)
+        else { const p = nextByBlock.get(b); if (p) { r.c = p.c; r.z = p.z } }
+      }
+    }
+
     // Per-run stream metadata: the ORIGINAL letter spacing (Tc), and — for OUR inserted runs — the
     // TRUE text decoded straight from the hex show operand. stext synthesizes spaces into spaced-out
     // text ("L e o n…"), and re-inserting that on the next restyle made runs grow WIDER every cycle.

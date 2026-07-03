@@ -541,9 +541,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
               }
             }
           }
-          return boxes.map((o) => (o.bbox.w > 1 && o.bbox.h > 0.5
-            ? <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
-            : null))
+          return boxes.map((o) => {
+            if (!(o.bbox.w > 1 && o.bbox.h > 0.5)) return null
+            // SAME frame math as the blue selection frame: a rotated object gets its oriented box
+            const fr = o.rot ? rotFrameOf(o) : null
+            return fr
+              ? <div key={'a' + o.id} className="pdfed__allbox" style={{ left: fr.x * scale, top: fr.y * scale, width: fr.w * scale, height: fr.h * scale, transform: `rotate(${fr.ang}deg)`, transformOrigin: '0 0' }} />
+              : <div key={'a' + o.id} className="pdfed__allbox" style={px(o.bbox)} />
+          })
         })()}
         {/* a single line/arrow gets a ROTATED frame hugging its path (an axis-aligned box around a
             slanted line is huge and misleading); it travels with the ghost/nudge */}

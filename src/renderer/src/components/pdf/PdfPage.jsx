@@ -66,6 +66,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const [resizeBox, setResizeBox] = useState(null) // live bbox while dragging a handle
   const [lineDrag, setLineDrag] = useState(null) // live endpoints while dragging a line/arrow end
   const [sprite, setSprite] = useState(null) // transparent render of ONLY the dragged objects
+  const [snapLines, setSnapLines] = useState(null) // { x:{v,a,b}, y:{v,a,b} } — magnetic guides while snapping
   const dragRef = useRef(null)
 
   // the selection carries the resolved objects themselves — nothing is re-filtered from the model
@@ -88,6 +89,26 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     // ask for a clean sprite of ONLY the dragged objects (until it lands, per-object raster windows serve)
     onSprite?.(pageIndex, objs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
     const u0 = unionOf(objs)
+    // snap candidates: the left/centre/right and top/middle/bottom lines of every OTHER object
+    // (computed once at drag start). With Shift held, the union magnetically sticks to a line within
+    // ~3 screen px and releases when pulled away.
+    const selIds = new Set(objs.map((o) => o.id))
+    const candX = [], candY = []
+    for (const o of objects) {
+      if (selIds.has(o.id)) continue
+      const b = o.bbox
+      candX.push({ v: b.x, a: b.y, z: b.y + b.h }, { v: b.x + b.w / 2, a: b.y, z: b.y + b.h }, { v: b.x + b.w, a: b.y, z: b.y + b.h })
+      candY.push({ v: b.y, a: b.x, z: b.x + b.w }, { v: b.y + b.h / 2, a: b.x, z: b.x + b.w }, { v: b.y + b.h, a: b.x, z: b.x + b.w })
+    }
+    const snap = (dx, dy) => {
+      const th = 3 / scale // ~3 screen pixels
+      const edgesX = [u0.x + dx, u0.x + u0.w / 2 + dx, u0.x + u0.w + dx]
+      const edgesY = [u0.y + dy, u0.y + u0.h / 2 + dy, u0.y + u0.h + dy]
+      let bx = null, by = null
+      for (const e of edgesX) for (const c of candX) { const d = c.v - e; if (Math.abs(d) < th && (!bx || Math.abs(d) < Math.abs(bx.d))) bx = { d, c } }
+      for (const e of edgesY) for (const c of candY) { const d = c.v - e; if (Math.abs(d) < th && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, c } }
+      return { dx: dx + (bx ? bx.d : 0), dy: dy + (by ? by.d : 0), gx: bx?.c || null, gy: by?.c || null }
+    }
     // Ctrl while dragging → the move is locked to the axis of the FIRST significant displacement
     let axis = null
     const lock = (dx, dy, ctrl) => {
@@ -95,18 +116,25 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
       if (!axis && Math.hypot(dx, dy) > 3) axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
       return axis === 'x' ? [dx, 0] : axis === 'y' ? [0, dy] : [dx, dy]
     }
+    const resolve = (rawx, rawy, ev) => {
+      const [dx, dy] = lock(rawx, rawy, ev.ctrlKey)
+      if (ev.shiftKey) { const s = snap(dx, dy); return [s.dx, s.dy, s.gx, s.gy] }
+      return [dx, dy, null, null]
+    }
     const move = (ev) => {
       const [mx, my] = toPt(ev, el)
-      const [dx, dy] = lock(mx - sx, my - sy, ev.ctrlKey)
+      const [dx, dy, gx, gy] = resolve(mx - sx, my - sy, ev)
       setGhost({ dx, dy })
+      setSnapLines(gx || gy ? { x: gx, y: gy } : null)
       if (u0) onLiveGeo?.({ x: u0.x + dx, y: u0.y + dy, w: u0.w, h: u0.h }) // live X/Y in the panel
     }
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       onLiveGeo?.(null)
+      setSnapLines(null)
       const [ux, uy] = toPt(ev, el)
-      const [dx, dy] = lock(ux - sx, uy - sy, ev.ctrlKey)
+      const [dx, dy] = resolve(ux - sx, uy - sy, ev)
       if (Math.hypot(dx, dy) >= 1) {
         // keep the ghost parked at the drop spot while the worker re-renders the page — the object
         // looks like it's already there instead of vanishing and "jumping" seconds later
@@ -397,6 +425,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 <div className="pdfed__guide is-v" style={{ left: (union.x + ghost.dx) * scale }} />
                 <div className="pdfed__guide is-v" style={{ left: (union.x + union.w + ghost.dx) * scale }} />
               </>
+            )}
+            {/* magnetic snap guides (Shift): a bright line exactly where the union locks onto another
+                object's edge/centre, spanning both objects so the alignment is obvious */}
+            {!ghost.pending && snapLines?.x && (
+              <div className="pdfed__snap is-v" style={{ left: snapLines.x.v * scale, top: Math.min(snapLines.x.a, union.y + ghost.dy) * scale, height: (Math.max(snapLines.x.z, union.y + union.h + ghost.dy) - Math.min(snapLines.x.a, union.y + ghost.dy)) * scale }} />
+            )}
+            {!ghost.pending && snapLines?.y && (
+              <div className="pdfed__snap is-h" style={{ top: snapLines.y.v * scale, left: Math.min(snapLines.y.a, union.x + ghost.dx) * scale, width: (Math.max(snapLines.y.z, union.x + union.w + ghost.dx) - Math.min(snapLines.y.a, union.x + ghost.dx)) * scale }} />
             )}
             {/* the dragged content: a transparent sprite of ONLY the selected objects (nothing around
                 them, no clipped neighbours). Until it arrives, per-object raster windows fill in. */}

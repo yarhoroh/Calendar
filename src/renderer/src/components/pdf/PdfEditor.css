@@ -732,3 +732,16 @@
   width: 1px;
   background: rgba(27, 158, 119, 0.45);
 }
+/* magnetic snap guides (Shift) — brighter, only span the two aligned objects */
+.pdfed__snap {
+  position: absolute;
+  pointer-events: none;
+  z-index: 6;
+  background: #e5484d;
+}
+.pdfed__snap.is-v {
+  width: 1px;
+}
+.pdfed__snap.is-h {
+  height: 1px;
+}

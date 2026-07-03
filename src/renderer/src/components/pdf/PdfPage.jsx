@@ -525,13 +525,15 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     window.addEventListener('mouseup', up)
   }
 
-  // double-click on a text object → edit its whole block in the rich editor (original styles)
+  // double-click on a text object → rich-edit it. The cursor mode decides the SCOPE, same as
+  // selection: 'block' cursor edits the whole block, 'single' edits just the clicked line
   const onDblClick = (e) => {
     if (textEdit || insertMode || pipette) return
     const [x, y] = toPt(e, e.currentTarget)
     const hit = hitTest(objects, x, y)
     if (!hit || hit.type !== 'text') return
     e.preventDefault(); e.stopPropagation()
+    if (selMode !== 'block') { onEditText?.(pageIndex, [hit]); return }
     const b = String(hit.id).split('.')[0]
     const grp = objects.filter((o) => o.type === 'text' && String(o.id).split('.')[0] === b)
     onEditText?.(pageIndex, grp.length ? grp : [hit])

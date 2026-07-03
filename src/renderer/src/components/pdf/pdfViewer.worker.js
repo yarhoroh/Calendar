@@ -1978,25 +1978,34 @@ function copyObjectsImpl(pageIndex, items, dx, dy) {
 function deleteObjectsImpl(pageIndex, items, textOnly = false) {
   const textLeftovers = blankTextShows(pageIndex, items)
   // variables re-apply blanks a chain whose extra pieces were ALREADY blanked on a prior edit — those
-  // "leftovers" must be dropped silently, never redacted (redaction would paint boxes over the page)
+  // "leftovers" must be dropped silently (a rewrite would paint boxes over the page)
   if (textOnly) return
-  const page = doc.loadPage(pageIndex)
-  try {
-    const groups = { text: [], image: [], vector: [] }
-    for (const it of textLeftovers) groups.text.push(it.bbox)
-    for (const it of items || []) if (it.type !== 'text' && groups[it.type]) groups[it.type].push(it.bbox)
-    const apply = (boxes, imageMethod, lineArtMethod, textMethod, pad) => {
-      if (!boxes.length) return
-      for (const b of boxes) {
-        const a = page.createAnnotation('Redact')
-        a.setRect([b.x - pad, b.y - pad, b.x + b.w + pad, b.y + b.h + pad])
-      }
-      page.applyRedactions(false, imageMethod, lineArtMethod, textMethod)
+  if (textLeftovers.length) console.warn(`[pdf worker] delete: ${textLeftovers.length} text item(s) had no matching show — skipped`)
+  // vectors/images are CUT OUT of the stream surgically. The old redaction path made mupdf REWRITE
+  // the whole page content — every %EFL/%EFR/%EFGS marker of OTHER objects got stripped (deleting
+  // an arrow broke the neighbouring line's frame). The unit's state leak (colour/cm) is re-emitted
+  // so followers keep painting exactly as before.
+  const rest = (items || []).filter((it) => it.type !== 'text')
+  if (!rest.length) return
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const jobs = new Set()
+  for (const it of rest) { const u = matchUnit(units, it); if (u) jobs.add(u) }
+  const byStream = {}
+  for (const u of jobs) (byStream[u.stream] = byStream[u.stream] || []).push(u)
+  for (const sk of Object.keys(byStream)) {
+    const s = Number(sk)
+    let cs = readStream(pageObj, s)
+    for (const u of byStream[sk].sort((a, b) => b.start - a.start)) { // right-to-left keeps offsets valid
+      const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+      const net = segNetState(cs.slice(u.start, segEnd))
+      const tail = (net.ops ? net.ops + '\n' : '') + (net.cm ? `${net.cm.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+      cs = cs.slice(0, u.start) + '\n' + tail + cs.slice(segEnd)
     }
-    apply(groups.text, 0, 0, 0, 0) // IMAGE_NONE, LINE_ART_NONE, TEXT_REMOVE — exact bbox (don't graze neighbours)
-    apply(groups.image, 1, 0, 1, 0.2) // IMAGE_REMOVE, LINE_ART_NONE, TEXT_NONE
-    apply(groups.vector, 0, 1, 1, 0.2) // IMAGE_NONE, LINE_ART_REMOVE_IF_COVERED, TEXT_NONE
-  } finally { page.destroy() }
+    writeStream(pageObj, s, cs)
+  }
 }
 
 // Test hooks: the SAME functions the worker runs are importable in Node — no copies, one source of

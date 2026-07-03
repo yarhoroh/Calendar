@@ -1216,7 +1216,10 @@ export default function PdfEditor({ source, path }) {
         let t = esc(raw)
         if (f.bold) t = `<strong>${t}</strong>`
         if (f.italic) t = `<em>${t}</em>`
-        return `<span style="font-family: ${cssFontFor(f.name || 'Arial')}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
+        // cssFontFor returns double-QUOTED families — inside a double-quoted style attribute they
+        // terminated it, the browser dropped the whole style and every span lost its font/size/colour
+        const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
+        return `<span style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
       }).join('') + '</p>'
       sigLines.push(segs.map((s) => `${s.text}⎮${s.style}`).join('‖'))
       return p

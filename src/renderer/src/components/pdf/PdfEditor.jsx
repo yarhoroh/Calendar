@@ -1037,23 +1037,28 @@ export default function PdfEditor({ source, path }) {
     const key = String(family || '').toLowerCase()
     if (!key || covRef.current.has(key)) return
     covRef.current.set(key, 'loading')
-    const done = (ab) => { covRef.current.set(key, ab ? fontCoverageOf(ab) : null); setCovNonce((n) => n + 1) }
+    // 'unavailable' = no real bytes (not installed / not on Google / not embedded) → can't be used
+    // at ALL → dropdown disables it; a coverage object = glyph set; null = bytes but no cmap
+    const done = (ab, unavail) => { covRef.current.set(key, unavail ? 'unavailable' : ab ? fontCoverageOf(ab) : null); setCovNonce((n) => n + 1) }
     if (bytes) { done(bytes); return }
-    Promise.resolve(api.fonts.file(family, {})).then((f) => done(f?.bytes || null)).catch(() => done(null))
+    Promise.resolve(api.fonts.file(family, {})).then((f) => done(f?.bytes || null, !f?.bytes)).catch(() => done(null, true))
   }
   // the text a font change would land on: the open editor's text, else the SELECTED text objects —
   // so the dropdown greys out incapable fonts both while editing AND on a plain page selection
   const coverageText = () => (textEdit ? editText : (selected?.objs || []).filter((o) => o.type === 'text').map((o) => o.text || '').join(''))
-  // can this family render that text? unknown coverage → optimistic (true), and a load is kicked off
-  const fontCanRender = (family, bytes) => {
-    const txt = coverageText()
-    if (!txt.trim()) return true
+  // font state for the dropdown: 'ok' | 'unavailable' (no embeddable bytes) | 'nocover' (missing
+  // glyphs for the current text). unknown → kick a load, treat as ok until it arrives
+  const fontState = (family, bytes) => {
     const key = String(family || '').toLowerCase()
     const c = covRef.current.get(key)
-    if (c === undefined) { ensureCoverage(family, bytes); return true }
-    if (c === 'loading') return true
-    return fontCovers(c, txt)
+    if (c === undefined) { ensureCoverage(family, bytes); return 'ok' }
+    if (c === 'unavailable') return 'unavailable'
+    if (c === 'loading') return 'ok'
+    const txt = coverageText()
+    if (!txt.trim()) return 'ok'
+    return fontCovers(c, txt) ? 'ok' : 'nocover'
   }
+  const fontCanRender = (family, bytes) => fontState(family, bytes) === 'ok'
 
   // remember EXACTLY what font the user last picked, so the dropdown keeps showing THAT — not the
   // weight-specific PS name the run reads back as. Picked "Arial" stays "Arial"; picked
@@ -1789,12 +1794,13 @@ export default function PdfEditor({ source, path }) {
           {docFonts.length > 0 && (
             <optgroup label="PDF">
               {docFonts.map((f) => {
-                // a font that CAN'T render the current text is disabled — the user must pick one that
-                // does (one font per run, no silent substitution). covNonce forces a re-eval on load.
-                const ok = covNonce >= 0 && fontCanRender(f.name, f.bytes)
+                // disabled when it can't be embedded at all OR lacks glyphs for the current text —
+                // no silent substitution, so a font you can't pick simply isn't selectable.
+                const st = covNonce >= 0 ? fontState(f.name, f.bytes) : 'ok'
+                const tag = st === 'unavailable' ? ' — недоступен' : st === 'nocover' ? ' — нет символов' : ''
                 return (
-                  <option key={f.name} value={f.name} disabled={!ok} style={ok ? undefined : { color: '#c8c8cc', background: '#f2f2f4' }}>
-                    {(ok ? '' : '⊘ ') + f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + (ok ? '' : ' — нет символов')}
+                  <option key={f.name} value={f.name} disabled={st !== 'ok'} style={st === 'ok' ? undefined : { color: '#c8c8cc', background: '#f2f2f4' }}>
+                    {(st === 'ok' ? '' : '⊘ ') + f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + tag}
                   </option>
                 )
               })}

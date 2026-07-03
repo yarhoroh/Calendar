@@ -1137,9 +1137,10 @@ function resizeObject(pageIndex, item, nb, rotSpec) {
   const seg = balanceSeg(cs.slice(u.start, segEnd))
   // leading/trailing newlines are ESSENTIAL: units start flush against the previous operator, and
   // "…W n" + "q…" would fuse into the invalid token "nq" (breaks the whole page)
-  // preserve the segment's net cm leak for the content painted after it (see segNetCm)
-  const net = segNetCm(cs.slice(u.start, segEnd))
-  const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + (net ? `${net.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+  // preserve the segment's net state leak (cm + colour/width/gs) for the content painted after it
+  const net = segNetState(cs.slice(u.start, segEnd))
+  const tail = (net.ops ? net.ops + '\n' : '') + (net.cm ? `${net.cm.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+  const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + tail
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end))
 }
 
@@ -1148,18 +1149,36 @@ function resizeObject(pageIndex, item, nb, rotSpec) {
 // pairs instead of q/Q — the unit holds the forward cm, the inverse lies BEYOND it, so wrapping the
 // unit in q…Q erases a translation the followers rely on (they teleport). The wrapper must re-emit
 // this net cm after its closing Q. A previously-wrapped (balanced) segment nets to identity.
-function segNetCm(segRaw) {
-  let net = [1, 0, 0, 1, 0, 0]; const stk = []; const num = []
+function segNetState(segRaw) {
+  let net = [1, 0, 0, 1, 0, 0]; const stk = []; const num = []; let pend = null
+  const state = new Map() // category → op string; the LAST setter at base depth leaks to followers
   for (const mt of mask(segRaw).matchAll(TOKENS)) {
     const t = mt[0]
     if (isNum(t)) { num.push(t); continue }
+    if (t[0] === '/') { pend = t.slice(1); continue }
     if (t === 'q') stk.push(net.slice())
     else if (t === 'Q') { if (stk.length) net = stk.pop() }
     else if (t === 'cm') { const m = num.slice(-6).map(Number); if (m.length === 6) net = matMul(m, net) }
+    else if (!stk.length) {
+      // colour/width/gs set at the segment's base depth is INHERITED by later units (some
+      // generators set it once in the leader) — wrapping in q…Q localised it and the followers
+      // repainted in a stale colour. Re-emit the leaked state after the wrap's Q.
+      if (t === 'rg') state.set('fill', num.slice(-3).join(' ') + ' rg')
+      else if (t === 'g') state.set('fill', num.slice(-1) + ' g')
+      else if (t === 'k') state.set('fill', num.slice(-4).join(' ') + ' k')
+      else if (t === 'RG') state.set('stroke', num.slice(-3).join(' ') + ' RG')
+      else if (t === 'G') state.set('stroke', num.slice(-1) + ' G')
+      else if (t === 'K') state.set('stroke', num.slice(-4).join(' ') + ' K')
+      else if (t === 'w') state.set('w', num.slice(-1) + ' w')
+      else if (t === 'gs' && pend) state.set('gs', '/' + pend + ' gs')
+    }
     num.length = 0
   }
   const id = [1, 0, 0, 1, 0, 0]
-  return net.some((v, i) => Math.abs(v - id[i]) > 1e-6) ? net : null
+  return {
+    cm: net.some((v, i) => Math.abs(v - id[i]) > 1e-6) ? net : null,
+    ops: [...state.values()].join(' ')
+  }
 }
 
 // Rotate objects around a pivot (device pt, top-left): each matched unit is wrapped in a conjugated
@@ -1198,9 +1217,10 @@ function rotateObjectsImpl(pageIndex, items, angle, cx, cy) {
         const p1 = rotDev(+x1, +y1), p2 = rotDev(+x2, +y2)
         return `%EFL ${head} ${n2(p1[0])} ${n2(p1[1])} ${n2(p2[0])} ${n2(p2[1])}`
       })
-      // preserve the segment's net cm leak for the content after it (see segNetCm)
-      const net = segNetCm(cs.slice(u.start, segEnd))
-      const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + (net ? `${net.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+      // preserve the segment's net state leak (cm + colour/width/gs) for the content after it
+      const net = segNetState(cs.slice(u.start, segEnd))
+      const tail = (net.ops ? net.ops + '\n' : '') + (net.cm ? `${net.cm.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+      const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n' + tail
       cs = cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end)
     }
     writeStream(pageObj, s, cs)

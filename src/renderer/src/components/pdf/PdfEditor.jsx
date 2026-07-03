@@ -207,7 +207,7 @@ export default function PdfEditor({ source, path }) {
   const [strokeW, setStrokeW] = useState(1) // shape stroke width, pt
   const [cornerR, setCornerR] = useState(0) // rect corner radius, pt
   const [dashSel, setDashSel] = useState('solid') // line type for inserted shapes
-  const [showAll, setShowAll] = useState(false) // faint grey frames around EVERY (non-empty) element
+  const [showAll, setShowAll] = useState(() => localStorage.getItem('pdfedShowAll') === '1') // faint grey frames around EVERY (non-empty) element; persists across restarts
   const [liveGeo, setLiveGeo] = useState(null) // geometry readout while dragging/resizing (from PdfPage)
   const [showInfo, setShowInfo] = useState(false) // the quick-guide overlay
   // ---- variables (PDF templating): named groups of identical text; editing the value updates every occurrence ----
@@ -1467,7 +1467,7 @@ export default function PdfEditor({ source, path }) {
         <button className="pdfed__btn" onClick={() => setShowInfo(true)} title={t('pdfed.info')}><InfoIcon /></button>
         <span className="pdfed__spacer" />
         <label className="pdfed__check" title="Outline every element on the page (faint grey), so you can see where everything is">
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+          <input type="checkbox" checked={showAll} onChange={(e) => { setShowAll(e.target.checked); localStorage.setItem('pdfedShowAll', e.target.checked ? '1' : '0') }} />
           All
         </label>
         <span className="pdfed__status">{status === 'loading' ? '…' : `${pageCount} p.`}</span>

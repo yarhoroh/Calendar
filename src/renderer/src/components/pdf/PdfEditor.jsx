@@ -511,8 +511,55 @@ export default function PdfEditor({ source, path }) {
 
   // drag → shift the objects' coordinates inside the PDF stream, then re-render. The objects arrive
   // as an argument (not from state) so press-and-drag works in ONE gesture, before the state lands.
+  // does this text run share its baseline with another run of the SAME block? (then a plain stream
+  // move would drag the whole line — "June" would pull "TES developing" along)
+  const sharesLine = (pageIndex, o) => {
+    const pg = model.find((p) => p.pageIndex === pageIndex)
+    if (!pg || o.type !== 'text') return false
+    const blk = (o.id || '').split('.')[0]
+    return pg.runs.some((r) => r.id !== o.id && Math.abs(r.y - o.y) < 3 && (r.id || '').split('.')[0] === blk)
+  }
+
+  // detach ONE text object off its shared line and drop it at the new spot: blank only its own show
+  // (by x/baseline anchor — neighbours untouched) and re-insert the same text with its OWN embedded
+  // font at x+dx / baseline+dy. Uses the proven replaceText path (no fragile Td surgery).
+  const detachMoveText = async (pageIndex, o, dx, dy) => {
+    const pg = model.find((p) => p.pageIndex === pageIndex)
+    if (!pg) return false
+    const cur = pg.fonts?.[o.f] || {}
+    const family = cur.name || 'Arial', bold = !!cur.bold, italic = !!cur.italic
+    const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
+    const fonts = {}
+    const src = await fontSourceFor(family, bold, italic) // the run's own font — exact, no reflow
+    if (src) fonts[k] = src
+    const gaps = Math.max(1, (o.text || '').length - 1)
+    await engineRef.current.replaceText(
+      pageIndex,
+      [{ type: 'text', bbox: o.bbox, x: o.x, y: o.y }], // blank ONLY this run's show
+      { lines: [[{ text: o.text, size: o.size, color: pg.colors?.[o.c] || '#000000', fontKey: k, x: o.x + dx, baseline: o.y + dy, ls: undefined, fitW: o.bbox.w }]] },
+      fonts,
+      await getFallback(),
+      true // textOnly: blank the show, don't redact
+    )
+    return true
+  }
+
   const moveSelected = async (pageIndex, objs, dx, dy) => {
-    if (!objs?.length) return
+    if (!objs?.length || busyRef.current) return
+    // a single text object sitting on a shared line → detach it instead of moving the whole line
+    if (objs.length === 1 && objs[0].type === 'text' && sharesLine(pageIndex, objs[0])) {
+      busyRef.current = true
+      try {
+        const pg = model.find((p) => p.pageIndex === pageIndex)
+        const before = new Set(allOf(pg).map(sigOf))
+        await detachMoveText(pageIndex, objs[0], dx, dy)
+        const m = await refreshPage(pageIndex)
+        const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
+        console.log(`[pdf][move] detached "${objs[0].text}" d=(${dx.toFixed(1)},${dy.toFixed(1)})`)
+        onSelect(pageIndex, changed)
+      } catch (err) { console.error('[pdf] detach-move failed:', err) } finally { busyRef.current = false }
+      return
+    }
     const items = objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, dx, dy })) // x/y = exact text anchor
     try {
       await engineRef.current.moveObjects(pageIndex, items)

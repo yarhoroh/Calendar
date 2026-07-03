@@ -375,8 +375,7 @@ export default function PdfEditor({ source, path }) {
       // (and it IS a doc-font name here, so the old doc-font guard wrongly kept it). If the base
       // family is a real dropdown option (system / similar) → show it + the B button; that matches
       // what the user picked ("Arial") and is stable across re-selects
-      const base = baseFamily(f.name)
-      const shown = sysFonts.includes(base) || docFonts.some((d) => d.match === base) ? base : f.name
+      const shown = displayFontName(f.name)
       console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" → shown "${shown}" (b=${!!f.bold} i=${!!f.italic})`)
       setFontSel(shown); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
     }
@@ -1054,6 +1053,16 @@ export default function PdfEditor({ source, path }) {
     return fontCovers(c, txt)
   }
 
+  // remember EXACTLY what font the user last picked, so the dropdown keeps showing THAT — not the
+  // weight-specific PS name the run reads back as. Picked "Arial" stays "Arial"; picked
+  // "Arial-BoldMT" stays "Arial-BoldMT". Only collapse to the pick when the family matches (same
+  // font, different weight); otherwise show the real readback name.
+  const pickedFontRef = useRef(null)
+  const displayFontName = (name) => {
+    const p = pickedFontRef.current
+    return p && baseFamily(p) === baseFamily(name) ? p : name
+  }
+
   const cssFontFor = (family) => {
     const df = docFonts.find((f) => f.name === family)
     // second family = what ACTUALLY substitutes (subst — the same face the commit chain resolves),
@@ -1068,7 +1077,7 @@ export default function PdfEditor({ source, path }) {
   const deferMutation = (fn) => { clearTimeout(deferRef.current); deferRef.current = setTimeout(fn, 450) }
 
   // toolbar controls: an open rich-editor gets the command; otherwise the page selection is restyled
-  const pickFont = (family) => { setFontSel(family); if (textEdit) rteRef.current?.exec('fontName', cssFontFor(family)); else restyleSelected({ family }) }
+  const pickFont = (family) => { pickedFontRef.current = family; setFontSel(family); if (textEdit) rteRef.current?.exec('fontName', cssFontFor(family)); else restyleSelected({ family }) }
   const pickColor = (hex) => { setColorSel(hex); if (textEdit) rteRef.current?.exec('foreColor', hex); else restyleSelected({ color: hex }) }
   const pickSize = (v) => { const s = Math.max(4, Math.min(200, v || 12)); setFontSize(s); if (textEdit) rteRef.current?.exec('size', s); else deferMutation(() => restyleSelected({ size: s })) }
   const allBold = () => { const pg = model.find((p) => p.pageIndex === selected?.page); return !!pg && selected.objs.filter((o) => o.type === 'text').every((o) => pg.fonts?.[o.f]?.bold) }
@@ -1320,7 +1329,7 @@ export default function PdfEditor({ source, path }) {
     const mf = pg.fonts?.[master.f] || {}
     // the toolbar mirrors the edited block's master style — INCLUDING LS: a sticky toolbar value
     // from an earlier selection used to leak into the container and re-space the whole block
-    setFontSel(mf.name || 'Arial'); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
+    setFontSel(displayFontName(mf.name || 'Arial')); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
     setBoldSel(!!mf.bold); setItalicSel(!!mf.italic); setLetterS(master.ls || 0)
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1787,10 +1796,11 @@ export default function PdfEditor({ source, path }) {
               })}
             </optgroup>
           )}
-          {docFonts.some((f) => f.match) && (
-            /* system lookalikes of the document's fonts — full faces, safe for typing NEW text */
+          {/* Similar = substitutes that AREN'T plain system fonts (a Google clone etc.); the common
+              ones (Arial/Times/Courier) live once in System with a clean label — no value dupes */}
+          {docFonts.some((f) => f.match && !sysFonts.includes(f.match)) && (
             <optgroup label="Similar (≈ PDF)">
-              {[...new Map(docFonts.filter((f) => f.match).map((f) => [f.match, f])).entries()].map(([m, f]) => {
+              {[...new Map(docFonts.filter((f) => f.match && !sysFonts.includes(f.match)).map((f) => [f.match, f])).entries()].map(([m, f]) => {
                 const ok = covNonce >= 0 && fontCanRender(m)
                 return <option key={'sim:' + m} value={m} disabled={!ok} style={ok ? { fontFamily: m } : { color: '#c8c8cc', background: '#f2f2f4' }}>{(ok ? '' : '⊘ ') + `${m} ≈ ${f.name}` + (ok ? '' : ' — нет символов')}</option>
               })}

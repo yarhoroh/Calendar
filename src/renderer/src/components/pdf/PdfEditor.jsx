@@ -370,7 +370,11 @@ export default function PdfEditor({ source, path }) {
     const rep = (selected?.objs || []).filter((o) => o.type === 'text').sort((a, b) => a.y - b.y || a.x - b.x)[0]
     if (!rep) return
     const f = selPg.fonts?.[rep.f]
-    if (f) { setFontSel(f.name); setBoldSel(!!f.bold); setItalicSel(!!f.italic) }
+    if (f) {
+      const inList = docFonts.some((d) => d.name === f.name) || sysFonts.includes(f.name)
+      console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" (b=${!!f.bold} i=${!!f.italic}); in dropdown list: ${inList}`)
+      setFontSel(f.name); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
+    }
     if (rep.c !== undefined && selPg.colors?.[rep.c]) setColorSel(selPg.colors[rep.c])
     if (rep.size) setFontSize(rep.size)
     setLetterS(rep.ls || 0) // the run's ORIGINAL Tc from the stream (e.g. -1.1)
@@ -710,6 +714,11 @@ export default function PdfEditor({ source, path }) {
     return s.trim() || String(n)
   }
   const fontSourceFor = async (family, bold, italic, forNewText = false) => {
+    const src = await fontSourceForImpl(family, bold, italic, forNewText)
+    console.log(`[pdf][font] resolve "${family}" b=${!!bold} i=${!!italic} newText=${forNewText} → ${src ? (src.pdf ? 'embedded {pdf:' + src.pdf + '}' : 'file «' + src.family + '»') : 'NULL'}`)
+    return src
+  }
+  const fontSourceForImpl = async (family, bold, italic, forNewText = false) => {
     const df = docFonts.find((f) => f.name === family)
     // own bytes only for TrueType document fonts (Type1/CFF mis-encode through our CID insert),
     // and — for NEW text — only full (non-subset) faces. The requested style must match the style

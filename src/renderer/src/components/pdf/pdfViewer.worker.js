@@ -1075,40 +1075,45 @@ function getFontsInfo() {
 
 // raw font-file bytes of a document font (FontFile/2/3) by clean name — used to insert/restyle text
 // with the PDF's OWN font, so it looks exactly like the rest of the document
-function docFontBytes(name) {
+function docFontBytes(name, coverText) {
   const n = String(name).toLowerCase().replace(/[^a-z0-9]/g, '')
   let count = 0
   try { count = doc.countObjects() } catch { return null }
+  // COLLISION: several fonts can share a clean name — the invoice's own "ABCDEF+Arial-BoldMT" AND
+  // our inserted Arial-Bold (mupdf re-subsets it on embed → "XYZ...+Arial-BoldMT" too). A restyle/
+  // LS that grabbed the WRONG subset couldn't encode the run's chars → FONT_MISS "auto-substitution".
+  // Collect every same-named TrueType face, then pick the one that COVERS the run's text.
+  const cands = [] // { raw, isSubset }
   for (let i = 1; i < count; i++) {
     let o; try { o = doc.newIndirect(i).resolve() } catch { continue }
     if (!o || !o.isDictionary || !o.isDictionary()) continue
     let ty; try { ty = o.get('Type') } catch { continue }
     if (!ty || ty.isNull() || ty.asName() !== 'Font') continue
     const bf = o.get('BaseFont')
-    const nm = cleanName(bf.isNull() ? '' : bf.asName()).toLowerCase().replace(/[^a-z0-9]/g, '')
-    if (nm !== n) continue
+    const rawName = bf.isNull() ? '' : bf.asName()
+    if (cleanName(rawName).toLowerCase().replace(/[^a-z0-9]/g, '') !== n) continue
     let d = o.get('FontDescriptor')
     if (d.isNull()) { const df = o.get('DescendantFonts'); if (df.isArray() && df.length) d = df.get(0).resolve().get('FontDescriptor') }
     if (!d || d.isNull()) continue
-    // TrueType ONLY: Type1/CFF bytes fed into a new CID font mis-encode every glyph ("ÜÜÜÜ…")
-    const ff = d.get('FontFile2')
-    if (!ff.isNull()) {
-      try {
-        const raw = ff.readStream().asUint8Array()
-        if (sfntHasCmap(raw)) return raw
-        // no cmap (CID subset): synthesize one from the PDF's ToUnicode so this font both loads
-        // in the browser and ENCODES for inserts (restyle to it used to fall back to Arial)
-        let rep = fontRepairCache.get(name)
-        if (rep === undefined) {
-          const pairs = uniGidPairs(o, name)
-          rep = pairs ? repairSfnt(raw, pairs, name) : null
-          fontRepairCache.set(name, rep)
-        }
-        return rep || raw
-      } catch (_) {}
-    }
+    const ff = d.get('FontFile2') // TrueType ONLY: Type1/CFF mis-encode through our CID insert
+    if (ff.isNull()) continue
+    try {
+      let raw = ff.readStream().asUint8Array()
+      if (!sfntHasCmap(raw)) {
+        // cmap-less CID subset → synthesize one from the PDF's ToUnicode (loadable + encodable)
+        let rep = fontRepairCache.get(rawName)
+        if (rep === undefined) { const pairs = uniGidPairs(o, name); rep = pairs ? repairSfnt(raw, pairs, name) : null; fontRepairCache.set(rawName, rep) }
+        raw = rep || raw
+      }
+      cands.push({ raw, isSubset: /^[A-Z]{6}\+/.test(rawName) })
+    } catch (_) {}
   }
-  return null
+  if (!cands.length) return null
+  if (coverText) {
+    const covering = cands.find((c) => { const m = missingChars(c.raw, name, coverText); return m && m.length === 0 })
+    if (covering) return covering.raw
+  }
+  return (cands.find((c) => !c.isSubset) || cands[0]).raw // prefer a full face, else any
 }
 
 // ---- inserting NEW text ------------------------------------------------------------------------
@@ -1282,7 +1287,7 @@ function prepareInsFonts(pageIndex, fonts, fallback, samples) {
   for (const k of Object.keys(fonts || {})) {
     const f = fonts[k]
     const sample = samples[k] || 'Ag1'
-    const bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf) : null)
+    const bytes = f.bytes || (f.pdf ? docFontBytes(f.pdf, sample) : null) // pick the same-named subset that COVERS this text
     const family = f.family || f.pdf || k
     const miss = missingChars(bytes, family, sample)
     if (miss === null) throw new Error(`FONT_UNUSABLE|${family}`)

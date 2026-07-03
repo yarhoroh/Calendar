@@ -990,12 +990,13 @@ export default function PdfEditor({ source, path }) {
     const f = pg?.fonts?.[o.f]
     if (!f) return
     const color = pg.colors?.[o.c] || '#000000'
-    setFontSel(f.name); setFontSize(o.size); setColorSel(color); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
-    console.log('[pdf][pipette]', f.name, o.size, color, f.bold ? 'bold' : '', f.italic ? 'italic' : '')
+    const ls = o.ls || 0 // letter spacing (Tc) of the picked object — must travel with the style
+    setFontSel(f.name); setFontSize(o.size); setColorSel(color); setBoldSel(!!f.bold); setItalicSel(!!f.italic); setLetterS(ls)
+    console.log('[pdf][pipette]', f.name, o.size, color, f.bold ? 'bold' : '', f.italic ? 'italic' : '', 'ls=' + ls)
     if (textEdit) {
       rteRef.current?.exec('applyStyle', { family: cssFontFor(f.name), sizePx: o.size, color, bold: !!f.bold, italic: !!f.italic })
     } else if (selected) {
-      restyleSelected({ family: f.name, size: o.size, color, bold: !!f.bold, italic: !!f.italic })
+      restyleSelected({ family: f.name, size: o.size, color, bold: !!f.bold, italic: !!f.italic, ls })
     }
   }
 

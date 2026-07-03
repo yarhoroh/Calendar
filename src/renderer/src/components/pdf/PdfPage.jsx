@@ -549,14 +549,20 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           const gy = fr0 ? fr0.y + fr0.u.y * (fr0.w + pad) + fr0.d.y * (fr0.h + pad) : union.y + union.h + pad
           return (
             <>
-              {rotDrag && (
-                <div
-                  className="pdfed__frame pdfed__frame--rot"
-                  style={fr0
-                    ? { left: fr0.x * scale, top: fr0.y * scale, width: fr0.w * scale, height: fr0.h * scale, transform: `rotate(${fr0.ang + rotDrag.angle}deg)`, transformOrigin: `${((c.x - fr0.x) * fr0.u.x + (c.y - fr0.y) * fr0.u.y) * scale}px ${((c.x - fr0.x) * fr0.d.x + (c.y - fr0.y) * fr0.d.y) * scale}px` }
-                    : { ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }}
-                />
-              )}
+              {rotDrag && (() => {
+                if (!fr0) {
+                  // unrotated base: spinning the div about the pivot point IS the desired transform
+                  return <div className="pdfed__frame pdfed__frame--rot" style={{ ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }} />
+                }
+                // rotated base: the preview = R_pivot(delta) ∘ R_topLeft(base). Composed: the top-left
+                // ORBITS the pivot by delta, and the frame turns by base+delta about it — one origin
+                // switch was wrong (the frame jumped by exactly the pivot offset at drag start)
+                const rad = rotDrag.angle * Math.PI / 180
+                const cd = Math.cos(rad), sd = Math.sin(rad)
+                const tx = c.x + cd * (fr0.x - c.x) - sd * (fr0.y - c.y)
+                const ty = c.y + sd * (fr0.x - c.x) + cd * (fr0.y - c.y)
+                return <div className="pdfed__frame pdfed__frame--rot" style={{ left: tx * scale, top: ty * scale, width: fr0.w * scale, height: fr0.h * scale, transform: `rotate(${fr0.ang + rotDrag.angle}deg)`, transformOrigin: '0 0' }} />
+              })()}
               {rotDrag && sprite && (
                 <img
                   className="pdfed__ghost"

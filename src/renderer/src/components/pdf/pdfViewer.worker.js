@@ -868,6 +868,158 @@ function fontMetricsFor(name) {
   return mm
 }
 
+// ---- font REPAIR: an embedded subset often ships WITHOUT a cmap (the PDF encodes text through
+// CID maps, the raw font never needs one) — the browser rejects such a face AND our inserter can't
+// encode characters with it. The PDF's own /ToUnicode CMap knows cid→unicode; inverted (+CIDToGIDMap)
+// it yields unicode→glyph — enough to synthesize a cmap (format 12) and rebuild the sfnt with
+// minimal OS/2/name/post stubs. The repaired face loads in the browser and encodes for inserts.
+const fontRepairCache = new Map() // clean name → repaired Uint8Array | null
+
+function parseToUnicode(fontObj) {
+  try {
+    const tu = fontObj.get('ToUnicode')
+    if (tu.isNull()) return null
+    const txt = dec(tu.readStream().asUint8Array())
+    const map = new Map() // cid → unicode (first UTF-16 unit)
+    for (const m of txt.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+      for (const pm of m[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+        const cp = parseInt(pm[2].slice(0, 4), 16)
+        if (cp) map.set(parseInt(pm[1], 16), cp)
+      }
+    }
+    for (const m of txt.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+      const re = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]+)>|\[([^\]]*)\])/g
+      let mm
+      while ((mm = re.exec(m[1]))) {
+        const lo = parseInt(mm[1], 16), hi = parseInt(mm[2], 16)
+        if (mm[3]) { const base = parseInt(mm[3].slice(0, 4), 16); for (let c = lo; c <= hi && c - lo < 65536; c++) map.set(c, base + (c - lo)) }
+        else if (mm[4]) [...mm[4].matchAll(/<([0-9A-Fa-f]+)>/g)].forEach((it, i2) => { if (lo + i2 <= hi) map.set(lo + i2, parseInt(it[1].slice(0, 4), 16)) })
+      }
+    }
+    return map.size ? map : null
+  } catch { return null }
+}
+
+// rebuild the sfnt with a synthesized cmap (+ OS/2 / name / post stubs when absent)
+function repairSfnt(buf, pairs, family) {
+  try {
+    const src = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    const num = src.getUint16(4)
+    const tables = []
+    for (let i = 0; i < num; i++) {
+      const r = 12 + i * 16
+      tables.push({ tag: String.fromCharCode(buf[r], buf[r + 1], buf[r + 2], buf[r + 3]), off: src.getUint32(r + 8), len: src.getUint32(r + 12) })
+    }
+    const get = (t) => tables.find((x) => x.tag === t)
+    if (get('cmap') || !get('glyf') || !get('head') || !get('hhea') || !get('maxp') || !get('hmtx')) return null
+    // cmap format 12: sequential groups over the sorted unicode→gid pairs
+    pairs.sort((a, b) => a[0] - b[0])
+    const groups = []
+    for (const [cp, gid] of pairs) {
+      const g = groups[groups.length - 1]
+      if (g && cp === g.ec + 1 && gid === g.sg + (g.ec - g.sc) + 1) g.ec = cp
+      else groups.push({ sc: cp, ec: cp, sg: gid })
+    }
+    if (!groups.length) return null
+    const cmap = new Uint8Array(12 + 16 + groups.length * 12)
+    const cv = new DataView(cmap.buffer)
+    cv.setUint16(0, 0); cv.setUint16(2, 1); cv.setUint16(4, 3); cv.setUint16(6, 10); cv.setUint32(8, 12) // one (3,10) record
+    cv.setUint16(12, 12); cv.setUint32(16, 16 + groups.length * 12); cv.setUint32(24, groups.length)
+    groups.forEach((g, i) => { cv.setUint32(28 + i * 12, g.sc); cv.setUint32(32 + i * 12, g.ec); cv.setUint32(36 + i * 12, g.sg) })
+    const add = [{ tag: 'cmap', data: cmap }]
+    const hhea = get('hhea')
+    const asc = src.getInt16(hhea.off + 4), desc2 = src.getInt16(hhea.off + 6)
+    if (!get('OS/2')) {
+      const os2 = new Uint8Array(86); const v = new DataView(os2.buffer)
+      v.setUint16(0, 1); v.setInt16(2, 500); v.setUint16(4, 400); v.setUint16(6, 5)
+      v.setUint32(42, 1) // ulUnicodeRange1: basic latin — enough for OTS
+      os2.set([0x45, 0x46, 0x45, 0x46], 58) // achVendID 'EFEF'
+      v.setUint16(62, 0x40) // fsSelection REGULAR
+      v.setUint16(64, Math.max(0x20, Math.min(0xffff, groups[0].sc)))
+      v.setUint16(66, Math.min(0xffff, groups[groups.length - 1].ec))
+      v.setInt16(68, asc); v.setInt16(70, desc2); v.setInt16(72, 0)
+      v.setUint16(74, asc); v.setUint16(76, Math.abs(desc2))
+      add.push({ tag: 'OS/2', data: os2 })
+    }
+    if (!get('post')) {
+      const post = new Uint8Array(32); const v = new DataView(post.buffer)
+      v.setUint32(0, 0x00030000); v.setInt16(8, -100); v.setInt16(10, 50)
+      add.push({ tag: 'post', data: post })
+    }
+    if (!get('name')) {
+      const s = String(family || 'Repaired')
+      const str = new Uint8Array(s.length * 2)
+      for (let i = 0; i < s.length; i++) { str[i * 2] = s.charCodeAt(i) >> 8; str[i * 2 + 1] = s.charCodeAt(i) & 255 }
+      const ids = [1, 4, 6]
+      const name = new Uint8Array(6 + ids.length * 12 + str.length); const v = new DataView(name.buffer)
+      v.setUint16(2, ids.length); v.setUint16(4, 6 + ids.length * 12)
+      ids.forEach((id, i) => { const r = 6 + i * 12; v.setUint16(r, 3); v.setUint16(r + 2, 1); v.setUint16(r + 4, 0x409); v.setUint16(r + 6, id); v.setUint16(r + 8, str.length); v.setUint16(r + 10, 0) })
+      name.set(str, 6 + ids.length * 12)
+      add.push({ tag: 'name', data: name })
+    }
+    const all = tables.map((t) => ({ tag: t.tag, data: buf.subarray(t.off, t.off + t.len) })).concat(add)
+    all.sort((a, b) => (a.tag < b.tag ? -1 : 1))
+    let off = 12 + all.length * 16
+    const offs = all.map((t) => { const o2 = off; off += (t.data.length + 3) & ~3; return o2 })
+    const out = new Uint8Array(off); const ov = new DataView(out.buffer)
+    ov.setUint32(0, 0x00010000); ov.setUint16(4, all.length)
+    const pow = Math.pow(2, Math.floor(Math.log2(all.length)))
+    ov.setUint16(6, pow * 16); ov.setUint16(8, Math.log2(pow)); ov.setUint16(10, all.length * 16 - pow * 16)
+    const csum = (arr, o2, l) => { let s = 0; for (let i = 0; i < l; i += 4) s = (s + ((((arr[o2 + i] || 0) << 24) | ((arr[o2 + i + 1] || 0) << 16) | ((arr[o2 + i + 2] || 0) << 8) | (arr[o2 + i + 3] || 0)) >>> 0)) >>> 0; return s }
+    all.forEach((t, i) => {
+      out.set(t.data, offs[i])
+      const r = 12 + i * 16
+      out[r] = t.tag.charCodeAt(0); out[r + 1] = t.tag.charCodeAt(1); out[r + 2] = t.tag.charCodeAt(2); out[r + 3] = t.tag.charCodeAt(3)
+      ov.setUint32(r + 4, csum(out, offs[i], (t.data.length + 3) & ~3))
+      ov.setUint32(r + 8, offs[i]); ov.setUint32(r + 12, t.data.length)
+    })
+    const hi = all.findIndex((t) => t.tag === 'head')
+    if (hi >= 0) {
+      ov.setUint32(offs[hi] + 8, 0)
+      ov.setUint32(offs[hi] + 8, (0xB1B0AFBA - csum(out, 0, out.length)) >>> 0)
+    }
+    return out
+  } catch { return null }
+}
+
+// unicode→gid pairs for a font dict: inverted ToUnicode through the CIDToGIDMap. The matched dict
+// is often the DESCENDANT CIDFont (it carries BaseFont + FontDescriptor too) while /ToUnicode sits
+// on the Type0 PARENT — hunt any same-named font dict that has one.
+function uniGidPairs(fontObj, cleanedName) {
+  let tu = parseToUnicode(fontObj)
+  if (!tu && cleanedName) {
+    try {
+      const count = doc.countObjects()
+      for (let i = 1; i < count && !tu; i++) {
+        let o; try { o = doc.newIndirect(i).resolve() } catch { continue }
+        if (!o || !o.isDictionary || !o.isDictionary()) continue
+        let ty; try { ty = o.get('Type') } catch { continue }
+        if (!ty || ty.isNull() || ty.asName() !== 'Font') continue
+        const bf = o.get('BaseFont')
+        if (bf.isNull() || cleanName(bf.asName()) !== cleanedName) continue
+        tu = parseToUnicode(o)
+      }
+    } catch (_) {}
+  }
+  if (!tu) return null
+  let c2g = null
+  try {
+    let m = fontObj.get('CIDToGIDMap') // the descendant itself
+    if (m.isNull()) {
+      const df = fontObj.get('DescendantFonts')
+      if (df.isArray() && df.length) m = df.get(0).resolve().get('CIDToGIDMap')
+    }
+    if (!m.isNull() && !(m.isName && m.isName() && m.asName() === 'Identity')) c2g = m.readStream().asUint8Array()
+  } catch (_) {}
+  const gidOf = (cid) => (c2g ? ((c2g[cid * 2] << 8) | c2g[cid * 2 + 1]) : cid)
+  const seen = new Set(); const pairs = []
+  for (const [cid, cp] of tu) {
+    const gid = gidOf(cid)
+    if (gid > 0 && cp > 0 && !seen.has(cp)) { seen.add(cp); pairs.push([cp, gid]) }
+  }
+  return pairs.length ? pairs : null
+}
+
 // TrueType face must carry a cmap or the browser's OTS rejects the FontFace
 function sfntHasCmap(buf) {
   try {
@@ -900,7 +1052,17 @@ function getFontsInfo() {
       const ff2 = d.get('FontFile2')
       tt = !ff2.isNull() // only TrueType bytes can be re-embedded for our CID inserts (Type1/CFF mis-encode)
       if (tt) {
-        try { const raw2 = ff2.readStream().asUint8Array(); if (sfntHasCmap(raw2)) bytes = new Uint8Array(raw2).buffer } catch (_) {}
+        try {
+          const raw2 = ff2.readStream().asUint8Array()
+          if (sfntHasCmap(raw2)) bytes = new Uint8Array(raw2).buffer
+          else {
+            // cmap-less CID subset → repaired face (synthesized cmap): the browser can load the
+            // REAL embedded font, so the editor shows true glyphs and true letter widths
+            let rep = fontRepairCache.get(name)
+            if (rep === undefined) { const pairs = uniGidPairs(o, name); rep = pairs ? repairSfnt(raw2, pairs, name) : null; fontRepairCache.set(name, rep) }
+            if (rep) bytes = new Uint8Array(rep).buffer
+          }
+        } catch (_) {}
       }
     }
     out.push({ name, embedded, subset: /^[A-Z]{6}\+/.test(raw), tt, bytes })
@@ -927,7 +1089,21 @@ function docFontBytes(name) {
     if (!d || d.isNull()) continue
     // TrueType ONLY: Type1/CFF bytes fed into a new CID font mis-encode every glyph ("ÜÜÜÜ…")
     const ff = d.get('FontFile2')
-    if (!ff.isNull()) { try { return ff.readStream().asUint8Array() } catch (_) {} }
+    if (!ff.isNull()) {
+      try {
+        const raw = ff.readStream().asUint8Array()
+        if (sfntHasCmap(raw)) return raw
+        // no cmap (CID subset): synthesize one from the PDF's ToUnicode so this font both loads
+        // in the browser and ENCODES for inserts (restyle to it used to fall back to Arial)
+        let rep = fontRepairCache.get(name)
+        if (rep === undefined) {
+          const pairs = uniGidPairs(o, name)
+          rep = pairs ? repairSfnt(raw, pairs, name) : null
+          fontRepairCache.set(name, rep)
+        }
+        return rep || raw
+      } catch (_) {}
+    }
   }
   return null
 }
@@ -1831,6 +2007,8 @@ export const __test = {
   collectUnits,
   moveObjectsImpl: (...a) => moveObjectsImpl(...a),
   rotateObjectsImpl: (...a) => rotateObjectsImpl(...a),
+  docFontBytes: (...a) => docFontBytes(...a),
+  getFontsInfo: (...a) => getFontsInfo(...a),
   copyObjectsImpl: (...a) => copyObjectsImpl(...a),
   deleteObjectsImpl: (...a) => deleteObjectsImpl(...a),
   insertShape: (...a) => insertShape(...a),

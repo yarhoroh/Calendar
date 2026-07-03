@@ -766,6 +766,11 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           const ang = Math.atan2(L.y2 - L.y1, L.x2 - L.x1) * 180 / Math.PI
           return <div className="pdfed__rubber" style={{ left: L.x1 * scale, top: L.y1 * scale, width: len, transform: `rotate(${ang}deg)` }} />
         })()}
+        {/* while editing, the ORIGINAL text hides under a page-background cover (no double vision);
+            commit/cancel unmounts it together with the editor */}
+        {textEdit && textEdit.page === pageIndex && textEdit.cover && (
+          <div style={{ position: 'absolute', left: textEdit.cover.x * scale, top: textEdit.cover.y * scale, width: textEdit.cover.w * scale, height: textEdit.cover.h * scale, background: textEdit.cover.color, zIndex: 3, pointerEvents: 'none' }} />
+        )}
         {textEdit && textEdit.page === pageIndex && (
           <RichTextEditor
             ref={rte.ref}

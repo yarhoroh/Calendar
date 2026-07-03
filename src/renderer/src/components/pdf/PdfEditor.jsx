@@ -317,11 +317,14 @@ export default function PdfEditor({ source, path }) {
       //  • everything else gets the bytes of its closest system lookalike under that name.
       for (const f of fonts) {
         try {
-          if (f.bytes) { new FontFace(f.name, f.bytes).load().then((ff) => document.fonts.add(ff)).catch(() => {}); continue }
           const look = f.match || similar(f.name)
-          Promise.resolve(api.fonts.file(look, {})).then((sys) => {
+          const loadLookalike = () => Promise.resolve(api.fonts.file(look, {})).then((sys) => {
             if (sys?.bytes) new FontFace(f.name, sys.bytes).load().then((ff) => document.fonts.add(ff)).catch(() => {})
           }).catch(() => {})
+          // real bytes when the browser accepts them; if OTS rejects the face (subset without a
+          // cmap etc.) the SAME name still gets the lookalike — the editor never falls to a blank
+          if (f.bytes) new FontFace(f.name, f.bytes).load().then((ff) => document.fonts.add(ff)).catch(loadLookalike)
+          else loadLookalike()
         } catch (_) {}
       }
       setDocFonts(fonts)
@@ -1141,10 +1144,46 @@ export default function PdfEditor({ source, path }) {
     setTextEdit({ page: pageIndex, x, y })
   }
 
+  // the page's background colour around a rect — sampled from the rendered raster (perimeter
+  // points, most frequent quantized colour). Covers the original text while it's being edited.
+  const sampleBg = async (pageIndex, rect) => {
+    try {
+      const im = imgOf(pageIndex)
+      const pg = model.find((p) => p.pageIndex === pageIndex)
+      if (!im || !pg) return '#ffffff'
+      const img = new Image()
+      img.src = im.url
+      await img.decode()
+      const k = img.width / (pg.width || img.width) // raster px per pt
+      const c = document.createElement('canvas')
+      c.width = img.width; c.height = img.height
+      const ctx = c.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(img, 0, 0)
+      const pts = []
+      for (let i = 0; i <= 4; i++) {
+        pts.push([rect.x + (rect.w * i) / 4, rect.y - 2], [rect.x + (rect.w * i) / 4, rect.y + rect.h + 2])
+      }
+      pts.push([rect.x - 2, rect.y + rect.h / 2], [rect.x + rect.w + 2, rect.y + rect.h / 2])
+      const votes = new Map()
+      for (const [px2, py2] of pts) {
+        const X = Math.round(px2 * k), Y = Math.round(py2 * k)
+        if (X < 0 || Y < 0 || X >= c.width || Y >= c.height) continue
+        const d = ctx.getImageData(X, Y, 1, 1).data
+        const key = `${d[0] >> 3},${d[1] >> 3},${d[2] >> 3}` // quantize /8 — antialiasing noise collapses
+        const v = votes.get(key) || { n: 0, rgb: [d[0], d[1], d[2]] }
+        v.n++
+        votes.set(key, v)
+      }
+      let best = null
+      for (const v of votes.values()) if (!best || v.n > best.n) best = v
+      return best ? `rgb(${best.rgb[0]},${best.rgb[1]},${best.rgb[2]})` : '#ffffff'
+    } catch { return '#ffffff' }
+  }
+
   // ---- EDIT existing text: double-click opens the SAME rich editor pre-filled with the block's
   // text in its original fonts/sizes/colours; commit atomically replaces the stream text (the
   // originals are blanked by their own anchors — Escape cancels without touching anything) ----
-  const startEditSelected = (pageIndex, objs) => {
+  const startEditSelected = async (pageIndex, objs) => {
     if (busyRef.current || textEdit) return
     const texts = (objs || []).filter((o) => o.type === 'text' && !o.rot) // rotated text editing: later
     if (!texts.length) return
@@ -1161,22 +1200,41 @@ export default function PdfEditor({ source, path }) {
     for (const o of sorted) { const last = lines[lines.length - 1]; if (last && Math.abs(last[0].y - o.y) < 3) last.push(o); else lines.push([o]) }
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const html = lines.map((l) => '<p>' + l.map((o, i) => {
-      const f = pg.fonts?.[o.f] || {}
-      const color = pg.colors?.[o.c] || '#000000'
-      let t = esc(o.text || '')
-      // keep a visible gap between separate pieces of one visual line
-      if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.2) t = ' ' + t }
-      if (f.bold) t = `<strong>${t}</strong>`
-      if (f.italic) t = `<em>${t}</em>`
-      return `<span style="font-family: ${cssFontFor(f.name || 'Arial')}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
-    }).join('') + '</p>').join('')
+    const sigLines = [] // style-merged signature — compared against the parsed commit to skip no-op rewrites
+    const html = lines.map((l) => {
+      const segs = []
+      const p = '<p>' + l.map((o, i) => {
+        const f = pg.fonts?.[o.f] || {}
+        const color = (pg.colors?.[o.c] || '#000000').toLowerCase()
+        let raw = String(o.text || '')
+        // keep a visible gap between separate pieces of one visual line
+        if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.2) raw = ' ' + raw }
+        const style = `${f.name || 'Arial'}|${o.size || 12}|${color}|${f.bold ? 1 : 0}${f.italic ? 1 : 0}`
+        const last = segs[segs.length - 1]
+        if (last && last.style === style) last.text += raw
+        else segs.push({ text: raw, style })
+        let t = esc(raw)
+        if (f.bold) t = `<strong>${t}</strong>`
+        if (f.italic) t = `<em>${t}</em>`
+        return `<span style="font-family: ${cssFontFor(f.name || 'Arial')}; font-size: ${(o.size || 12) * scale}px; color: ${color}">${t}</span>`
+      }).join('') + '</p>'
+      sigLines.push(segs.map((s) => `${s.text}⎮${s.style}`).join('‖'))
+      return p
+    }).join('')
+    const origSig = sigLines.join('¶')
     const minX = Math.min(...sorted.map((o) => o.bbox.x))
+    // the ORIGINAL text hides under a page-background cover while it's being edited — otherwise it
+    // shines through behind the editor as a double; commit/cancel removes the cover automatically
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (const o of sorted) { x0 = Math.min(x0, o.bbox.x); y0 = Math.min(y0, o.bbox.y); x1 = Math.max(x1, o.bbox.x + o.bbox.w); y1 = Math.max(y1, o.bbox.y + o.bbox.h) }
+    const coverRect = { x: x0 - 1.5, y: y0 - 1.5, w: x1 - x0 + 3, h: y1 - y0 + 3 }
+    const coverColor = await sampleBg(pageIndex, coverRect)
     onSelect(pageIndex, null)
     setInsertMode(false)
     setTextEdit({
       page: pageIndex, x: minX, y: master.y - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
-      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y,
+      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origSig,
+      cover: { ...coverRect, color: coverColor },
       replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
     })
   }
@@ -1268,6 +1326,12 @@ export default function PdfEditor({ source, path }) {
   const commitText = async (lines) => {
     const te = textEdit
     if (!te || busyRef.current) return
+    // EDIT mode, nothing changed → close WITHOUT touching the stream: a no-op rewrite re-resolved
+    // fonts every time (Nimbus→Arial→…) and the text "randomly" drifted between edit sessions
+    if (te.origSig) {
+      const parsedSig = lines.map((l) => l.map((s) => `${s.text}⎮${s.fontName}|${s.size}|${String(s.color).toLowerCase()}|${s.bold ? 1 : 0}${s.italic ? 1 : 0}`).join('‖')).join('¶')
+      if (parsedSig === te.origSig) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
+    }
     busyRef.current = true
     try {
       // one embedded font per unique family+style used in the text (document fonts keep their own bytes)

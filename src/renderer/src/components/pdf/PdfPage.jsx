@@ -84,8 +84,10 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     setRotDrag((r) => { if (!r?.pending) return r; dropSprite(); return null })
   }, [image?.url]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the rotation pivot belongs to ONE selection — a new selection gets a fresh (centred) pivot
-  useEffect(() => { setPivot(null) }, [selected])
+  // the rotation pivot belongs to ONE selection — a new selection gets a fresh (centred) pivot.
+  // A parked (pending) rotation preview dies here too: the refreshed selection already carries the
+  // new angle, so base+delta would double-rotate for one frame (the frame "flashed" on release).
+  useEffect(() => { setPivot(null); setRotDrag((r) => (r?.pending ? null : r)) }, [selected])
 
   const toPt = (e, el) => {
     const r = el.getBoundingClientRect()

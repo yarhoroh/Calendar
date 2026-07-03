@@ -205,11 +205,15 @@ const RichTextEditor = forwardRef(function RichTextEditor({ x, y, scale, font, c
       if (!editor) return
       const sel = savedSel.current || { from: editor.state.selection.from, to: editor.state.selection.to }
       const empty = sel.from === sel.to // nothing highlighted
-      const c = editor.chain()
+      let c = editor.chain()
       if (savedSel.current) { c.setTextSelection(savedSel.current); savedSel.current = null }
+      // NOTHING selected → a style change applies to the WHOLE text (you rarely want to style just
+      // the caret position); with a selection it applies to it. Same rule the eyedropper uses.
+      if (empty && (cmd === 'fontName' || cmd === 'foreColor' || cmd === 'size' || cmd === 'bold' || cmd === 'italic' || cmd === 'letterSpacing')) c = c.selectAll()
       if (cmd === 'fontName') c.setFontFamily(val).run()
       else if (cmd === 'foreColor') c.setColor(val).run()
       else if (cmd === 'size') c.setFontSize(`${val * scale}px`).run()
+      else if (cmd === 'letterSpacing') c.setMark('textStyle', { letterSpacing: `${val * scale}px` }).run()
       else if (cmd === 'bold') c.toggleBold().run()
       else if (cmd === 'italic') c.toggleItalic().run()
       else if (cmd === 'applyStyle') {

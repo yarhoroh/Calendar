@@ -85,9 +85,16 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   }, [image?.url]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // the rotation pivot belongs to ONE selection — a new selection gets a fresh (centred) pivot.
-  // A parked (pending) rotation preview dies here too: the refreshed selection already carries the
-  // new angle, so base+delta would double-rotate for one frame (the frame "flashed" on release).
-  useEffect(() => { setPivot(null); setRotDrag((r) => (r?.pending ? null : r)) }, [selected])
+  // EXCEPT right after a rotation commit: the reselect must NOT swallow a user-moved pivot, or the
+  // next turn spins around a different point ("the centre jumps"). A parked (pending) rotation
+  // preview dies here always: the refreshed selection already carries the new angle, so base+delta
+  // would double-rotate for one frame (the frame "flashed" on release).
+  const keepPivotRef = useRef(false)
+  useEffect(() => {
+    if (keepPivotRef.current) keepPivotRef.current = false
+    else setPivot(null)
+    setRotDrag((r) => (r?.pending ? null : r))
+  }, [selected])
 
   const toPt = (e, el) => {
     const r = el.getBoundingClientRect()
@@ -160,6 +167,8 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     e.stopPropagation(); e.preventDefault()
     const el = e.currentTarget.closest('.pdfed__overlay')
     onSprite?.(pageIndex, selObjs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
+    const fr0 = selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null // frozen at drag start
+    const u0 = unionOf(selObjs)
     const [sx0, sy0] = toPt(e, el)
     const a0 = Math.atan2(sy0 - c.y, sx0 - c.x)
     // Shift snaps the object's TOTAL angle to 15° steps relative to the PAGE (0/45/90…), not the
@@ -178,8 +187,17 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       if (Math.abs(cur) > 0.3) {
-        // park the rotated preview until the worker re-renders the page (same as the move ghost)
-        setRotDrag({ angle: cur, cx: c.x, cy: c.y, pending: true })
+        // park a FROZEN snapshot of the final frame until the fresh render lands: a live-computed
+        // preview would re-read the UPDATED selection (new angle) for one frame and double-rotate
+        const rad2 = cur * Math.PI / 180
+        const cd = Math.cos(rad2), sd = Math.sin(rad2)
+        const frame = fr0
+          ? { x: c.x + cd * (fr0.x - c.x) - sd * (fr0.y - c.y), y: c.y + sd * (fr0.x - c.x) + cd * (fr0.y - c.y), w: fr0.w, h: fr0.h, ang: fr0.ang + cur }
+          : u0
+            ? { x: u0.x, y: u0.y, w: u0.w, h: u0.h, ang: cur, px: c.x - u0.x, py: c.y - u0.y } // axis box spins about the pivot
+            : null
+        keepPivotRef.current = true // a user-moved pivot survives the commit's reselect
+        setRotDrag({ angle: cur, cx: c.x, cy: c.y, pending: true, frame })
         onRotate?.(pageIndex, selObjs, cur, c.x, c.y)
       } else { setRotDrag(null); dropSprite() }
     }
@@ -552,6 +570,15 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           return (
             <>
               {rotDrag && (() => {
+                if (rotDrag.pending) {
+                  // FROZEN final frame — computed at mouseup, independent of the (already updating)
+                  // model/selection, so nothing can double-rotate or jump while the render lands
+                  const f = rotDrag.frame
+                  if (!f) return null
+                  return f.px !== undefined
+                    ? <div className="pdfed__frame pdfed__frame--rot" style={{ left: f.x * scale, top: f.y * scale, width: f.w * scale, height: f.h * scale, transform: `rotate(${f.ang}deg)`, transformOrigin: `${f.px * scale}px ${f.py * scale}px` }} />
+                    : <div className="pdfed__frame pdfed__frame--rot" style={{ left: f.x * scale, top: f.y * scale, width: f.w * scale, height: f.h * scale, transform: `rotate(${f.ang}deg)`, transformOrigin: '0 0' }} />
+                }
                 if (!fr0) {
                   // unrotated base: spinning the div about the pivot point IS the desired transform
                   return <div className="pdfed__frame pdfed__frame--rot" style={{ ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }} />
@@ -569,7 +596,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 <img
                   className="pdfed__ghost"
                   src={sprite.url}
-                  style={{ ...px({ x: sprite.x, y: sprite.y, w: sprite.w, h: sprite.h }), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - sprite.x) * scale}px ${(c.y - sprite.y) * scale}px` }}
+                  style={{ ...px({ x: sprite.x, y: sprite.y, w: sprite.w, h: sprite.h }), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(rotDrag.cx - sprite.x) * scale}px ${(rotDrag.cy - sprite.y) * scale}px` }}
                   draggable={false}
                   alt=""
                 />

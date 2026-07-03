@@ -1404,6 +1404,19 @@ function blankTextShows(pageIndex, items, strict = false) {
   const byStream = {}
   const used = new Set()
   for (const it of texts) {
+    // LINE SWEEP: blank EVERY show on this baseline inside the range, across ALL units — the
+    // nuclear cleanup for an edited line (leftovers of any era can't survive and duplicate)
+    if (it.sweep && it.bbox) {
+      const rx0 = it.bbox.x - 0.5, rx1 = it.bbox.x + it.bbox.w + 2
+      for (const u of units) {
+        if (u.type !== 'text' || !u.shows) continue
+        for (const sh of u.shows) {
+          if (used.has(sh)) continue
+          if (Math.abs(sh.py - it.y) < 2 && sh.px >= rx0 && sh.px <= rx1) { used.add(sh); (byStream[u.stream] = byStream[u.stream] || []).push(sh) }
+        }
+      }
+      continue
+    }
     let best = null, bestD = 3, bestU = null, nearest = Infinity
     for (const u of units) {
       if (u.type !== 'text' || !u.shows) continue

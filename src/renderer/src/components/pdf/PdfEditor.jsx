@@ -1280,6 +1280,16 @@ export default function PdfEditor({ source, path }) {
       const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
       return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}; font-weight: ${f.bold ? 700 : 400}; font-style: ${f.italic ? 'italic' : 'normal'}">${t}</span>`
     }).join('') + '</p>').join('')
+    // one SWEEP item per visual line: a real edit rewrites its lines WHOLE, and the sweep blanks
+    // every show on the baseline inside the line's extent — leftovers of any era (legacy Tj-flow
+    // pieces with clustered anchors) cannot survive and duplicate
+    const lineSweeps = lines.map((l) => {
+      const x0 = Math.min(...l.map((o) => o.bbox.x))
+      const x1 = Math.max(...l.map((o) => o.bbox.x + o.bbox.w))
+      const y0 = Math.min(...l.map((o) => o.bbox.y))
+      const y1 = Math.max(...l.map((o) => o.bbox.y + o.bbox.h))
+      return { type: 'text', sweep: true, bbox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, x: l[0].x, y: l[0].y }
+    })
     const minX = Math.min(...sorted.map((o) => o.bbox.x))
     // the ORIGINAL text hides under a page-background cover while it's being edited — otherwise it
     // shines through behind the editor as a double; commit/cancel removes the cover automatically
@@ -1291,7 +1301,7 @@ export default function PdfEditor({ source, path }) {
     setInsertMode(false)
     setTextEdit({
       page: pageIndex, x: minX, y: master.y - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
-      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origPieces,
+      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origPieces, lineSweeps,
       cover: { ...coverRect, color: coverColor },
       replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
     })
@@ -1406,11 +1416,17 @@ export default function PdfEditor({ source, path }) {
         if (g.text === op.text && g.styles.size === 1 && g.styles.has(style) &&
             Math.abs(g.first.x - op.x) < 0.35 && Math.abs(g.first.baseline - op.baseline) < 0.35) untouched.add(String(rid))
       })
-      // strip untouched pieces from BOTH sides of the operation
-      lines = lines.map((l) => l.filter((s) => s.rid == null || !untouched.has(String(s.rid)))).filter((l) => l.length)
-      replaceItems = te.origPieces.filter((_, rid) => !untouched.has(String(rid))).map((op) => op.item)
-      console.log(`[pdf][edit] diff: ${untouched.size}/${te.origPieces.length} piece(s) untouched, ${lines.reduce((a, l) => a + l.length, 0)} to write, ${replaceItems.length} to blank`)
-      if (!lines.length && !replaceItems.length) { console.log('[pdf][edit] no changes — stream untouched'); setTextEdit(null); return }
+      const newPieces = lines.reduce((a, l) => a + l.filter((s) => s.rid == null).length, 0)
+      if (untouched.size === te.origPieces.length && !newPieces) {
+        console.log('[pdf][edit] no changes — stream untouched')
+        setTextEdit(null)
+        return
+      }
+      // ANY real change → rewrite the block WHOLE with a per-line sweep: mixing surviving old
+      // coordinates with re-flowed new ones (and legacy anchor misses) bred duplicates like
+      // "Due:0lance Due:" — a full sweep+rewrite is the only layout that is always self-consistent
+      replaceItems = [...(te.lineSweeps || []), ...te.origPieces.map((op) => op.item)]
+      console.log(`[pdf][edit] diff: ${untouched.size}/${te.origPieces.length} untouched, ${newPieces} new → rewriting the block whole (${te.lineSweeps?.length || 0} line sweep(s))`)
     }
     busyRef.current = true
     try {

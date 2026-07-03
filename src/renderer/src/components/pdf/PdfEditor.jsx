@@ -1524,9 +1524,9 @@ export default function PdfEditor({ source, path }) {
         <label className="pdfed__mini" title="Letter spacing: − / + nudge the selected text's spacing from its CURRENT value (there is no single stored value in PDF — this adjusts relative to what's there)">
           LS
           <span className="pdfed__ls">
-            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS - 0.25).toFixed(2))} title="Tighter (−0.25)">−</button>
+            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS - 0.1).toFixed(2))} title="Tighter (−0.1)">−</button>
             <span className="pdfed__lsval">{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
-            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.25).toFixed(2))} title="Wider (+0.25)">+</button>
+            <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.1).toFixed(2))} title="Wider (+0.1)">+</button>
           </span>
         </label>
         <div className="pdfed__colorwrap">

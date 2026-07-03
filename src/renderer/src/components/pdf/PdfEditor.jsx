@@ -1242,9 +1242,10 @@ export default function PdfEditor({ source, path }) {
     const sorted = lines.flat()
     const master = sorted[0]
     const mf = pg.fonts?.[master.f] || {}
-    // the toolbar mirrors the edited block's master style
+    // the toolbar mirrors the edited block's master style — INCLUDING LS: a sticky toolbar value
+    // from an earlier selection used to leak into the container and re-space the whole block
     setFontSel(mf.name || 'Arial'); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
-    setBoldSel(!!mf.bold); setItalicSel(!!mf.italic)
+    setBoldSel(!!mf.bold); setItalicSel(!!mf.italic); setLetterS(master.ls || 0)
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // every piece carries data-rid through the session — the commit DIFFS by it and leaves
@@ -1266,6 +1267,7 @@ export default function PdfEditor({ source, path }) {
         color,
         bold: !!f.bold,
         italic: !!f.italic,
+        ls: o.ls || 0,
         x: o.x,
         baseline: o.y,
         item: { type: 'text', bbox: o.bbox, x: o.x, y: o.y } // the stream anchor for a targeted blank
@@ -1278,7 +1280,7 @@ export default function PdfEditor({ source, path }) {
       // font-weight/style are EXPLICIT per span: the container carries the master's bold, and a
       // regular piece (fallback digits) inherited it — looked bold in the editor, thin in the PDF
       const fam = cssFontFor(f.name || 'Arial').replace(/"/g, '&quot;')
-      return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}; font-weight: ${f.bold ? 700 : 400}; font-style: ${f.italic ? 'italic' : 'normal'}">${t}</span>`
+      return `<span data-rid="${rid}" style="font-family: ${fam}; font-size: ${(o.size || 12) * scale}px; color: ${color}; font-weight: ${f.bold ? 700 : 400}; font-style: ${f.italic ? 'italic' : 'normal'}; letter-spacing: ${((o.ls || 0) * scale).toFixed(3)}px">${t}</span>`
     }).join('') + '</p>').join('')
     // one SWEEP item per visual line: a real edit rewrites its lines WHOLE, and the sweep blanks
     // every show on the baseline inside the line's extent — leftovers of any era (legacy Tj-flow
@@ -1414,6 +1416,7 @@ export default function PdfEditor({ source, path }) {
         if (!g) return // piece deleted → must be blanked
         const style = `${op.fontName}|${op.size}|${op.color}|${op.bold ? 1 : 0}${op.italic ? 1 : 0}`
         if (g.text === op.text && g.styles.size === 1 && g.styles.has(style) &&
+            Math.abs((g.first.ls || 0) - (op.ls || 0)) < 0.05 &&
             Math.abs(g.first.x - op.x) < 0.35 && Math.abs(g.first.baseline - op.baseline) < 0.35) untouched.add(String(rid))
       })
       const newPieces = lines.reduce((a, l) => a + l.filter((s) => s.rid == null).length, 0)
@@ -1731,7 +1734,7 @@ export default function PdfEditor({ source, path }) {
           LS
           <span className="pdfed__ls">
             <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS - 0.1).toFixed(2))} title="Tighter (−0.1)">−</button>
-            <span className="pdfed__lsval">{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
+            <span className="pdfed__lsval" style={{ cursor: 'pointer' }} title="Click = reset to 0" onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(0)}>{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
             <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.1).toFixed(2))} title="Wider (+0.1)">+</button>
           </span>
         </label>

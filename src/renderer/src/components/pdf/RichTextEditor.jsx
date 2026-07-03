@@ -28,6 +28,13 @@ const TextStyleRid = TextStyle.extend({
         default: null,
         parseHTML: (el) => el.style.fontStyle || null,
         renderHTML: (attrs) => (attrs.fontStyle ? { style: `font-style: ${attrs.fontStyle}` } : {})
+      },
+      // per-piece letter spacing: without it every piece inherited the TOOLBAR's sticky LS through
+      // the container and the commit silently re-spaced text nobody touched (LS "became 6 by itself")
+      letterSpacing: {
+        default: null,
+        parseHTML: (el) => el.style.letterSpacing || null,
+        renderHTML: (attrs) => (attrs.letterSpacing ? { style: `letter-spacing: ${attrs.letterSpacing}` } : {})
       }
     }
   }

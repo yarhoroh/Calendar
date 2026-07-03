@@ -70,6 +70,10 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const [pivot, setPivot] = useState(null) // {x,y} pt — rotation centre; null = selection centre
   const [rotDrag, setRotDrag] = useState(null) // { angle, cx, cy, pending? } — live rotation preview
   const [rotResize, setRotResize] = useState(null) // live oriented box while resizing a rotated object
+  // ONE parked-preview mechanism for EVERY commit (move/rotate/resize, any object type): the frame
+  // {x,y,w,h,ang} is FROZEN at mouseup and rendered verbatim until the refreshed selection lands —
+  // live math would read the already-updated selection for one paint and jump (2× shift / re-rotate)
+  const [parked, setParked] = useState(null)
   const dragRef = useRef(null)
 
   // the selection carries the resolved objects themselves — nothing is re-filtered from the model
@@ -94,6 +98,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     if (keepPivotRef.current) keepPivotRef.current = false
     else setPivot(null)
     setRotDrag((r) => (r?.pending ? null : r))
+    setParked(null) // the refreshed selection draws its own frame from here on
     // a parked MOVE ghost dies here too: the shifted selection already carries the destination, so
     // union+ghost.dx would DOUBLE the shift for one frame (the frame jumped by 2× the move)
     setGhost((g) => { if (!g?.pending) return g; dropSprite(); return null })
@@ -158,7 +163,10 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
       window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up)
       setRotResize(null)
       const r = calc(ev)
-      if (Math.abs(r.kx - 1) > 0.01 || Math.abs(r.ky - 1) > 0.01) onResizeRot?.(pageIndex, o, { kx: r.kx, ky: r.ky, ax: A.x, ay: A.y, ang: fr0.ang })
+      if (Math.abs(r.kx - 1) > 0.01 || Math.abs(r.ky - 1) > 0.01) {
+        setParked({ x: r.x, y: r.y, w: r.w, h: r.h, ang: r.ang }) // frozen until the refresh lands
+        onResizeRot?.(pageIndex, o, { kx: r.kx, ky: r.ky, ax: A.x, ay: A.y, ang: fr0.ang })
+      }
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -194,13 +202,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         // preview would re-read the UPDATED selection (new angle) for one frame and double-rotate
         const rad2 = cur * Math.PI / 180
         const cd = Math.cos(rad2), sd = Math.sin(rad2)
-        const frame = fr0
-          ? { x: c.x + cd * (fr0.x - c.x) - sd * (fr0.y - c.y), y: c.y + sd * (fr0.x - c.x) + cd * (fr0.y - c.y), w: fr0.w, h: fr0.h, ang: fr0.ang + cur }
+        const orbit = (X, Y) => ({ x: c.x + cd * (X - c.x) - sd * (Y - c.y), y: c.y + sd * (X - c.x) + cd * (Y - c.y) })
+        setParked(fr0
+          ? { ...orbit(fr0.x, fr0.y), w: fr0.w, h: fr0.h, ang: fr0.ang + cur }
           : u0
-            ? { x: u0.x, y: u0.y, w: u0.w, h: u0.h, ang: cur, px: c.x - u0.x, py: c.y - u0.y } // axis box spins about the pivot
-            : null
+            ? { ...orbit(u0.x, u0.y), w: u0.w, h: u0.h, ang: cur } // axis box spun about the pivot
+            : null)
         keepPivotRef.current = true // a user-moved pivot survives the commit's reselect
-        setRotDrag({ angle: cur, cx: c.x, cy: c.y, pending: true, frame })
+        setRotDrag({ angle: cur, cx: c.x, cy: c.y, pending: true })
         onRotate?.(pageIndex, selObjs, cur, c.x, c.y)
       } else { setRotDrag(null); dropSprite() }
     }
@@ -287,14 +296,12 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
       const [dx, dy] = resolve(ux - sx, uy - sy, ev)
       if (Math.hypot(dx, dy) >= 1) {
         // keep the ghost parked at the drop spot while the worker re-renders the page — the object
-        // looks like it's already there instead of vanishing and "jumping" seconds later.
-        // The frame is FROZEN here (old geometry + delta): a live-computed frame would read the
-        // already-shifted selection for one paint and jump by 2× the move.
+        // looks like it's already there instead of vanishing and "jumping" seconds later
         const fr0 = objs.length === 1 ? rotFrameOf(objs[0]) : null
-        const frame = fr0
+        setParked(fr0
           ? { x: fr0.x + dx, y: fr0.y + dy, w: fr0.w, h: fr0.h, ang: fr0.ang }
-          : u0 ? { x: u0.x + dx, y: u0.y + dy, w: u0.w, h: u0.h, ang: 0 } : null
-        setGhost({ dx, dy, pending: true, frame })
+          : u0 ? { x: u0.x + dx, y: u0.y + dy, w: u0.w, h: u0.h, ang: 0 } : null)
+        setGhost({ dx, dy, pending: true })
         onMove(pageIndex, objs, dx, dy)
       } else { setGhost(null); dropSprite() }
     }
@@ -441,11 +448,14 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     const up = (ev) => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
-      setResizeBox(null)
       onLiveGeo?.(null)
       const [ux, uy] = toPt(ev, el)
       const nb = nextBox(ob, h, ux - sx0, uy - sy0, ev.shiftKey)
-      if (Math.abs(nb.w - ob.w) > 0.5 || Math.abs(nb.h - ob.h) > 0.5 || Math.abs(nb.x - ob.x) > 0.5 || Math.abs(nb.y - ob.y) > 0.5) onResize(pageIndex, obj, nb)
+      setResizeBox(null)
+      if (Math.abs(nb.w - ob.w) > 0.5 || Math.abs(nb.h - ob.h) > 0.5 || Math.abs(nb.x - ob.x) > 0.5 || Math.abs(nb.y - ob.y) > 0.5) {
+        setParked({ ...nb, ang: 0 }) // frozen until the refreshed selection lands (no flash-back)
+        onResize(pageIndex, obj, nb)
+      }
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -542,14 +552,13 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             ghost is up it travels with it; while a handle is dragged it shows the live box.
             A single ROTATED object gets a frame ALONG its own axis (like the line frames) — the
             axis-aligned quad box would look like it cuts / overshoots the slanted content. */}
-        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && (() => {
-          // parked ghost → FROZEN frame from the drop moment (independent of the updating selection)
-          if (ghost?.pending && ghost.frame) {
-            const f = ghost.frame
-            return f.ang
-              ? <div className="pdfed__frame pdfed__frame--rot" style={{ left: f.x * scale, top: f.y * scale, width: f.w * scale, height: f.h * scale, transform: `rotate(${f.ang}deg)`, transformOrigin: '0 0' }} />
-              : <div className="pdfed__frame" style={px(f)} />
-          }
+        {/* the ONE parked frame: any committed op (move/rotate/resize, any type) froze it at mouseup */}
+        {parked && (
+          parked.ang
+            ? <div className="pdfed__frame pdfed__frame--rot" style={{ left: parked.x * scale, top: parked.y * scale, width: parked.w * scale, height: parked.h * scale, transform: `rotate(${parked.ang}deg)`, transformOrigin: '0 0' }} />
+            : <div className="pdfed__frame" style={px(parked)} />
+        )}
+        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && !parked && (() => {
           const gdx = (ghost?.dx || 0) + (nudge?.dx || 0), gdy = (ghost?.dy || 0) + (nudge?.dy || 0)
           const fr = rotResize || (!resizeBox && selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null)
           if (fr) {
@@ -573,7 +582,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         {/* rotation UI: pivot dot (draggable — the rotation centre) + a rotate grip at the bottom-right
             corner. Dragging the grip previews the rotation live (frame + sprite); Shift snaps to 15°.
             Works for a single object or a whole multi-selection (rotates as a group). */}
-        {union && !ghost && !resizeBox && !rotResize && !textEdit && !insertMode && !lineDrag && (() => {
+        {union && !ghost && !resizeBox && !rotResize && !parked && !textEdit && !insertMode && !lineDrag && (() => {
           // the rotate grip sits at the OBJECT'S OWN bottom-right corner — for a rotated object that
           // corner is re-derived from the angle every render (it turns with the object)
           const fr0 = selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null
@@ -585,16 +594,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
           const gy = fr0 ? fr0.y + fr0.u.y * (fr0.w + pad) + fr0.d.y * (fr0.h + pad) : union.y + union.h + pad
           return (
             <>
-              {rotDrag && (() => {
-                if (rotDrag.pending) {
-                  // FROZEN final frame — computed at mouseup, independent of the (already updating)
-                  // model/selection, so nothing can double-rotate or jump while the render lands
-                  const f = rotDrag.frame
-                  if (!f) return null
-                  return f.px !== undefined
-                    ? <div className="pdfed__frame pdfed__frame--rot" style={{ left: f.x * scale, top: f.y * scale, width: f.w * scale, height: f.h * scale, transform: `rotate(${f.ang}deg)`, transformOrigin: `${f.px * scale}px ${f.py * scale}px` }} />
-                    : <div className="pdfed__frame pdfed__frame--rot" style={{ left: f.x * scale, top: f.y * scale, width: f.w * scale, height: f.h * scale, transform: `rotate(${f.ang}deg)`, transformOrigin: '0 0' }} />
-                }
+              {rotDrag && !rotDrag.pending && (() => {
                 if (!fr0) {
                   // unrotated base: spinning the div about the pivot point IS the desired transform
                   return <div className="pdfed__frame pdfed__frame--rot" style={{ ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }} />
@@ -655,7 +655,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         {/* resize handles — single image/vector only (text scales through its font size). A flat
             vector (a line) gets ONLY its along-axis handles: length is draggable, thickness comes
             from the stroke-width control, not from stretching */}
-        {selObjs.length === 1 && selObjs[0].type !== 'text' && !selObjs[0].line && !ghost && union && (() => {
+        {selObjs.length === 1 && selObjs[0].type !== 'text' && !selObjs[0].line && !ghost && !parked && union && (() => {
           // a ROTATED object gets its handles ON the rotated frame (positions re-derived from the
           // angle every render) and resizes along its own axes
           const fr = rotResize || rotFrameOf(selObjs[0])

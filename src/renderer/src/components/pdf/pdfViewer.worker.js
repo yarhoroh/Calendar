@@ -730,6 +730,38 @@ function ensureInsFont(pageIndex, key, bytes, family) {
   return rec
 }
 
+// Drop OUR inserted fonts (EF*) that no page content references anymore — they accumulate across
+// edits (blanked text, name-collision replacements). Only EF* are touched; the document's own fonts
+// are left alone. Run before save; a garbage pass then removes the now-orphaned font objects.
+function cleanUnusedFonts() {
+  let removed = 0
+  try {
+    for (let i = 0; i < doc.countPages(); i++) {
+      const po = doc.findPage(i)
+      const res = po.getInheritable('Resources')
+      if (!res || res.isNull()) continue
+      const fd = res.get('Font')
+      if (fd.isNull()) continue
+      let cs = ''
+      try { cs = readStream(po, 0) } catch (_) {}
+      // a font counts as USED only if text is actually SHOWN while it's selected — a blanked run
+      // leaves a dangling "/EFn Tf" (the show op itself is gone), which must NOT keep the font alive
+      const used = new Set()
+      let cur = null, pend = null
+      for (const mt of mask(cs).matchAll(TOKENS)) {
+        const t = mt[0]
+        if (t[0] === '/') pend = t.slice(1)
+        else if (t === 'Tf') cur = pend
+        else if ((t === 'Tj' || t === 'TJ' || t === "'" || t === '"') && cur) used.add(cur)
+      }
+      const del = []
+      fd.forEach((val, key) => { if (/^EF\d+$/.test(key) && !used.has(key)) del.push(key) })
+      for (const k of del) { fd.delete(k); removed++ }
+    }
+  } catch (e) { console.warn('[pdf worker] font cleanup failed:', e?.message) }
+  return removed
+}
+
 // Put the font into the page's /Resources/Font. Called right before WRITING content — never before
 // a redaction: applyRedactions rebuilds the resources and throws away a not-yet-used font, leaving
 // the inserted text pointing at nothing (wrong face on screen, glyph-id garbage in the model).
@@ -1481,7 +1513,9 @@ export const __test = {
     const recs = prepareInsFonts(pageIndex, fonts, fallback, samplesOf(spec))
     deleteObjectsImpl(pageIndex, items, textOnly)
     insertTextWithRecs(pageIndex, spec, recs)
-  }
+  },
+  cleanUnusedFonts: (...a) => cleanUnusedFonts(...a),
+  pageFontKeys: (i) => { const fd = doc.findPage(i).getInheritable('Resources').get('Font'); const out = []; fd.forEach((v, k) => out.push(k)); return out }
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })
@@ -1561,7 +1595,9 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
     } else if (type === 'save') {
       // serialise the in-memory working copy (with all moves/deletes applied) back to PDF bytes
       if (!doc) throw new Error('no document open')
-      const bytes = new Uint8Array(doc.saveToBuffer('').asUint8Array())
+      const gone = cleanUnusedFonts() // drop our accumulated unused EF fonts before writing
+      if (gone) console.log(`[pdf worker] cleaned ${gone} unused inserted font(s)`)
+      const bytes = new Uint8Array(doc.saveToBuffer('garbage=deduplicate').asUint8Array()) // + gc orphaned objects
       self.postMessage({ id, result: { bytes: bytes.buffer } }, [bytes.buffer])
     } else if (type === 'copyObjects') {
       if (!doc) throw new Error('no document open')

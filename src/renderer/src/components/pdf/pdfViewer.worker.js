@@ -1258,6 +1258,7 @@ function invertM(m) {
 // so no operation built on top of it can ever delete content and then fail to draw ("aaaa…").
 function prepareInsFonts(pageIndex, fonts, fallback, samples) {
   const recs = {}
+  let needFb = false
   for (const k of Object.keys(fonts || {})) {
     const f = fonts[k]
     const sample = samples[k] || 'Ag1'
@@ -1273,7 +1274,20 @@ function prepareInsFonts(pageIndex, fonts, fallback, samples) {
       }
     }
     recs[k] = ensureInsFont(pageIndex, family + '|' + (bytes === fallback?.bytes ? 'fb' : k), bytes, family)
+    // PARTIAL coverage (a subset missing some of the text's chars): those chars would render as
+    // blank .notdef — mark that the mixed-font split needs the fallback face alongside
+    if (bytes !== fallback?.bytes) {
+      const miss = [...new Set([...sample])].filter((ch) => ch.trim() && (recs[k].font.encodeCharacter(ch.codePointAt(0)) & 0xffff) === 0)
+      if (miss.length) {
+        if (!fallback?.bytes || !fontEncodes(fallback.bytes, fallback.family, miss.join(''))) {
+          throw new Error(`font "${family}" is missing "${miss.join('')}" and the fallback can't cover them`)
+        }
+        needFb = true
+        console.warn(`[pdf worker] font "${family}" misses "${miss.join('')}" → those chars go to "${fallback.family}"`)
+      }
+    }
   }
+  if (needFb) recs.__fb = ensureInsFont(pageIndex, (fallback.family || 'Arial') + '|fb', fallback.bytes, fallback.family || 'Arial')
   return recs
 }
 const samplesOf = (spec) => {
@@ -1305,22 +1319,48 @@ function insertTextWithRecs(pageIndex, spec, recs) {
     for (const s of line) {
       const rec = recs[s.fontKey]
       if (!rec || !s.text) continue
-      let hex = '', nat = 0
+      // MIXED-FONT split: chars the (subset) font can encode stay in it; the rest go to the
+      // fallback face — consecutive Tj's continue the line naturally (Tj advances the text matrix),
+      // so a missing letter no longer renders as a blank .notdef box
+      const fb = recs.__fb
+      const parts = [] // { rec, hex, nat, len }
       for (const ch of s.text) {
-        const gid = rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
-        nat += rec.font.advanceGlyph(gid, 0)
-        hex += gid.toString(16).padStart(4, '0')
+        let r2 = rec
+        let gid = rec.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
+        if (gid === 0 && fb && fb !== rec) {
+          const g2 = fb.font.encodeCharacter(ch.codePointAt(0)) & 0xffff
+          if (g2 > 0) { r2 = fb; gid = g2 }
+        }
+        const last = parts[parts.length - 1]
+        const adv = r2.font.advanceGlyph(gid, 0)
+        if (last && last.rec === r2) { last.hex += gid.toString(16).padStart(4, '0'); last.nat += adv; last.len++ }
+        else parts.push({ rec: r2, hex: gid.toString(16).padStart(4, '0'), nat: adv, len: 1 })
       }
+      if (!parts.length) continue
       // no explicit LS but a target width → fit Tc so the new run spans EXACTLY the original width
       // (covers spacing baked in as TJ kerning / per-glyph positions, which can't be read as one number)
       let ls = s.ls
+      const natAll = parts.reduce((a, p) => a + p.nat, 0)
       if ((ls === undefined || ls === null) && s.fitW > 0 && s.text.length > 1) {
-        ls = Math.max(-3, Math.min(10, (s.fitW - nat * (s.size || 12)) / (s.text.length - 1)))
+        ls = Math.max(-3, Math.min(10, (s.fitW - natAll * (s.size || 12)) / (s.text.length - 1)))
       }
       const tx = s.x, ty = H - s.baseline
       const pos = curX === null ? `1 0 0 1 ${n2(tx)} ${n2(ty)} Tm` : `${n2(tx - curX)} ${n2(ty - curY)} Td`
-      curX = tx; curY = ty
-      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc ${pos} <${hex}> Tj\n`
+      body += `${hexRgbOps(s.color)} rg ${n2(ls || 0)} Tc ${pos}`
+      // explicit Td between the parts (we know each part's exact width): the stream parser anchors
+      // every show by its own pen position — relying on Tj auto-advance collapsed all anchors into
+      // one px and the model mis-attributed the pieces
+      let penX = tx
+      parts.forEach((p, i) => {
+        if (i > 0) {
+          const w = parts[i - 1].nat * (s.size || 12) + (ls || 0) * parts[i - 1].len
+          body += ` ${n2(w)} 0 Td`
+          penX += w
+        }
+        body += ` /${p.rec.name} ${n2(s.size || 12)} Tf <${p.hex}> Tj`
+      })
+      body += '\n'
+      curX = penX; curY = ty
     }
   }
   const ops = body ? '\nq BT\n' + body + 'ET Q\n' : '\n'

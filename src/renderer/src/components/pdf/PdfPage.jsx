@@ -23,17 +23,27 @@ const lineHitPad = (o) => (o.strokeW || 1) / 2 + 3 // half stroke + finger paddi
 const hitTest = (objects, x, y) => {
   const under = (o) => {
     if (o.line) return distSeg(x, y, o.line.x1, o.line.y1, o.line.x2, o.line.y2) <= lineHitPad(o)
+    // a ROTATED object is hit by its ORIENTED box (the blue frame), not the huge axis quad —
+    // project the click onto the object's own axes
+    if (o.rot && o.obw > 0 && o.ox !== undefined) {
+      const rad = -o.rot * Math.PI / 180
+      const cA = Math.cos(rad), sA = Math.sin(rad)
+      const lx = (x - o.ox) * cA + (y - o.oy) * sA
+      const ly = -(x - o.ox) * sA + (y - o.oy) * cA
+      return lx >= -2 && lx <= o.obw + 2 && ly >= -2 && ly <= o.obh + 2
+    }
     const padX = o.bbox.w < PAD ? PAD : 0
     const padY = o.bbox.h < PAD ? PAD : 0
     return x >= o.bbox.x - padX && x <= o.bbox.x + o.bbox.w + padX && y >= o.bbox.y - padY && y <= o.bbox.y + o.bbox.h + padY
   }
+  const area = (o) => (o.obw > 0 ? o.obw * o.obh : o.bbox.w * o.bbox.h) // true footprint, not the inflated quad
   const pick = (list) => {
     let best = null
     for (const o of list) {
       if (!under(o)) continue
       if (!best) { best = o; continue }
       if ((o.z || 0) > (best.z || 0)) best = o
-      else if ((o.z || 0) === (best.z || 0) && o.bbox.w * o.bbox.h < best.bbox.w * best.bbox.h) best = o
+      else if ((o.z || 0) === (best.z || 0) && area(o) < area(best)) best = o
     }
     return best
   }
@@ -372,11 +382,21 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     }
 
     // a single selected line/arrow moves only when grabbed NEAR ITS PATH — its axis-aligned bbox
-    // (huge for a slanted line) must not swallow clicks on other content
+    // (huge for a slanted line) must not swallow clicks on other content. A single ROTATED object
+    // likewise grabs only by its ORIENTED frame, not the inflated quad.
     const selIsLine = selObjs.length === 1 && selObjs[0].line
+    const selRot = selObjs.length === 1 && selObjs[0].rot && selObjs[0].obw > 0 && selObjs[0].ox !== undefined ? selObjs[0] : null
     const onSel = selIsLine
       ? distSeg(x, y, selObjs[0].line.x1, selObjs[0].line.y1, selObjs[0].line.x2, selObjs[0].line.y2) <= lineHitPad(selObjs[0]) + 2
-      : inside(union, x, y)
+      : selRot
+        ? (() => {
+            const rad = -selRot.rot * Math.PI / 180
+            const cA = Math.cos(rad), sA = Math.sin(rad)
+            const lx = (x - selRot.ox) * cA + (y - selRot.oy) * sA
+            const ly = -(x - selRot.ox) * sA + (y - selRot.oy) * cA
+            return lx >= -2 && lx <= selRot.obw + 2 && ly >= -2 && ly <= selRot.obh + 2
+          })()
+        : inside(union, x, y)
     if (onSel) { startMoveDrag(el, x, y, selObjs); return } // drag the existing selection
 
     const hit = hitTest(objects, x, y)

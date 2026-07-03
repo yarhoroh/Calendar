@@ -765,6 +765,58 @@
   width: 1px;
   background: rgba(27, 158, 119, 0.45);
 }
+/* rotation: pivot dot, rotate grip (bottom-right of the frame), live angle badge */
+.pdfed__pivot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #1473e6;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+  cursor: move;
+  z-index: 8;
+}
+.pdfed__pivot::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #1473e6;
+}
+.pdfed__rotate {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #1473e6;
+  color: #1473e6;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  z-index: 8;
+  opacity: 0.55;
+}
+.pdfed__rotate:hover {
+  opacity: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.pdfed__rotbadge {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(20, 20, 24, 0.85);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 9;
+}
+
 /* magnetic snap guides (Shift) — brighter, only span the two aligned objects */
 .pdfed__snap {
   position: absolute;

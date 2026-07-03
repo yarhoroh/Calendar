@@ -582,6 +582,22 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] move failed:', err) }
   }
 
+  // rotate the whole selection (one or many objects) around a pivot; the worker wraps each unit in
+  // a conjugated rotation cm — the objects turn as a group. Re-select via before/after diff.
+  const rotateSelected = async (pageIndex, objs, angle, cx, cy) => {
+    if (busyRef.current || !objs?.length) return
+    busyRef.current = true
+    try {
+      const pg = model.find((p) => p.pageIndex === pageIndex)
+      const before = new Set(allOf(pg).map(sigOf))
+      await engineRef.current.rotateObjects(pageIndex, objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), angle, cx, cy)
+      const m = await refreshPage(pageIndex)
+      const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
+      console.log(`[pdf][rotate] ${objs.length} obj(s) by ${angle.toFixed(1)}° around (${cx.toFixed(0)},${cy.toFixed(0)})`)
+      onSelect(pageIndex, changed.length ? changed : [])
+    } catch (err) { console.error('[pdf] rotate failed:', err) } finally { busyRef.current = false }
+  }
+
   // object signature that survives a re-parse: for text — stext metrics + the string itself (the
   // raster bbox tightening can shift y/h when a copy overlaps a neighbour, so those stay out of it)
   const sigOf = (o) => (o.type === 'text'
@@ -1718,6 +1734,7 @@ export default function PdfEditor({ source, path }) {
                 }}
                 onSelect={onSelect}
                 onMove={moveSelected}
+                onRotate={rotateSelected}
                 onResize={resizeSelected}
                 onLineGeo={lineGeoSelected}
                 onLiveGeo={setLiveGeo}

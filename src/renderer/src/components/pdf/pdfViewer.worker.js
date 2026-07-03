@@ -116,7 +116,7 @@ function buildUnits(cs, streamNum, H) {
       operandStart = null
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
-    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1 }) } shows = []; start = end; reset() }
+    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }) } shows = []; start = end; reset() }
     else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
@@ -1039,6 +1039,50 @@ function resizeObject(pageIndex, item, nb) {
   writeStream(pageObj, u.stream, cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end))
 }
 
+// Rotate objects around a pivot (device pt, top-left): each matched unit is wrapped in a conjugated
+// rotation cm — same proven mechanics as resizeObject (ctmStart conjugation, trailing-Q swallow,
+// newline guards). One pivot + one angle for the whole selection → objects rotate as a group.
+function rotateObjectsImpl(pageIndex, items, angle, cx, cy) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  const units = collectUnits(pageObj, H)
+  const jobs = new Set() // dedupe: several model objects may live in one unit
+  for (const it of items || []) {
+    const u = matchUnit(units, it)
+    if (u && u.ctm) jobs.add(u)
+  }
+  if (!jobs.size) throw new Error('cannot locate the objects in the stream — nothing changed')
+  // screen angle is clockwise-positive (y down) → user space (y up) rotates by −angle about (cx, H−cy)
+  const phi = -angle * Math.PI / 180
+  const cosF = Math.cos(phi), sinF = Math.sin(phi)
+  const px = cx, py = H - cy
+  const mUser = [cosF, sinF, -sinF, cosF, px - px * cosF + py * sinF, py - px * sinF - py * cosF]
+  // device-space rotation for %EFL endpoints (they live in screen coords)
+  const rad = angle * Math.PI / 180, cosD = Math.cos(rad), sinD = Math.sin(rad)
+  const rotDev = (x, y) => [cx + (x - cx) * cosD - (y - cy) * sinD, cy + (x - cx) * sinD + (y - cy) * cosD]
+  const byStream = {}
+  for (const u of jobs) (byStream[u.stream] = byStream[u.stream] || []).push(u)
+  for (const sk of Object.keys(byStream)) {
+    const s = Number(sk)
+    let cs = readStream(pageObj, s)
+    for (const u of byStream[sk].sort((a, b) => b.start - a.start)) { // right-to-left keeps offsets valid
+      const prior = u.ctmStart || [1, 0, 0, 1, 0, 0]
+      const W = matMul(matMul(prior, mUser), invertM(prior))
+      const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+      let seg = balanceSeg(cs.slice(u.start, segEnd))
+      seg = seg.replace(/%EFL (\S+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/, (m0, head, x1, y1, x2, y2) => {
+        const p1 = rotDev(+x1, +y1), p2 = rotDev(+x2, +y2)
+        return `%EFL ${head} ${n2(p1[0])} ${n2(p1[1])} ${n2(p2[0])} ${n2(p2[1])}`
+      })
+      const wrapped = `\nq ${W.map((v) => +v.toFixed(6)).join(' ')} cm\n` + seg + '\nQ\n'
+      cs = cs.slice(0, u.start) + wrapped + cs.slice(u.end < segEnd ? segEnd : u.end)
+    }
+    writeStream(pageObj, s, cs)
+  }
+  return jobs.size
+}
+
 // Recolor a vector: replace its stroke (RG/G/K) and/or fill (rg/g/k) colour operators inside the
 // unit; a unit with no own colour op (inherited state) gets one prefixed.
 function recolorVector(pageIndex, item, colors) {
@@ -1514,6 +1558,7 @@ export const __test = {
   getModel: (...a) => getModel(...a),
   collectUnits,
   moveObjectsImpl: (...a) => moveObjectsImpl(...a),
+  rotateObjectsImpl: (...a) => rotateObjectsImpl(...a),
   copyObjectsImpl: (...a) => copyObjectsImpl(...a),
   deleteObjectsImpl: (...a) => deleteObjectsImpl(...a),
   insertShape: (...a) => insertShape(...a),
@@ -1592,6 +1637,10 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       resizeObject(params.pageIndex, params.item, params.nb)
       self.postMessage({ id, result: { ok: true } })
+    } else if (type === 'rotateObjects') {
+      if (!doc) throw new Error('no document open')
+      const n = rotateObjectsImpl(params.pageIndex, params.items, params.angle, params.cx, params.cy)
+      self.postMessage({ id, result: { rotated: n } })
     } else if (type === 'insertImage') {
       if (!doc) throw new Error('no document open')
       insertImage(params.pageIndex, params.bytes, params.x, params.y, params.w, params.h)

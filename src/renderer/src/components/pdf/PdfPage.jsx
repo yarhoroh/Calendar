@@ -56,7 +56,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -67,6 +67,8 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const [lineDrag, setLineDrag] = useState(null) // live endpoints while dragging a line/arrow end
   const [sprite, setSprite] = useState(null) // transparent render of ONLY the dragged objects
   const [snapLines, setSnapLines] = useState(null) // { x:{v,a,b}, y:{v,a,b} } — magnetic guides while snapping
+  const [pivot, setPivot] = useState(null) // {x,y} pt — rotation centre; null = selection centre
+  const [rotDrag, setRotDrag] = useState(null) // { angle, cx, cy, pending? } — live rotation preview
   const dragRef = useRef(null)
 
   // the selection carries the resolved objects themselves — nothing is re-filtered from the model
@@ -76,11 +78,56 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const dropSprite = () => setSprite((s) => { if (s) URL.revokeObjectURL(s.url); return null })
 
   // a ghost parked after a drop dissolves as soon as the freshly rendered page image arrives
-  useEffect(() => { setGhost((g) => { if (!g?.pending) return g; dropSprite(); return null }) }, [image?.url]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setGhost((g) => { if (!g?.pending) return g; dropSprite(); return null })
+    setRotDrag((r) => { if (!r?.pending) return r; dropSprite(); return null })
+  }, [image?.url]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the rotation pivot belongs to ONE selection — a new selection gets a fresh (centred) pivot
+  useEffect(() => { setPivot(null) }, [selected])
 
   const toPt = (e, el) => {
     const r = el.getBoundingClientRect()
     return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]
+  }
+
+  // drag the rotate handle: live angle around the pivot; Shift snaps to 15° steps (0/45/90…).
+  // The PDF changes once, on drop — same contract as move/resize.
+  const startRotate = (e, c) => {
+    e.stopPropagation(); e.preventDefault()
+    const el = e.currentTarget.closest('.pdfed__overlay')
+    onSprite?.(pageIndex, selObjs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
+    const [sx0, sy0] = toPt(e, el)
+    const a0 = Math.atan2(sy0 - c.y, sx0 - c.x)
+    let cur = 0
+    const move = (ev) => {
+      const [mx, my] = toPt(ev, el)
+      let a = (Math.atan2(my - c.y, mx - c.x) - a0) * 180 / Math.PI
+      a = ((a + 540) % 360) - 180 // normalize to (-180, 180]
+      if (ev.shiftKey) a = Math.round(a / 15) * 15
+      cur = a
+      setRotDrag({ angle: a, cx: c.x, cy: c.y })
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      if (Math.abs(cur) > 0.3) {
+        // park the rotated preview until the worker re-renders the page (same as the move ghost)
+        setRotDrag({ angle: cur, cx: c.x, cy: c.y, pending: true })
+        onRotate?.(pageIndex, selObjs, cur, c.x, c.y)
+      } else { setRotDrag(null); dropSprite() }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
+  const startPivotDrag = (e) => {
+    e.stopPropagation(); e.preventDefault()
+    const el = e.currentTarget.closest('.pdfed__overlay')
+    const move = (ev) => { const [mx, my] = toPt(ev, el); setPivot({ x: mx, y: my }) }
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   }
 
   // press-and-drag: ghost follows the cursor, the PDF changes once, on drop; a plain click (<1pt)
@@ -400,7 +447,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         })()}
         {/* selection frame — the same light dashed box for one object or a whole group; while a
             ghost is up it travels with it; while a handle is dragged it shows the live box */}
-        {!(selObjs.length === 1 && selObjs[0].line) && union && (
+        {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && (
           <div
             className="pdfed__frame"
             style={px(resizeBox
@@ -413,6 +460,46 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 })}
           />
         )}
+        {/* rotation UI: pivot dot (draggable — the rotation centre) + a rotate grip at the bottom-right
+            corner. Dragging the grip previews the rotation live (frame + sprite); Shift snaps to 15°.
+            Works for a single object or a whole multi-selection (rotates as a group). */}
+        {union && !ghost && !resizeBox && !textEdit && !insertMode && !lineDrag && (() => {
+          const c = pivot || { x: union.x + union.w / 2, y: union.y + union.h / 2 }
+          return (
+            <>
+              {rotDrag && (
+                <div
+                  className="pdfed__frame pdfed__frame--rot"
+                  style={{ ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }}
+                />
+              )}
+              {rotDrag && sprite && (
+                <img
+                  className="pdfed__ghost"
+                  src={sprite.url}
+                  style={{ ...px({ x: sprite.x, y: sprite.y, w: sprite.w, h: sprite.h }), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - sprite.x) * scale}px ${(c.y - sprite.y) * scale}px` }}
+                  draggable={false}
+                  alt=""
+                />
+              )}
+              {rotDrag && <div className="pdfed__rotbadge" style={{ left: c.x * scale + 12, top: c.y * scale - 28 }}>{Math.round(rotDrag.angle)}°</div>}
+              <div className="pdfed__pivot" style={{ left: c.x * scale - 5, top: c.y * scale - 5 }} onMouseDown={startPivotDrag} title="Rotation centre — drag to move" />
+              {!rotDrag && (
+                <div
+                  className="pdfed__rotate"
+                  style={{ left: (union.x + union.w) * scale + 4, top: (union.y + union.h) * scale + 4 }}
+                  onMouseDown={(e) => startRotate(e, c)}
+                  title="Rotate around the pivot (Shift = 15° steps)"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <path d="M21 12a9 9 0 1 1-3-6.7" />
+                    <path d="M21 3v6h-6" />
+                  </svg>
+                </div>
+              )}
+            </>
+          )
+        })()}
         {/* a line/arrow gets TWO endpoint handles — each drags anywhere (free rotation); while
             dragging, a live rubber line previews the result */}
         {selObjs.length === 1 && selObjs[0].line && !ghost && (() => {

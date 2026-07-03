@@ -364,12 +364,16 @@ export default function PdfEditor({ source, path }) {
   const styleLocked = !textEdit && !selected?.objs.some((o) => o.type === 'text')
   const selPg = selected ? model.find((p) => p.pageIndex === selected.page) : null
   useEffect(() => {
-    if (!singleText || !selPg) return
-    const f = selPg.fonts?.[singleText.f]
+    if (textEdit || !selPg) return
+    // representative run = the FIRST selected text object (reading order), for ANY count — a
+    // multi-piece selection used to leave the toolbar showing a STALE font from a prior selection
+    const rep = (selected?.objs || []).filter((o) => o.type === 'text').sort((a, b) => a.y - b.y || a.x - b.x)[0]
+    if (!rep) return
+    const f = selPg.fonts?.[rep.f]
     if (f) { setFontSel(f.name); setBoldSel(!!f.bold); setItalicSel(!!f.italic) }
-    if (singleText.c !== undefined && selPg.colors?.[singleText.c]) setColorSel(selPg.colors[singleText.c])
-    if (singleText.size) setFontSize(singleText.size)
-    setLetterS(singleText.ls || 0) // the run's ORIGINAL Tc from the stream (e.g. -1.1)
+    if (rep.c !== undefined && selPg.colors?.[rep.c]) setColorSel(selPg.colors[rep.c])
+    if (rep.size) setFontSize(rep.size)
+    setLetterS(rep.ls || 0) // the run's ORIGINAL Tc from the stream (e.g. -1.1)
     // …and the values STAY after deselection — a new text starts with the last clicked style
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -776,6 +780,7 @@ export default function PdfEditor({ source, path }) {
       const m = await refreshPage(selected.page)
       const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
       console.log(`[pdf][restyle] ${texts.length} run(s) →`, patch)
+      setFontsNonce((n) => n + 1) // the restyled text may embed a NEW font — refresh the dropdown list
       onSelect(selected.page, changed)
     } catch (err) {
       const mMiss = String(err?.message || '').match(/FONT_MISS\|([^|]+)\|(.+)/)
@@ -1750,6 +1755,10 @@ export default function PdfEditor({ source, path }) {
           onChange={(e) => pickFont(e.target.value)}
           title={styleLocked ? 'Select a single text object to change its style' : 'Font'}
         >
+          {/* the actually-selected font MUST be a present option or the <select> shows the wrong row */}
+          {fontSel && !docFonts.some((f) => f.name === fontSel) && !sysFonts.includes(fontSel) && !docFonts.some((f) => f.match === fontSel) && (
+            <option value={fontSel}>{fontSel}</option>
+          )}
           {docFonts.length > 0 && (
             <optgroup label="PDF">
               {docFonts.map((f) => {

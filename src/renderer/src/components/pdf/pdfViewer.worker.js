@@ -72,8 +72,9 @@ function buildUnits(cs, streamNum, H) {
   let startCtm = ctm.slice() // CTM at the unit's START — a wrap goes AROUND the whole unit, so its conjugation must use this, not the paint-time ctm (which already includes the unit's own cm)
   let unitDirty = false // has the current unit range seen any real content yet?
   const num = []; const N = (k) => num.slice(-k).map(Number)
-  const pt = (x, y) => { const dx = ctm[0]*x+ctm[2]*y+ctm[4], dy = ctm[1]*x+ctm[3]*y+ctm[5]; x0 = Math.min(x0, dx); y0 = Math.min(y0, dy); x1 = Math.max(x1, dx); y1 = Math.max(y1, dy); hasP = true }
-  const reset = () => { x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity; hasP = false; tPos = null; cmPre = null; startCtm = ctm.slice(); unitDirty = false }
+  let lx0 = Infinity, ly0 = Infinity, lx1 = -Infinity, ly1 = -Infinity // path bounds in LOCAL space — exact oriented w/h for rotated units
+  const pt = (x, y) => { const dx = ctm[0]*x+ctm[2]*y+ctm[4], dy = ctm[1]*x+ctm[3]*y+ctm[5]; x0 = Math.min(x0, dx); y0 = Math.min(y0, dy); x1 = Math.max(x1, dx); y1 = Math.max(y1, dy); lx0 = Math.min(lx0, x); ly0 = Math.min(ly0, y); lx1 = Math.max(lx1, x); ly1 = Math.max(ly1, y); hasP = true }
+  const reset = () => { x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity; lx0 = Infinity; ly0 = Infinity; lx1 = -Infinity; ly1 = -Infinity; hasP = false; tPos = null; cmPre = null; startCtm = ctm.slice(); unitDirty = false }
   const dev = (mx, my) => [ctm[0]*mx+ctm[2]*my+ctm[4], H - (ctm[1]*mx+ctm[3]*my+ctm[5])]
   for (const mt of toks) {
     const t = mt[0], end = mt.index + t.length
@@ -117,7 +118,7 @@ function buildUnits(cs, streamNum, H) {
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
     else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], lb: [lx0, ly0, lx1, ly1], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
     else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
   }
@@ -538,7 +539,20 @@ function getModel(pageIndex) {
           if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl && !unitRot(u))) continue
           if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
             const ur = unitRot(u)
-            if (ur) v.rot = n2(ur)
+            if (ur) {
+              v.rot = n2(ur)
+              // oriented box — EXACT at any angle: local bounds × ctm axis scales; anchor = device
+              // position of the local top-left corner (the UI re-derives the frame from angle + this)
+              const sw = Math.hypot(u.ctm[0], u.ctm[1]), sh = Math.hypot(u.ctm[2], u.ctm[3])
+              const lb = v.type === 'vector' ? u.lb : [0, 0, 1, 1] // an image unit is the unit square
+              if (lb && isFinite(lb[0])) {
+                v.obw = n2((lb[2] - lb[0]) * sw)
+                v.obh = n2((lb[3] - lb[1]) * sh)
+                const dxc = u.ctm[0] * lb[0] + u.ctm[2] * lb[3] + u.ctm[4] // local (x0, y1) = top-left in y-up space
+                const dyc = u.ctm[1] * lb[0] + u.ctm[3] * lb[3] + u.ctm[5]
+                v.ox = n2(dxc); v.oy = n2(H - dyc)
+              }
+            }
             if (u.efr !== undefined) v.radius = u.efr
             if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
             if (u.gs) { const a = gsCa(u.gs); if (a !== undefined) v.opacity = Math.round(a * 100) }
@@ -1019,19 +1033,32 @@ function blankTextShows(pageIndex, items, strict = false) {
 // Resize an image/vector: wrap its (q/Q-balanced) unit in a transform that maps the old device
 // bbox onto the new one. W is computed in the unit's own space through its full CTM, so rotated /
 // nested content scales correctly too.
-function resizeObject(pageIndex, item, nb) {
+function resizeObject(pageIndex, item, nb, rotSpec) {
   const lp = doc.loadPage(pageIndex)
   const H = lp.getBounds()[3]; lp.destroy()
   const pageObj = doc.findPage(pageIndex)
   const units = collectUnits(pageObj, H)
   const u = matchUnit(units, item)
   if (!u || !u.ctm) throw new Error('cannot locate the object in the stream — nothing changed')
-  const ob = item.bbox
-  const sx = nb.w / ob.w, sy = nb.h / ob.h
-  // device-space transform: scale around the OLD top-left, then move to the NEW top-left.
-  // In root user space (y-up): anchor (x, H - y).
-  const ax = ob.x, ayU = H - ob.y
-  const mUser = [sx, 0, 0, sy, ax * (1 - sx) + (nb.x - ob.x), ayU * (1 - sy) - (nb.y - ob.y)]
+  let mUser
+  if (rotSpec) {
+    // ROTATED object: scale along ITS OWN axes — translate the anchor to the origin, un-rotate,
+    // scale, re-rotate, translate back (an axis-space scale would skew a rotated shape)
+    const { kx, ky, ax, ay, ang } = rotSpec // ax/ay device pt (the fixed corner), ang = screen deg
+    const A = [ax, H - ay]
+    const phi = -ang * Math.PI / 180 // screen angle → user space
+    const c = Math.cos(phi), s = Math.sin(phi)
+    const T1 = [1, 0, 0, 1, -A[0], -A[1]], T2 = [1, 0, 0, 1, A[0], A[1]]
+    const R1 = [c, -s, s, c, 0, 0], R2 = [c, s, -s, c, 0, 0] // R(−φ), R(φ)
+    mUser = matMul(matMul(matMul(matMul(T1, R1), [kx, 0, 0, ky, 0, 0]), R2), T2)
+  } else {
+    const ob = item.bbox
+    const sx = nb.w / ob.w, sy = nb.h / ob.h
+    // device-space transform: scale around the OLD top-left, then move to the NEW top-left.
+    // In root user space (y-up): anchor (x, H - y).
+    const ax = ob.x, ayU = H - ob.y
+    mUser = [sx, 0, 0, sy, ax * (1 - sx) + (nb.x - ob.x), ayU * (1 - sy) - (nb.y - ob.y)]
+  }
   // The wrap goes AROUND the unit, so conjugate through the CTM at the unit's START (ctmStart) —
   // the paint-time ctm includes the unit's own cm (an image's placement, a previous wrap) and
   // would skew the translation ("shrink from the left → the right edge drifts").
@@ -1667,7 +1694,7 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'resizeObject') {
       if (!doc) throw new Error('no document open')
-      resizeObject(params.pageIndex, params.item, params.nb)
+      resizeObject(params.pageIndex, params.item, params.nb, params.rotSpec)
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'rotateObjects') {
       if (!doc) throw new Error('no document open')

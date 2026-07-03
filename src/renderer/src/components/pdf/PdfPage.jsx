@@ -56,7 +56,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onResizeRot, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -69,6 +69,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const [snapLines, setSnapLines] = useState(null) // { x:{v,a,b}, y:{v,a,b} } — magnetic guides while snapping
   const [pivot, setPivot] = useState(null) // {x,y} pt — rotation centre; null = selection centre
   const [rotDrag, setRotDrag] = useState(null) // { angle, cx, cy, pending? } — live rotation preview
+  const [rotResize, setRotResize] = useState(null) // live oriented box while resizing a rotated object
   const dragRef = useRef(null)
 
   // the selection carries the resolved objects themselves — nothing is re-filtered from the model
@@ -91,18 +92,64 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]
   }
 
-  // ROTATED frame of a single rotated object (like the line frames): the model only has the
-  // axis-aligned quad box; solve the true w×h from quad + angle (Wq = w·cos+h·sin, Hq = w·sin+h·cos).
-  // Near 45° the system degenerates — fall back to the quad.
-  const rotFrameOf = (o, gdx = 0, gdy = 0) => {
+  // ROTATED frame of a single rotated object, anchored at its TOP-LEFT re-derived from the angle
+  // (render with transform-origin 0 0). Text: exact baseline anchor from the stream + font metrics
+  // (asc 0.78em / desc 0.22em). Vector/image: the worker's oriented box (local bounds × ctm — exact
+  // at ANY angle). Returns { x, y (top-left, pt), w, h, ang (screen deg), u, d (axis unit vectors) }.
+  const rotFrameOf = (o) => {
     if (!o?.rot) return null
-    const th = Math.abs(o.rot) * Math.PI / 180
-    const c = Math.cos(th), s = Math.sin(th), den = c * c - s * s
-    if (Math.abs(den) < 0.15) return null
-    const w = (o.bbox.w * c - o.bbox.h * s) / den
-    const h = (o.bbox.h * c - o.bbox.w * s) / den
-    if (w < 2 || h < 2) return null
-    return { cx: o.bbox.x + o.bbox.w / 2 + gdx, cy: o.bbox.y + o.bbox.h / 2 + gdy, w, h, ang: -o.rot } // screen angle = −pdf rot
+    const ang = -o.rot // screen angle = −pdf rot
+    const rad = ang * Math.PI / 180
+    const cA = Math.cos(rad), sA = Math.sin(rad)
+    const u = { x: cA, y: sA } // along the object
+    const d = { x: -sA, y: cA } // perpendicular, descent side (down-screen at ang=0)
+    if (o.type === 'text') {
+      const size = o.size || 10
+      const asc = size * 0.78, desc = size * 0.22, h = asc + desc
+      // width along the axis from the quad, using the KNOWN h — branch on the dominant axis so it
+      // stays stable at every angle (no 45° degeneracy)
+      const cAb = Math.abs(cA), sAb = Math.abs(sA)
+      const w = cAb >= sAb ? (o.bbox.w - h * sAb) / cAb : (o.bbox.h - h * cAb) / sAb
+      if (!(w > 1)) return null
+      return { x: o.x - d.x * asc, y: o.y - d.y * asc, w, h, ang, u, d } // top-left = baseline − d·asc
+    }
+    if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
+    return null
+  }
+
+  // resize a ROTATED object by its handles: deltas are projected onto the object's OWN axes, the
+  // opposite corner stays pinned; commit sends {kx, ky, anchor, ang} — the worker scales along the
+  // object's axes (an axis-space scale would skew it)
+  const startResizeRot = (e, fx, fy) => {
+    e.preventDefault(); e.stopPropagation()
+    const el = e.currentTarget.closest('.pdfed__overlay')
+    const o = selObjs[0]
+    const fr0 = rotFrameOf(o)
+    if (!fr0) return
+    const { u, d } = fr0
+    const sxd = fx === 0 ? -1 : fx === 1 ? 1 : 0
+    const syd = fy === 0 ? -1 : fy === 1 ? 1 : 0
+    const axf = 1 - fx, ayf = 1 - fy // the fixed (opposite) corner in frame fractions
+    const A = { x: fr0.x + u.x * axf * fr0.w + d.x * ayf * fr0.h, y: fr0.y + u.y * axf * fr0.w + d.y * ayf * fr0.h }
+    const [mx0, my0] = toPt(e, el)
+    const calc = (ev) => {
+      const [mx, my] = toPt(ev, el)
+      const dx = mx - mx0, dy = my - my0
+      const du = dx * u.x + dy * u.y, dv = dx * d.x + dy * d.y // mouse delta in LOCAL axes
+      let W = sxd ? Math.max(2, fr0.w + du * sxd) : fr0.w
+      let Hh = syd ? Math.max(2, fr0.h + dv * syd) : fr0.h
+      if (ev.shiftKey && sxd && syd) { const k = Math.max(W / fr0.w, Hh / fr0.h); W = fr0.w * k; Hh = fr0.h * k }
+      return { x: A.x - u.x * axf * W - d.x * ayf * Hh, y: A.y - u.y * axf * W - d.y * ayf * Hh, w: W, h: Hh, ang: fr0.ang, u, d, kx: W / fr0.w, ky: Hh / fr0.h }
+    }
+    const move = (ev) => setRotResize(calc(ev))
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up)
+      setRotResize(null)
+      const r = calc(ev)
+      if (Math.abs(r.kx - 1) > 0.01 || Math.abs(r.ky - 1) > 0.01) onResizeRot?.(pageIndex, o, { kx: r.kx, ky: r.ky, ax: A.x, ay: A.y, ang: fr0.ang })
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   }
 
   // drag the rotate handle: live angle around the pivot; Shift snaps to 15° steps (0/45/90…).
@@ -468,12 +515,13 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             axis-aligned quad box would look like it cuts / overshoots the slanted content. */}
         {!(selObjs.length === 1 && selObjs[0].line) && union && !rotDrag && (() => {
           const gdx = (ghost?.dx || 0) + (nudge?.dx || 0), gdy = (ghost?.dy || 0) + (nudge?.dy || 0)
-          const fr = !resizeBox && selObjs.length === 1 ? rotFrameOf(selObjs[0], gdx, gdy) : null
+          const fr = rotResize || (!resizeBox && selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null)
           if (fr) {
+            // top-left is re-derived from the angle every render; origin 0 0 keeps it exact
             return (
               <div
                 className="pdfed__frame pdfed__frame--rot"
-                style={{ left: (fr.cx - fr.w / 2) * scale, top: (fr.cy - fr.h / 2) * scale, width: fr.w * scale, height: fr.h * scale, transform: `rotate(${fr.ang}deg)` }}
+                style={{ left: (fr.x + gdx) * scale, top: (fr.y + gdy) * scale, width: fr.w * scale, height: fr.h * scale, transform: `rotate(${fr.ang}deg)`, transformOrigin: '0 0' }}
               />
             )
           }
@@ -489,23 +537,23 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         {/* rotation UI: pivot dot (draggable — the rotation centre) + a rotate grip at the bottom-right
             corner. Dragging the grip previews the rotation live (frame + sprite); Shift snaps to 15°.
             Works for a single object or a whole multi-selection (rotates as a group). */}
-        {union && !ghost && !resizeBox && !textEdit && !insertMode && !lineDrag && (() => {
-          const c = pivot || { x: union.x + union.w / 2, y: union.y + union.h / 2 }
+        {union && !ghost && !resizeBox && !rotResize && !textEdit && !insertMode && !lineDrag && (() => {
           // the rotate grip sits at the OBJECT'S OWN bottom-right corner — for a rotated object that
-          // corner turns with it (the grip follows the text's orientation, not the quad box)
+          // corner is re-derived from the angle every render (it turns with the object)
           const fr0 = selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null
-          const gb = fr0 || { cx: union.x + union.w / 2, cy: union.y + union.h / 2, w: union.w, h: union.h, ang: 0 }
-          const grad = gb.ang * Math.PI / 180
           const pad = 10 / scale
-          const gx = gb.cx + (gb.w / 2 + pad) * Math.cos(grad) - (gb.h / 2 + pad) * Math.sin(grad)
-          const gy = gb.cy + (gb.w / 2 + pad) * Math.sin(grad) + (gb.h / 2 + pad) * Math.cos(grad)
+          const c = pivot || (fr0
+            ? { x: fr0.x + fr0.u.x * fr0.w / 2 + fr0.d.x * fr0.h / 2, y: fr0.y + fr0.u.y * fr0.w / 2 + fr0.d.y * fr0.h / 2 }
+            : { x: union.x + union.w / 2, y: union.y + union.h / 2 })
+          const gx = fr0 ? fr0.x + fr0.u.x * (fr0.w + pad) + fr0.d.x * (fr0.h + pad) : union.x + union.w + pad
+          const gy = fr0 ? fr0.y + fr0.u.y * (fr0.w + pad) + fr0.d.y * (fr0.h + pad) : union.y + union.h + pad
           return (
             <>
               {rotDrag && (
                 <div
                   className="pdfed__frame pdfed__frame--rot"
                   style={fr0
-                    ? { left: (fr0.cx - fr0.w / 2) * scale, top: (fr0.cy - fr0.h / 2) * scale, width: fr0.w * scale, height: fr0.h * scale, transform: `rotate(${fr0.ang + rotDrag.angle}deg)`, transformOrigin: `${(c.x - (fr0.cx - fr0.w / 2)) * scale}px ${(c.y - (fr0.cy - fr0.h / 2)) * scale}px` }
+                    ? { left: fr0.x * scale, top: fr0.y * scale, width: fr0.w * scale, height: fr0.h * scale, transform: `rotate(${fr0.ang + rotDrag.angle}deg)`, transformOrigin: `${((c.x - fr0.x) * fr0.u.x + (c.y - fr0.y) * fr0.u.y) * scale}px ${((c.x - fr0.x) * fr0.d.x + (c.y - fr0.y) * fr0.d.y) * scale}px` }
                     : { ...px(union), transform: `rotate(${rotDrag.angle}deg)`, transformOrigin: `${(c.x - union.x) * scale}px ${(c.y - union.y) * scale}px` }}
                 />
               )}
@@ -557,6 +605,19 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             vector (a line) gets ONLY its along-axis handles: length is draggable, thickness comes
             from the stroke-width control, not from stretching */}
         {selObjs.length === 1 && selObjs[0].type !== 'text' && !selObjs[0].line && !ghost && union && (() => {
+          // a ROTATED object gets its handles ON the rotated frame (positions re-derived from the
+          // angle every render) and resizes along its own axes
+          const fr = rotResize || rotFrameOf(selObjs[0])
+          if (fr) {
+            return HANDLES.map(([h, fx, fy]) => (
+              <div
+                key={h}
+                className="pdfed__handle"
+                style={{ left: (fr.x + fr.u.x * fx * fr.w + fr.d.x * fy * fr.h) * scale - 4, top: (fr.y + fr.u.y * fx * fr.w + fr.d.y * fy * fr.h) * scale - 4, cursor: 'crosshair' }}
+                onMouseDown={(e) => startResizeRot(e, fx, fy)}
+              />
+            ))
+          }
           const b = resizeBox || union
           const flatH = b.h < 3, flatV = b.w < 3
           const list = HANDLES.filter(([h]) => (flatH ? h === 'e' || h === 'w' : flatV ? h === 'n' || h === 's' : true))

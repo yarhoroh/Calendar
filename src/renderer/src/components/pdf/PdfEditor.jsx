@@ -1129,6 +1129,21 @@ export default function PdfEditor({ source, path }) {
     } catch (err) { console.error('[pdf] resize failed:', err) } finally { busyRef.current = false }
   }
 
+  // resize of a ROTATED object: the worker scales along the object's own axes around the fixed
+  // anchor corner; re-select via before/after diff (the quad box changes shape)
+  const resizeRotSelected = async (pageIndex, obj, spec) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      const pg = model.find((p) => p.pageIndex === pageIndex)
+      const before = new Set(allOf(pg).map(sigOf))
+      await engineRef.current.resizeObject(pageIndex, { type: obj.type, bbox: obj.bbox }, null, spec)
+      const m = await refreshPage(pageIndex)
+      const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
+      onSelect(pageIndex, changed.length ? changed : [])
+    } catch (err) { console.error('[pdf] rotated resize failed:', err) } finally { busyRef.current = false }
+  }
+
   // ---- insert text: rich-editor content → styled runs → written into the PDF stream ----
   const startTextEdit = (pageIndex, x, y) => {
     setInsertMode(false)
@@ -1736,6 +1751,7 @@ export default function PdfEditor({ source, path }) {
                 onMove={moveSelected}
                 onRotate={rotateSelected}
                 onResize={resizeSelected}
+                onResizeRot={resizeRotSelected}
                 onLineGeo={lineGeoSelected}
                 onLiveGeo={setLiveGeo}
                 onSprite={spriteFor}

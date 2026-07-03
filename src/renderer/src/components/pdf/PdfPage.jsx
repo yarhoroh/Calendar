@@ -94,6 +94,9 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     if (keepPivotRef.current) keepPivotRef.current = false
     else setPivot(null)
     setRotDrag((r) => (r?.pending ? null : r))
+    // a parked MOVE ghost dies here too: the shifted selection already carries the destination, so
+    // union+ghost.dx would DOUBLE the shift for one frame (the frame jumped by 2× the move)
+    setGhost((g) => { if (!g?.pending) return g; dropSprite(); return null })
   }, [selected])
 
   const toPt = (e, el) => {

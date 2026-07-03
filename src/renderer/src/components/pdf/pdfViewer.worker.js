@@ -1421,12 +1421,15 @@ function blankTextShows(pageIndex, items, strict = false) {
     for (const u of units) {
       if (u.type !== 'text' || !u.shows) continue
       for (const sh of u.shows) {
-        if (used.has(sh)) continue
+        // do NOT skip used shows here: a show already blanked by a LINE SWEEP means this item is
+        // DONE — treating it as a miss sent the aggressive legacy fallback after an innocent
+        // neighbour (deleting inside a line ate the "Ba" piece next to it)
         const d = it.x !== undefined ? Math.hypot(sh.px - it.x, sh.py - it.y) : Infinity
         if (d < nearest) nearest = d
         if (d < bestD) { bestD = d; best = sh; bestU = u }
       }
     }
+    if (best && used.has(best)) continue // already blanked (sweep) — success, not a miss
     if (!best) {
       // LEGACY pieces (old Tj-flow inserts): shows cluster at the SEGMENT start, not at their own
       // x — (1) blank by the piece's bbox range on the baseline; (2) still nothing → take the next

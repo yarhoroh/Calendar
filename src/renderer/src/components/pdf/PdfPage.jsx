@@ -103,17 +103,17 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     const cA = Math.cos(rad), sA = Math.sin(rad)
     const u = { x: cA, y: sA } // along the object
     const d = { x: -sA, y: cA } // perpendicular, descent side (down-screen at ang=0)
+    // the worker's oriented box (ink-scanned for text, local-bounds for vectors/images) — exact
+    if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
     if (o.type === 'text') {
+      // metric fallback (ink box unavailable): baseline anchor + font metrics
       const size = o.size || 10
       const asc = size * 0.78, desc = size * 0.22, h = asc + desc
-      // width along the axis from the quad, using the KNOWN h — branch on the dominant axis so it
-      // stays stable at every angle (no 45° degeneracy)
       const cAb = Math.abs(cA), sAb = Math.abs(sA)
       const w = cAb >= sAb ? (o.bbox.w - h * sAb) / cAb : (o.bbox.h - h * cAb) / sAb
       if (!(w > 1)) return null
       return { x: o.x - d.x * asc, y: o.y - d.y * asc, w, h, ang, u, d } // top-left = baseline − d·asc
     }
-    if (o.obw > 0 && o.obh > 0 && o.ox !== undefined) return { x: o.ox, y: o.oy, w: o.obw, h: o.obh, ang, u, d }
     return null
   }
 

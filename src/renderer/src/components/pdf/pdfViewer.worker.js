@@ -163,7 +163,17 @@ function matchUnit(units, it) {
 // text → every Tm (or the first Td/TD) + drop its clip; image → its positioning cm (whose e/f live
 // in the space BEFORE that cm); vector → path construction points.
 function shiftSeg(u, seg, dx, dy) {
-  const de = dx / (u.sa || 1), df = -dy / (u.sd || 1)
+  // local delta through the FULL inverse of the unit's ctm 2×2 — a ROTATED unit (our rotation wrap)
+  // must receive the delta un-rotated, or a screen-right drag moves it along its tilted axes and the
+  // object "flies away" from the frame. Diagonal sa/sd is the axis-aligned special case.
+  let de, df
+  const m = u.ctm
+  const det = m ? m[0] * m[3] - m[1] * m[2] : 0
+  if (m && Math.abs(det) > 1e-9) {
+    const px = dx, py = -dy // device → page (y-up) delta
+    de = (px * m[3] - py * m[2]) / det
+    df = (-px * m[1] + py * m[0]) / det
+  } else { de = dx / (u.sa || 1); df = -dy / (u.sd || 1) }
   // a line/arrow carries its endpoints as an %EFL note (device pt) — keep it in sync
   seg = seg.replace(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/, (m, h, x1, y1, x2, y2) =>
     `%EFL ${h} ${n2(+x1 + dx)} ${n2(+y1 + dy)} ${n2(+x2 + dx)} ${n2(+y2 + dy)}`)
@@ -636,10 +646,9 @@ function tightenBboxes(page, runs) {
     }
     nb.set(r, [above, below])
   }
+  const rotated = [] // oriented ink scan runs SECOND — it excludes neighbours by their TIGHTENED boxes
   for (const r of runs) {
-    // ROTATED text: the baseline-anchored scan model breaks entirely (ink runs diagonally) — keep
-    // the stext quad box, it covers the slanted ink; don't cut it at baseline+0.55em
-    if (r.rot) { delete r.sy0; delete r.sy1; continue }
+    if (r.rot) { delete r.sy0; delete r.sy1; rotated.push(r); continue }
     const x0 = Math.floor(r.bbox.x * S), x1 = Math.ceil((r.bbox.x + r.bbox.w) * S)
     const size = r.size || 10
     // Scan OUT FROM THE BASELINE (the one trustworthy coordinate) through the glyph-only ink:
@@ -675,6 +684,41 @@ function tightenBboxes(page, runs) {
     if (bot > top) r.bbox = { x: r.bbox.x, y: n2(top / S), w: r.bbox.w, h: n2((bot - top) / S) }
     delete r.sy0
     delete r.sy1
+  }
+  // ROTATED text: scan the ink ALONG THE TEXT'S OWN AXES from the baseline anchor out. Runs after
+  // the axis pass so neighbours have their final tight boxes — any point inside another run's box
+  // is ignored (a rotated quad overlaps neighbours, whose ink would otherwise inflate the band).
+  for (const r of rotated) {
+    const size = r.size || 10
+    const ang = -r.rot * Math.PI / 180 // screen angle
+    const cA = Math.cos(ang), sA = Math.sin(ang)
+    const sb = r.bbox // the stext quad — this run's ink lives inside it
+    const excl = runs.filter((o) => o !== r && o.bbox.x < sb.x + sb.w && o.bbox.x + o.bbox.w > sb.x && o.bbox.y < sb.y + sb.h && o.bbox.y + o.bbox.h > sb.y).map((o) => o.bbox)
+    const inkAt = (x, y) => {
+      if (x < sb.x - 2 || x > sb.x + sb.w + 2 || y < sb.y - 2 || y > sb.y + sb.h + 2) return false
+      for (const b of excl) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return false
+      const X = Math.round(x * S), Y = Math.round(y * S)
+      if (X < 0 || X >= pw || Y < 0 || Y >= ph) return false
+      return px[Y * stride + X * nc + ai] > 16
+    }
+    const wEst = Math.max(r.bbox.w, r.bbox.h) + size
+    const step = 0.5
+    const rowInk = (v) => { for (let t = -size * 0.5; t <= wEst; t += step) if (inkAt(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
+    const gapMax = Math.max(1, size * 0.15)
+    let vTop = 0, g = 0
+    for (let v = 0; v >= -size * 1.1; v -= step) { if (rowInk(v)) { vTop = v; g = 0 } else if ((g += step) > gapMax) break }
+    let vBot = 0; g = 0
+    for (let v = step; v <= size * 0.35; v += step) { if (rowInk(v)) { vBot = v; g = 0 } else if ((g += step) > gapMax) break }
+    const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkAt(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
+    let t0 = 0, t1 = 0
+    g = 0
+    const wordGap = size * 0.7 // spaces poke holes wider than letter gaps — keep growing across them
+    for (let t = 0; t >= -size; t -= step) { if (colInk(t)) t0 = t; else break }
+    for (let t = 0; t <= wEst; t += step) { if (colInk(t)) { t1 = t + step; g = 0 } else if ((g += step) > wordGap) break }
+    if (vBot >= vTop && t1 > t0) {
+      r.obw = n2(t1 - t0); r.obh = n2(vBot - vTop + step)
+      r.ox = n2(r.x + cA * t0 - sA * vTop); r.oy = n2(r.y + sA * t0 + cA * vTop)
+    }
   }
   pix.destroy()
 }

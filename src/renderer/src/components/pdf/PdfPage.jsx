@@ -99,7 +99,13 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
       const b = o.bbox
       candX.push({ v: b.x, a: b.y, z: b.y + b.h }, { v: b.x + b.w, a: b.y, z: b.y + b.h }) // left, right edges
       candY.push({ v: b.y, a: b.x, z: b.x + b.w }, { v: b.y + b.h, a: b.x, z: b.x + b.w }) // top, bottom edges
+      // text: also its BASELINE — the exact, non-raster coordinate. Aligning two texts by baseline
+      // puts them truly on one row (bbox tops are ink-tightened and can be ~1px fuzzy)
+      if (o.type === 'text' && o.y != null) candY.push({ v: o.y, a: b.x, z: b.x + b.w })
     }
+    // the dragged object's OWN baseline (single text) participates in the Y-snap too
+    const dragBase = objs.length === 1 && objs[0].type === 'text' && objs[0].y != null ? objs[0].y : null
+    const yEdges = (dy) => dragBase != null ? [u0.y + dy, u0.y + u0.h + dy, dragBase + dy] : [u0.y + dy, u0.y + u0.h + dy]
     const snap = (dx, dy) => {
       const th = 4 / scale // ~4 screen pixels
       // best correction per axis (nearest edge within threshold)
@@ -109,12 +115,12 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
         return best
       }
       const cx = bestD([u0.x + dx, u0.x + u0.w + dx], candX)
-      const cy = bestD([u0.y + dy, u0.y + u0.h + dy], candY)
+      const cy = bestD(yEdges(dy), candY)
       const ndx = dx + (cx ?? 0), ndy = dy + (cy ?? 0)
       // AFTER snapping, show a guide for EVERY candidate edge that now coincides with a dragged edge
       // (so aligning bottoms shows the BOTTOM line, and if tops line up too, both appear)
       const fex = [u0.x + ndx, u0.x + u0.w + ndx]
-      const fey = [u0.y + ndy, u0.y + u0.h + ndy]
+      const fey = yEdges(ndy)
       const gxs = cx === null ? [] : candX.filter((c) => fex.some((e) => Math.abs(c.v - e) < 0.5))
       const gys = cy === null ? [] : candY.filter((c) => fey.some((e) => Math.abs(c.v - e) < 0.5))
       return { dx: ndx, dy: ndy, gxs, gys }

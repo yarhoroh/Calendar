@@ -473,7 +473,8 @@ export default function PdfEditor({ source, path }) {
 
   // transparent sprite of ONLY the given objects (for the drag ghost) — nothing around them leaks in
   const spriteFor = async (pageIndex, objs) => {
-    const zs = objs.map((o) => o.z).filter((z) => z >= 0)
+    // a merged fill+stroke shape (filled arrow) spans TWO device ops — include its fill z too
+    const zs = objs.flatMap((o) => (o.zf !== undefined ? [o.z, o.zf] : [o.z])).filter((z) => z >= 0)
     if (!zs.length) return null
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const o of objs) { x0 = Math.min(x0, o.bbox.x); y0 = Math.min(y0, o.bbox.y); x1 = Math.max(x1, o.bbox.x + o.bbox.w); y1 = Math.max(y1, o.bbox.y + o.bbox.h) }
@@ -1605,7 +1606,7 @@ export default function PdfEditor({ source, path }) {
                   <label className="pdfed__mini" title="Fill colour">
                     Fill
                     <ColorDrop
-                      value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : '#ffffff'}
+                      value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : selObj1.fc !== undefined ? selPg?.colors?.[selObj1.fc] || '#ffffff' : '#ffffff'}
                       colors={docColors}
                       onPick={(c) => recolorSelected({ fill: c })}
                       title="Fill colour (incl. Transparent)"

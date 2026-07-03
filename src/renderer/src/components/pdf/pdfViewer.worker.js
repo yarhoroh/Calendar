@@ -296,6 +296,23 @@ function scanDevice(page, W, H) {
     const w = b[2] - b[0], h = b[3] - b[1]
     if (w * h > pageArea * 0.7) return // full-page background fills are not selectable art
     if (w < 0.5 && h < 0.5) return // sub-pixel noise
+    // a B/b paint (fill+stroke, e.g. a FILLED ARROW) fires BOTH callbacks for the same path —
+    // two model twins made such shapes select/move/frame doubly. Merge: one object, stroke bounds
+    // (outer), stroke colour primary, fill colour + fill z kept alongside.
+    const last = vectors[vectors.length - 1]
+    if (kind === 'stroke' && last && last.kind === 'fill' && last.z === zz - 1) {
+      const dcx = (last.bbox.x + last.bbox.w / 2) - (b[0] + w / 2)
+      const dcy = (last.bbox.y + last.bbox.h / 2) - (b[1] + h / 2)
+      if (Math.abs(dcx) < 2 && Math.abs(dcy) < 2 && w >= last.bbox.w - 0.5 && h >= last.bbox.h - 0.5 && w - last.bbox.w < 8 && h - last.bbox.h < 8) {
+        last.fillColor = last.color
+        last.zf = last.z
+        last.color = colorHex(color)
+        last.kind = 'stroke'
+        last.bbox = { x: n2(b[0]), y: n2(b[1]), w: n2(w), h: n2(h) }
+        last.z = zz
+        return
+      }
+    }
     vectors.push({ z: zz, kind, bbox: { x: n2(b[0]), y: n2(b[1]), w: n2(w), h: n2(h) }, color: colorHex(color) })
   }
   const pushImage = (ctm) => {
@@ -406,7 +423,7 @@ function getModel(pageIndex) {
 
     // device pass first: vectors + images + text ink-spans (anchor, color, size, z)
     const scan = scanDevice(page, W, H)
-    const vectors = scan.vectors.map((v, i) => ({ id: 'v' + i, type: 'vector', bbox: v.bbox, kind: v.kind, c: colorRef(v.color), z: v.z }))
+    const vectors = scan.vectors.map((v, i) => ({ id: 'v' + i, type: 'vector', bbox: v.bbox, kind: v.kind, c: colorRef(v.color), z: v.z, fc: v.fillColor ? colorRef(v.fillColor) : undefined, zf: v.zf }))
     const images = scan.images.map((im, i) => ({ id: 'i' + i, type: 'image', bbox: im.bbox, z: im.z }))
 
     // Text runs from stext.walk (per-char positions, exact float sizes). stext GLUES neighbouring

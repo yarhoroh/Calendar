@@ -1415,8 +1415,36 @@ function blankTextShows(pageIndex, items, strict = false) {
       }
     }
     if (!best) {
-      console.warn(`[pdf worker] no show op at anchor (${it.x},${it.y}) "${(it.text || '').slice(0, 20)}" — nearest ${nearest.toFixed(1)}pt`)
-      leftovers.push(it)
+      // LEGACY pieces (old Tj-flow inserts): shows cluster at the SEGMENT start, not at their own
+      // x — (1) blank by the piece's bbox range on the baseline; (2) still nothing → take the next
+      // UNUSED show of a same-baseline unit overlapping the piece (stream order == visual order for
+      // those inserts). Without this the old text survives under the replacement → duplicates.
+      let got = false
+      if (it.bbox) {
+        const rx0 = it.bbox.x - 0.5, rx1 = Math.max(it.bbox.x + 0.5, it.bbox.x + it.bbox.w - 0.5)
+        for (const u of units) {
+          if (u.type !== 'text' || !u.shows) continue
+          for (const sh of u.shows) {
+            if (used.has(sh)) continue
+            if (Math.abs(sh.py - it.y) < 2 && sh.px >= rx0 && sh.px <= rx1) { used.add(sh); (byStream[u.stream] = byStream[u.stream] || []).push(sh); got = true }
+          }
+        }
+        if (!got) {
+          for (const u of units) {
+            if (got || u.type !== 'text' || !u.shows) continue
+            const onLine = u.shows.filter((sh) => !used.has(sh) && Math.abs(sh.py - it.y) < 2)
+            if (!onLine.length) continue
+            if (!(u.bbox[0] < it.bbox.x + it.bbox.w && u.bbox[2] > it.bbox.x)) continue
+            const sh = onLine.sort((a, b) => a.start - b.start)[0]
+            used.add(sh); (byStream[u.stream] = byStream[u.stream] || []).push(sh); got = true
+            console.warn(`[pdf worker] legacy blank: "${(it.text || '').slice(0, 12)}" matched by unit order`)
+          }
+        }
+      }
+      if (!got) {
+        console.warn(`[pdf worker] no show op at anchor (${it.x},${it.y}) "${(it.text || '').slice(0, 20)}" — nearest ${nearest.toFixed(1)}pt`)
+        leftovers.push(it)
+      }
       continue
     }
     // one visual run is often painted by SEVERAL show ops ("(L) Tj (eon…) Tj") that the device pass

@@ -371,12 +371,12 @@ export default function PdfEditor({ source, path }) {
     if (!rep) return
     const f = selPg.fonts?.[rep.f]
     if (f) {
-      // show the FAMILY, not the weight-specific PS name: a bold Arial reads back as "Arial-BoldMT",
-      // and a picked "Helvetica" resolves to Arial → showing "Arial" (+ the B button) is stable and
-      // recognisable, instead of jumping to "Arial-BoldMT" (looked like a random substitution)
+      // show the FAMILY, not the weight-specific PS name: a bold Arial reads back as "Arial-BoldMT"
+      // (and it IS a doc-font name here, so the old doc-font guard wrongly kept it). If the base
+      // family is a real dropdown option (system / similar) → show it + the B button; that matches
+      // what the user picked ("Arial") and is stable across re-selects
       const base = baseFamily(f.name)
-      const asFamily = !docFonts.some((d) => d.name === f.name) && (sysFonts.includes(base) || docFonts.some((d) => d.match === base))
-      const shown = asFamily ? base : f.name
+      const shown = sysFonts.includes(base) || docFonts.some((d) => d.match === base) ? base : f.name
       console.log(`[pdf][sel] rep run f=${rep.f} → font "${f.name}" → shown "${shown}" (b=${!!f.bold} i=${!!f.italic})`)
       setFontSel(shown); setBoldSel(!!f.bold); setItalicSel(!!f.italic)
     }

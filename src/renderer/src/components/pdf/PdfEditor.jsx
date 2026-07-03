@@ -345,13 +345,13 @@ export default function PdfEditor({ source, path }) {
     return () => { alive = false }
   }, [pageCount, fontsNonce])
 
-  // starting/ending a text edit: reset the coverage-dropdown state; preload doc-font coverage so
-  // the dropdown can grey out incapable fonts from the first frame
+  // preload doc-font coverage whenever the font dropdown could act on text — editing OR a text
+  // object selected on the page — so incapable fonts are greyed out from the first frame
   useEffect(() => {
-    if (!textEdit) { setEditText(''); setEditErr(null); return }
-    for (const f of docFonts) ensureCoverage(f.name, f.bytes)
+    if (!textEdit) { setEditText(''); setEditErr(null) }
+    if (textEdit || (selected?.objs || []).some((o) => o.type === 'text')) for (const f of docFonts) ensureCoverage(f.name, f.bytes)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textEdit])
+  }, [textEdit, selected])
 
   // every colour used in the document (text + art), merged across pages — the colour dropdown
   const docColors = [...new Set(model.flatMap((p) => p.colors || []))]
@@ -777,7 +777,11 @@ export default function PdfEditor({ source, path }) {
       const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
       console.log(`[pdf][restyle] ${texts.length} run(s) →`, patch)
       onSelect(selected.page, changed)
-    } catch (err) { console.error('[pdf] restyle failed (nothing deleted):', err) } finally { busyRef.current = false }
+    } catch (err) {
+      const mMiss = String(err?.message || '').match(/FONT_MISS\|([^|]+)\|(.+)/)
+      if (mMiss) setEditErr(`Шрифт «${mMiss[1]}» не содержит символы: ${mMiss[2]} — выберите другой.`)
+      console.error('[pdf] restyle failed (nothing deleted):', err)
+    } finally { busyRef.current = false }
   }
 
   // ---- variables: persistence (Phase 2) ----
@@ -1017,15 +1021,18 @@ export default function PdfEditor({ source, path }) {
     if (bytes) { done(bytes); return }
     Promise.resolve(api.fonts.file(family, {})).then((f) => done(f?.bytes || null)).catch(() => done(null))
   }
-  // can this family render the whole current edit text? unknown coverage → optimistic (true), and a
-  // load is kicked off so the answer arrives shortly
+  // the text a font change would land on: the open editor's text, else the SELECTED text objects —
+  // so the dropdown greys out incapable fonts both while editing AND on a plain page selection
+  const coverageText = () => (textEdit ? editText : (selected?.objs || []).filter((o) => o.type === 'text').map((o) => o.text || '').join(''))
+  // can this family render that text? unknown coverage → optimistic (true), and a load is kicked off
   const fontCanRender = (family, bytes) => {
-    if (!editText.trim()) return true
+    const txt = coverageText()
+    if (!txt.trim()) return true
     const key = String(family || '').toLowerCase()
     const c = covRef.current.get(key)
     if (c === undefined) { ensureCoverage(family, bytes); return true }
     if (c === 'loading') return true
-    return fontCovers(c, editText)
+    return fontCovers(c, txt)
   }
 
   const cssFontFor = (family) => {
@@ -1748,7 +1755,7 @@ export default function PdfEditor({ source, path }) {
               {docFonts.map((f) => {
                 // a font that CAN'T render the current text is disabled — the user must pick one that
                 // does (one font per run, no silent substitution). covNonce forces a re-eval on load.
-                const ok = covNonce >= 0 && (!textEdit || fontCanRender(f.name, f.bytes))
+                const ok = covNonce >= 0 && fontCanRender(f.name, f.bytes)
                 return (
                   <option key={f.name} value={f.name} disabled={!ok} style={ok ? undefined : { color: '#c8c8cc', background: '#f2f2f4' }}>
                     {(ok ? '' : '⊘ ') + f.name + (f.subst ? ` ≈ ${f.subst}` : f.match ? ` → ${f.match}` : '') + (ok ? '' : ' — нет символов')}
@@ -1761,7 +1768,7 @@ export default function PdfEditor({ source, path }) {
             /* system lookalikes of the document's fonts — full faces, safe for typing NEW text */
             <optgroup label="Similar (≈ PDF)">
               {[...new Map(docFonts.filter((f) => f.match).map((f) => [f.match, f])).entries()].map(([m, f]) => {
-                const ok = covNonce >= 0 && (!textEdit || fontCanRender(m))
+                const ok = covNonce >= 0 && fontCanRender(m)
                 return <option key={'sim:' + m} value={m} disabled={!ok} style={ok ? { fontFamily: m } : { color: '#c8c8cc', background: '#f2f2f4' }}>{(ok ? '' : '⊘ ') + `${m} ≈ ${f.name}` + (ok ? '' : ' — нет символов')}</option>
               })}
             </optgroup>

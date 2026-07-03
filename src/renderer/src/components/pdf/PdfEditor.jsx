@@ -761,6 +761,7 @@ export default function PdfEditor({ source, path }) {
           // Pure colour/size restyle keeps the run's own subset (it always covers its own text).
           const src = await fontSourceFor(family, bold, italic, !!patch.family)
           if (src) fonts[k] = src
+          else { setEditErr(`Шрифт «${family}» недоступен для встраивания — выберите другой.`); return } // NO substitution, and abort BEFORE any delete so the text isn't lost
         }
         // LS is a DELTA over the run's own base layout, never an absolute Tc of the replacement
         // font: base = current width minus its current spacing; target = base + wanted LS. So

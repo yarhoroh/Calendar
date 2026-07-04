@@ -1785,11 +1785,16 @@ export default function PdfEditor({ source, path, active = true }) {
           return { ok: true }
         }
         case 'pdfSave': {
+          // bake the variables into the document BEFORE saving (the UI path does it debounced —
+          // a save right after createVariable raced it and produced a template with no variables)
+          try { await engineRef.current.writeVariables(variablesRef.current.length ? JSON.stringify(variablesRef.current) : '') } catch { /* best effort */ }
           const r = await engineRef.current.save()
           let out = path
           if (a.as) {
             const dir = String(path || '').replace(/[\\/][^\\/]*$/, '')
-            let nm = String(a.as).replace(/[\\/:*?"<>|]/g, '_')
+            // the model may pass a FULL path in "as" — keep only the file name (a full path put
+            // through the char-sanitizer became one mangled "C__Users_..." file name)
+            let nm = String(a.as).split(/[\\/]/).pop().replace(/[:*?"<>|]/g, '_')
             if (!/\.pdf$/i.test(nm)) nm += '.pdf'
             out = dir ? `${dir}\\${nm}` : nm
           }

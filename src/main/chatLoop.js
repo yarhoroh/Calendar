@@ -8,7 +8,7 @@ import { extractReadUrl, fetchReadUrl } from './urlTool'
 // duplicate-request guard below (stop feeding the same data twice).
 const MAX_STEPS = 16
 // the reply "promised" to do something (so it should have emitted an action)
-const PROMISES = /напомн|нагад|remind|постав|добав|add(ed|ing)?\b|schedul|заплан|буду|will |готов|done|видал|удал|delet|створ|create/i
+const PROMISES = /напомн|нагад|remind|постав|добав|add(ed|ing)?\b|schedul|заплан|буду|will |готов|done|видал|удал|delet|створ|create|отправ|надісл|send|sent|сохран|збереж|saved?|выполн|виконан/i
 const hasBlock = (t) => /```calendar/i.test(t || '')
 // Appended when the model answers the user FROM fetched data (notes / events / mail). Weak models
 // pad a plain lookup with a pointless "shall I add reminders?" — this keeps the answer to the facts

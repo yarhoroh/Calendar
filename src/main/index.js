@@ -544,14 +544,11 @@ function aiContext() {
   // notes are fetched on demand via the getNotes tool — only the small,
   // always-relevant data lives in the prompt. done tasks included (marked
   // [done]) so the AI can see and delete them.
-  const cli = loadSettings().ai || 'agy'
   return {
     memory: allMemory(),
     tasks: allAiTasks(),
     folders: allFolders(),
     statuses: listStatuses(),
-    aiEngine: cli, // so the assistant can answer truthfully what powers it (never guess a model)
-    aiModel: activeModel(cli),
     configPath: aiConfigPath(),
     googleAccounts: googleAccountsSummary(), // emails + selected calendar names only (no tokens)
     mailAccounts: getMailAccounts(), // IMAP mailboxes the AI can search/read/act on (no passwords)

@@ -159,26 +159,14 @@ function nowLine(now) {
   return `Right now it is ${nowTime} on ${todayLocal}, a ${WEEKDAYS[now.getDay()]} (current local time and date, 24-hour). You already know the date and time — never ask the user for them. Compute relative times like "in 1 minute" / "через минуту" / "in 2 hours" from this.`
 }
 
-// Friendly label for the active AI backend, so the assistant can state truthfully what powers it.
-const ENGINE_LABEL = { gemini: 'Google Gemini API', claude: 'Claude', codex: 'OpenAI Codex', agy: 'Antigravity' }
-// Tell the assistant its ACTUAL engine + model. Without this it invents a plausible name (users saw
-// "gpt-5.4-mini" while actually on Gemini). Only emitted when the host passes the real values.
-function identityLine(engine, model) {
-  if (!engine && !model) return null
-  const label = ENGINE_LABEL[engine] || engine || 'the built-in'
-  const m = model && model !== 'default' ? ` running the model "${model}"` : ''
-  return `IDENTITY: You are powered by the ${label} engine${m}. If the user asks which model or engine you run on, answer with exactly this — NEVER guess or invent a model name.`
-}
-
 // Full system preamble: role, time/date, the date table, the notes snapshot and
 // the action protocol. `ctx` = { notes, memory, tasks }. Used for the one-shot
 // path and the first ACP turn.
 export function buildSystem(ctx = {}) {
-  const { memory, tasks, folders, statuses, configPath, googleAccounts, mailAccounts, mailTasks, aiEngine, aiModel } = ctx
+  const { memory, tasks, folders, statuses, configPath, googleAccounts, mailAccounts, mailTasks } = ctx
   const now = new Date()
   return [
     'You are the built-in assistant of a desktop calendar + notes app. Your job is to help the user manage their schedule, notes and reminders.',
-    identityLine(aiEngine, aiModel),
     "Treat every message as being about the user's calendar, notes or day unless they clearly change the subject. Stay in this role across the whole conversation.",
     'Do NOT run shell commands, read or write files, or use any external tools — you only chat and emit the calendar action block described below.',
     "You are NOT given the user's notes up front. When you need to read notes (to answer a question, find or sort something), request them with the getNotes action and you'll receive them, then answer.",
@@ -265,11 +253,10 @@ export function buildSystem(ctx = {}) {
 // and protocol, so we only refresh the volatile data (time, dates, notes) plus
 // a short reminder of the action-block format.
 export function buildRefresh(ctx = {}) {
-  const { memory, tasks, folders, statuses, googleAccounts, mailAccounts, mailTasks, aiEngine, aiModel } = ctx
+  const { memory, tasks, folders, statuses, googleAccounts, mailAccounts, mailTasks } = ctx
   const now = new Date()
   return [
     `[context update] ${nowLine(now)}`,
-    identityLine(aiEngine, aiModel),
     '--- DATES ---',
     dateReference(now),
     '--- END DATES ---',

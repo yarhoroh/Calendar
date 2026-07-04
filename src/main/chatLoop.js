@@ -10,6 +10,11 @@ const MAX_STEPS = 16
 // the reply "promised" to do something (so it should have emitted an action)
 const PROMISES = /напомн|нагад|remind|постав|добав|add(ed|ing)?\b|schedul|заплан|буду|will |готов|done|видал|удал|delet|створ|create/i
 const hasBlock = (t) => /```calendar/i.test(t || '')
+// Appended when the model answers the user FROM fetched data (notes / events / mail). Weak models
+// pad a plain lookup with a pointless "shall I add reminders?" — this keeps the answer to the facts
+// asked for. One shared clause so the style is identical across every read tool.
+const ANSWER_STYLE =
+  ' Reply with ONLY the facts they asked for, concisely, then stop — do NOT tack on offers to do more (e.g. "shall I add reminders?") or restate the request, unless the user actually asked for that.'
 
 // Run one user turn against an engine, resolving getNotes tool requests by
 // fetching from the DB and feeding them back, until the engine gives a real
@@ -50,12 +55,12 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
     if (gReq) {
       // Google Calendar read tool — feed events back so the model can answer or import
       const gtext = await fetchGoogleEvents(gReq)
-      text = `Google Calendar events for ${gReq.from}..${gReq.to}:\n${gtext}\n\nNow answer the user's request, or import what they asked with importGoogleEvents. Do not call listGoogleEvents again for the same range.`
+      text = `Google Calendar events for ${gReq.from}..${gReq.to}:\n${gtext}\n\nNow answer the user's request, or import what they asked with importGoogleEvents. Do not call listGoogleEvents again for the same range.${ANSWER_STYLE}`
       pendingImages = null
     } else if (mReq) {
       // Mail read tool — feed the search/list/conversation back so the model can act
       const mtext = await fetchMailRead(mReq)
-      text = `Mail result:\n${mtext}\n\nNow answer the user's request using this — to read ONE message fully use mailOpen with its acct/thread/id; to mark/delete use mailMarkRead/mailDelete. Do not repeat the same mail read.`
+      text = `Mail result:\n${mtext}\n\nNow answer the user's request using this — to read ONE message fully use mailOpen with its acct/thread/id; to mark/delete use mailMarkRead/mailDelete. Do not repeat the same mail read.${ANSWER_STYLE}`
       pendingImages = null
     } else if (uReq) {
       // readUrl tool — fetch the page's clean text (logged-in session) and feed it back
@@ -66,7 +71,7 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       // feed the notes back — including any inline images, so the model can SEE
       // pictures inside notes, not just their text
       const { text: notesText, images: notesImages } = fetchNotes(req, ctx)
-      text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.`
+      text = `Notes for ${req.label}:\n${notesText}\n\nNow answer the user's request using these notes${notesImages.length ? ' (images from the notes are attached — look at them)' : ''}. Do not call getNotes again for the same range.${ANSWER_STYLE}`
       pendingImages = notesImages.length ? notesImages : null
     }
   }

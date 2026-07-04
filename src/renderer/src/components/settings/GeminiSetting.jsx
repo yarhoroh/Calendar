@@ -6,10 +6,11 @@ import SettingRow from './SettingRow'
 
 // Free-tier models that actually work on the API key (Flash line + Gemma). Pro is intentionally
 // omitted — its free-tier quota is zero. The user can still set any model by editing ai-config.json.
+// verified free on the API key (HTTP 200). Models with a zero free-tier quota (gemini-2.0-flash,
+// any -pro) are deliberately excluded — they return 429 RESOURCE_EXHAUSTED, limit: 0.
 const MODELS = [
   'gemini-2.5-flash',
   'gemini-flash-latest',
-  'gemini-2.0-flash',
   'gemini-flash-lite-latest',
   'gemma-4-31b-it'
 ]

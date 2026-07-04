@@ -66,8 +66,22 @@ async function geminiSendOne(text, images) {
   return r
 }
 
+// how many chars is left of a retryDelay like "43s" the API returns on 429, capped so we never
+// block the UI for too long. The free tier's REAL bottleneck is ~5 requests/MINUTE (RPM) — not the
+// advertised 1M tokens/min (TPM) — and our tool-loop makes a few calls per turn, so short RPM
+// bursts are expected. Waiting the server-suggested delay lets them self-heal instead of erroring.
+const RETRY_CAP_MS = 30000
+const MAX_RETRIES = 2
+function retryDelayMs(j) {
+  const info = (j?.error?.details || []).find((d) => /RetryInfo/.test(d['@type'] || ''))
+  const m = String(info?.retryDelay || '').match(/([\d.]+)s/)
+  const s = m ? parseFloat(m[1]) : 0
+  return s > 0 ? Math.min(RETRY_CAP_MS, Math.ceil(s * 1000) + 500) : 0
+}
+
 // POST contents to generateContent and pull out the reply text. Returns { ok, text, error }.
-async function callGemini(contents) {
+// Retries on 429 (rate limit) honoring the server's retryDelay, up to MAX_RETRIES.
+async function callGemini(contents, attempt = 0) {
   const cfg = loadAiConfig()
   const key = (cfg.geminiApiKey || '').trim()
   const model = cfg.geminiModel || 'gemini-2.5-flash'
@@ -84,6 +98,14 @@ async function callGemini(contents) {
     })
     const j = await res.json().catch(() => null)
     if (!res.ok) {
+      // 429 = rate limit: wait the suggested delay and retry (free tier is ~5 req/min)
+      if (res.status === 429 && attempt < MAX_RETRIES) {
+        const wait = retryDelayMs(j) || 5000
+        console.log(`[gemini] 429 rate-limited → retrying in ${(wait / 1000).toFixed(1)}s (attempt ${attempt + 1}/${MAX_RETRIES})`)
+        clearTimeout(timer)
+        await new Promise((r) => setTimeout(r, wait))
+        return callGemini(contents, attempt + 1)
+      }
       const msg = j?.error?.message || `http ${res.status}`
       console.log(`[gemini] ✗ ${res.status}: ${String(msg).slice(0, 200)}`)
       return { ok: false, text: '', error: msg }

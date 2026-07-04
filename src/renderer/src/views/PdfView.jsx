@@ -340,7 +340,37 @@ export default function PdfView() {
     openTab(hit.path)
     return { ok: true, path: hit.path }
   }
-  useEffect(() => registerUi((n, arg) => (n === 'openPdf' ? openForAiRef.current(arg) : undefined)), [])
+  // the AI creates a blank PDF and opens it, to build an invoice/contract from scratch — no dialog.
+  // It lands in the FIRST linked folder of the tree (so it shows up + is where the user's docs are),
+  // else the folder of the first linked file, else the OS Documents-style save fallback.
+  const newForAiRef = useRef(null)
+  newForAiRef.current = async ({ name } = {}) => {
+    let dir = null
+    const findDir = (nodes) => {
+      for (const n of nodes || []) {
+        if (dir) return
+        if (n.type === 'linkFolder' && n.path) { dir = n.path; return }
+        if (n.type === 'linkFile' && n.path) { dir = n.path.replace(/[\\/][^\\/]*$/, ''); return }
+        findDir(n.children)
+      }
+    }
+    findDir(tree.roots)
+    let nm = String(name || 'new-invoice.pdf').split(/[\\/]/).pop().replace(/[:*?"<>|]/g, '_')
+    if (!/\.pdf$/i.test(nm)) nm += '.pdf'
+    // dir found → put it there; no linked folder → pass the bare name and main drops it into
+    // Documents/Calendar PDFs. Either way we get the full path back and LINK it into the tree.
+    const arg = dir ? `${dir.replace(/[\\/]+$/, '')}\\${nm}` : nm
+    const p = await api.pdf?.createBlankAt?.(arg)
+    if (!p) return { ok: false, error: `could not create ${nm}` }
+    addChild(null, { id: uid(), type: 'linkFile', name: baseName(p), path: p }) // the AI's file appears in the tree
+    openTab(p)
+    return { ok: true, path: p }
+  }
+  useEffect(() => registerUi((n, arg) => {
+    if (n === 'openPdf') return openForAiRef.current(arg)
+    if (n === 'pdfNew') return newForAiRef.current(arg)
+    return undefined
+  }), [])
 
   // "Create new PDF": save dialog → a blank one-page A4 lands on disk, shows in the tree and opens
   // in a tab — a canvas for building a document (invoice/contract) from scratch, incl. by the AI

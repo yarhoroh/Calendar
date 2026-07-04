@@ -275,6 +275,18 @@ export async function execAction(a, onCommand, channel) {
         }
         return { ok: false, error: 'the Files view did not mount — is the app visible?' }
       }
+      case 'pdfNew':
+      case 'pdfCreate': {
+        // create a BLANK PDF and open it, so the AI can build a document from scratch (then pdfInfo,
+        // then pdfShape/pdfInsert to lay it out). YES — creating from scratch IS supported.
+        onCommand?.({ kind: 'pdfView' })
+        for (let i = 0; i < 20; i++) {
+          const r = await ui('pdfNew', { name: a.name || a.as })
+          if (r !== undefined) return r?.ok ? { ok: true, result: { info: `blank PDF created and opened: ${r.path} — call pdfInfo, then build it with pdfShape/pdfInsert` } } : { ok: false, error: r?.error || 'create failed' }
+          await new Promise((res) => setTimeout(res, 150))
+        }
+        return { ok: false, error: 'the Files view did not mount — is the app visible?' }
+      }
       case 'pdfInfo': {
         // read tool: the FULL document model + the PDF action manual, fed back to the model.
         // Retries briefly — right after openPdf / pdfWorkOnCopy the new tab is still loading.

@@ -1,5 +1,5 @@
 import { app, dialog, shell } from 'electron'
-import { readFileSync, writeFileSync, readdirSync, statSync, watch } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync, statSync, watch, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // ---- live watch of linked real folders: a file added/removed in Explorer reflects at once ----
@@ -91,6 +91,25 @@ export async function createBlankPdf() {
   try {
     writeFileSync(r.filePath, blankPdfBytes())
     return r.filePath
+  } catch {
+    return null
+  }
+}
+
+// dialog-LESS blank PDF (for the AI: build an invoice from scratch, no save dialog). Accepts a full
+// absolute path OR a bare file name — a bare name lands in Documents/Calendar PDFs (auto-created), so
+// it works even when the user has no folder linked in the tree. Returns the full path, or null.
+export function createBlankPdfAt(pathOrName) {
+  try {
+    const isAbs = /^[a-zA-Z]:[\\/]/.test(pathOrName) || pathOrName.startsWith('\\\\') || pathOrName.startsWith('/')
+    let full = pathOrName
+    if (!isAbs) {
+      const dir = join(app.getPath('documents'), 'Calendar PDFs')
+      mkdirSync(dir, { recursive: true })
+      full = join(dir, pathOrName)
+    }
+    writeFileSync(full, blankPdfBytes())
+    return full
   } catch {
     return null
   }

@@ -212,6 +212,17 @@ export const translations = {
         bad: 'Bad token',
         disconnect: 'Disconnect'
       },
+      gemini: {
+        desc: 'Free Google Gemini API. Paste a key (aistudio.google.com/apikey) and select "Gemini API" as the engine.',
+        key: 'API key',
+        on: 'Key set',
+        off: 'No key',
+        clear: 'Remove',
+        test: 'Test',
+        testing: 'Testing…',
+        testOk: 'Works',
+        testFail: 'Failed'
+      },
       google: {
         title: 'Google Calendar',
         desc: 'Connect Google accounts (read-only) to import calendar events.',
@@ -500,6 +511,17 @@ export const translations = {
         off: 'Вимкнено',
         bad: 'Невірний токен',
         disconnect: 'Відключити'
+      },
+      gemini: {
+        desc: 'Безкоштовний Google Gemini API. Встав ключ (aistudio.google.com/apikey) і обери «Gemini API» як рушій.',
+        key: 'API-ключ',
+        on: 'Ключ задано',
+        off: 'Немає ключа',
+        clear: 'Видалити',
+        test: 'Перевірити',
+        testing: 'Перевірка…',
+        testOk: 'Працює',
+        testFail: 'Помилка'
       },
       google: {
         title: 'Google Календар',

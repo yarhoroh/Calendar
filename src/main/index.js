@@ -5,6 +5,7 @@ import { detectClaude, detectCodex, warmUp } from './ai'
 import { warmClaude, stopClaude, clearClaude, askClaude, askClaudeRaw } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
 import { askAgy, resetAgy, detectAgy, agyAskRaw } from './agy'
+import { askGemini, resetGemini, geminiAskRaw, pingGemini } from './gemini'
 import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram } from './telegram'
@@ -496,6 +497,7 @@ function activeModel(cli) {
   const cfg = loadAiConfig()
   if (cli === 'claude') return cfg.claudeModel || 'default'
   if (cli === 'agy') return cfg.agyModel || 'default'
+  if (cli === 'gemini') return cfg.geminiModel || 'gemini-2.5-flash'
   return cfg.codexModel || 'default'
 }
 function broadcastAiStatus() {
@@ -511,6 +513,7 @@ function warmAi(cli) {
   if (cli !== 'claude') stopClaude()
   resetCodex()
   resetAgy()
+  resetGemini()
   const cfg = loadAiConfig()
   // if a configured model turns out to be unavailable, the engine falls back to
   // the CLI default and calls back so we persist the fix (so it never re-breaks)
@@ -522,6 +525,9 @@ function warmAi(cli) {
     })
   } else if (cli === 'agy') {
     warming = detectAgy().then((r) => r.found) // no persistent process to warm; just confirm it's installed
+  } else if (cli === 'gemini') {
+    // no process to warm — it's an HTTP API; "ready" just means a key is configured
+    warming = Promise.resolve(!!(cfg.geminiApiKey || '').trim())
   } else {
     warming = warmUp('codex')
   }
@@ -557,6 +563,7 @@ ipcMain.handle('ai:send', (_e, { messages }) => {
   const cli = loadSettings().ai || 'agy'
   const ctx = aiContext()
   if (cli === 'claude') return askClaude({ messages, ctx })
+  if (cli === 'gemini') return askGemini({ messages, ctx })
   if (cli === 'codex') {
     const cfg = loadAiConfig()
     return askCodex({ messages, ctx, model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -593,6 +600,25 @@ ipcMain.handle('asr:transcribe', (_e, { lang, samples }) => {
 })
 ipcMain.handle('aiConfig:get', () => loadAiConfig())
 ipcMain.handle('aiConfig:set', (_e, patch) => saveAiConfig(patch))
+// ---- Gemini API (free-tier engine) --------------------------------------
+// Store/clear the API key (from Google AI Studio); re-warm if Gemini is the active engine so the
+// status dot flips to ready immediately. Never logged.
+ipcMain.handle('gemini:set-key', (_e, key) => {
+  saveAiConfig({ geminiApiKey: (key || '').trim() })
+  if ((loadSettings().ai || 'agy') === 'gemini') warmAi('gemini')
+  return { hasKey: !!(loadAiConfig().geminiApiKey || '').trim() }
+})
+ipcMain.handle('gemini:set-model', (_e, model) => {
+  saveAiConfig({ geminiModel: (model || 'gemini-2.5-flash').trim() })
+  if ((loadSettings().ai || 'agy') === 'gemini') broadcastAiStatus()
+  return loadAiConfig().geminiModel
+})
+// status for the settings row: whether a key is set, the chosen model, and (on demand) a live ping
+ipcMain.handle('gemini:status', () => {
+  const cfg = loadAiConfig()
+  return { hasKey: !!(cfg.geminiApiKey || '').trim(), model: cfg.geminiModel || 'gemini-2.5-flash' }
+})
+ipcMain.handle('gemini:test', () => pingGemini())
 // ---- Telegram bridge ----------------------------------------------------
 let telegramOk = false
 let lastTelegramChat = null // remember who last messaged the bot, for proactive sends
@@ -784,6 +810,7 @@ ipcMain.handle('mail:translate', async (_e, { segments, lang }) => {
   // isolated one-shot per engine — translation must NOT share the chat conversation
   // (a shared session lets the chat persona bleed in and breaks the JSON output)
   if (cli === 'claude') res = await askClaudeRaw(prompt)
+  else if (cli === 'gemini') res = await geminiAskRaw(prompt) // isolated one-shot, no chat history
   else if (cli === 'codex') {
     const cfg = loadAiConfig()
     res = await askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -807,6 +834,7 @@ async function askRawAI(prompt) {
   // isolated one-shot (NOT the shared chat session) — otherwise the calendar system
   // prompt bleeds in and the summary ends with a stray ```calendar [...]``` block
   if (cli === 'claude') return askClaudeRaw(prompt)
+  if (cli === 'gemini') return geminiAskRaw(prompt)
   if (cli === 'codex') {
     const cfg = loadAiConfig()
     return askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -988,7 +1016,7 @@ ipcMain.handle('aiConfig:reveal', () => {
 // change the CURRENT engine's model, then restart it so the change takes effect
 ipcMain.handle('ai:set-model', (_e, { model, reasoning } = {}) => {
   const cli = loadSettings().ai || 'agy'
-  const key = { claude: 'claudeModel', codex: 'codexModel', agy: 'agyModel' }[cli] || 'agyModel'
+  const key = { claude: 'claudeModel', codex: 'codexModel', agy: 'agyModel', gemini: 'geminiModel' }[cli] || 'agyModel'
   const patch = { [key]: model || '' }
   if (cli === 'codex' && reasoning) patch.codexReasoning = reasoning
   saveAiConfig(patch)

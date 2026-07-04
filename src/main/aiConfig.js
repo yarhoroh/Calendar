@@ -10,6 +10,10 @@ const DEFAULTS = {
   codexModel: 'gpt-5.4-mini',
   codexReasoning: 'low',
   agyModel: '', // Antigravity CLI model ('' = its default)
+  // Gemini API (free tier): key from Google AI Studio (aistudio.google.com/apikey), pasted in
+  // Settings — NOT hardcoded. Free tier works on the Flash line (Pro's free quota is zero).
+  geminiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
   telegramToken: '', // bot token for the Telegram bridge ('' = off)
   // Google Calendar (read-only import). Create a "Desktop app" OAuth client in
   // Google Cloud, enable the Calendar API, set the consent screen to Testing and

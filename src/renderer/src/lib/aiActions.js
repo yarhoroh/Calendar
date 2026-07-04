@@ -582,7 +582,20 @@ export async function runActions(actions, onCommand, channel) {
     if (!pending.length) break
 
     const results = []
-    for (const a of pending) results.push({ a, r: await execAction(a, onCommand, channel) })
+    // PDF batch stop-guard: after ANY failed PDF action the page ids the model planned with are
+    // suspect — running the REST of its PDF batch (e.g. the pdfInsert paired with a failed
+    // pdfDelete) duplicated content. Skip them; the model redoes the step from a fresh pdfInfo.
+    const PDF_CHAIN = new Set(['pdfEditText', 'pdfRestyle', 'pdfInsert', 'pdfDelete', 'pdfMove', 'pdfShape', 'createVariable', 'pdfSetVariable', 'pdfSave'])
+    let pdfAborted = false
+    for (const a of pending) {
+      if (pdfAborted && PDF_CHAIN.has(a.action)) {
+        results.push({ a, r: { ok: false, error: 'SKIPPED — a previous PDF action in this batch failed, so ids/layout are stale; re-run pdfInfo and redo this step with fresh ids' } })
+        continue
+      }
+      const r = await execAction(a, onCommand, channel)
+      if (PDF_CHAIN.has(a.action) && r && r.ok === false) pdfAborted = true
+      results.push({ a, r })
+    }
 
     const lines = results.map(({ a, r }) => {
       if (r && r.ok === false) return `${a.action}: FAILED — ${r.error || 'failed'}`

@@ -28,7 +28,10 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfSave"} — save the document to its own file. {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to it (the reply gives the new file\'s full path — use that path for attachFile / telegramFile / composeMail attachments; the template file stays untouched).',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
   'METRICS — plan the layout with real numbers: the page size is in the PAGE header (A4 ≈ 595x842pt). A text line occupies ≈ size×1.3 pt of height (cap height ≈ 0.7×size above the baseline, descenders ≈ 0.25×size below). Rough width estimate ≈ 0.5×size per character (Arial). You do NOT need to guess precisely: every pdfInsert REPLIES with the exact box of what landed — "inserted: …" with x, baseline, w, h per line — use those real numbers to place the next elements, right-align amounts (x = right_edge − w), and verify nothing overlaps. Keep ~40pt page margins.',
-  'SELF-CHECK LOOP: after building or changing a layout, call {"action":"pdfInfo"} again and READ it back — every page lists its lines with real coordinates and an OVERLAPS section that flags texts sitting on top of each other. If something overlaps, misaligns or is missing: fix it (pdfMove / pdfDelete / pdfInsert) and re-check with pdfInfo again, until the overlaps section says "none". Only then pdfSave and report to the user.',
+  'READING THE PIECES: inside a line every neighbour pair shows its exact <gap Npt>. gap ≲ 0.15×size → GLUED fragments of ONE word/value (PDF just split it — always treat/edit them TOGETHER); gap ≈ a space width → words of one phrase; gap over ~1×size → separate fields/columns. So "0" <gap 0.2> ",00 €" is ONE amount, while "Due:" <gap 40> "04.07.2026" is a label and a value.',
+  'REPLACING / CONSOLIDATING a value that is broken into pieces (a number, a date): ONE block = first a SINGLE pdfDelete listing ALL the old piece ids, then the pdfInsert of the clean text. NEVER insert a replacement without deleting the old pieces in the SAME block — that leaves the old text underneath (duplicates). Ids go STALE after every mutation: if a pdfDelete comes back FAILED, the REST of that block is skipped automatically — re-run pdfInfo and redo with fresh ids.',
+  'SPLITTING a value so PART of it is editable (e.g. only the MONTH inside "July 15, 2026"): pdfDelete the whole chain, then pdfInsert each part as its OWN piece on the same baseline — insert part 1, take the returned w, insert part 2 at x+w (+ a space gap), etc. — then createVariable for the part(s) that will change. Do the same when a date/amount must be re-usable per month.',
+  'SELF-CHECK LOOP: after building or changing a layout, call {"action":"pdfInfo"} again and READ it back — it is your visual snapshot of the document as data: every visual line with each piece\'s [x0..x1] span, the page\'s alignment columns (which left/right edges line up), an OVERLAPS section (texts on top of each other) and a POSSIBLE DUPLICATES section (same text twice in one place — a leftover of a bad replace). If something overlaps, duplicates, misaligns or is missing: fix it (pdfMove / pdfDelete / pdfInsert) and re-check with pdfInfo again until both sections are clean. Only then pdfSave and report to the user.',
   'IMPORTANT: after ANY edit the piece ids CHANGE — call {"action":"pdfInfo"} again for fresh ids before further edits. If a font error comes back ("не содержит символы" / "недоступен"), that family cannot render the text — pick another family (document font or Arial/Times New Roman/Courier New) and retry.'
 ].join('\n')
 
@@ -1652,9 +1655,15 @@ export default function PdfEditor({ source, path, active = true }) {
       let n = 0
       for (const k of keys) {
         const rs = lines.get(k).sort((a, b) => a.x - b.x)
+        // the pieces of one visual line, with the exact GAP between neighbours — this is how the
+        // model tells "glued fragments of ONE text" (gap ≈ 0) from "separate fields/columns"
         const pieces = rs
-          .map((r) => { const f = pg.fonts?.[r.f] || {}; return `${r.id} "${r.text}" x=${c1(r.x)} w=${c1(r.bbox.w)} ${f.name || '?'} ${r.size ?? '?'}pt${f.bold ? ' bold' : ''}${f.italic ? ' italic' : ''} ${pg.colors?.[r.c] || '#000'}${r.ls ? ` ls=${c1(r.ls)}` : ''}` })
-          .join(' | ')
+          .map((r, i) => {
+            const f = pg.fonts?.[r.f] || {}
+            const gap = i > 0 ? ` <gap ${c1(r.bbox.x - (rs[i - 1].bbox.x + rs[i - 1].bbox.w))}pt> ` : ''
+            return `${gap}${r.id} "${r.text}" [${c1(r.bbox.x)}..${c1(r.bbox.x + r.bbox.w)}] ${f.name || '?'} ${r.size ?? '?'}pt${f.bold ? ' bold' : ''}${f.italic ? ' italic' : ''} ${pg.colors?.[r.c] || '#000'}${r.ls ? ` ls=${c1(r.ls)}` : ''}`
+          })
+          .join('')
         out.push(`  base=${c1(rs[0].y)} "${joinRuns(rs)}" → ${pieces}`)
         if (++n >= 400) { out.push(`  … (${keys.length - n} more lines omitted)`); break }
       }
@@ -1662,10 +1671,21 @@ export default function PdfEditor({ source, path, active = true }) {
       if (vecs) out.push(`  graphics: ${vecs}`)
       const ims = (pg.images || []).map((im) => `${im.id} image @(${c1(im.bbox.x)},${c1(im.bbox.y)}) ${c1(im.bbox.w)}x${c1(im.bbox.h)}`).join('; ')
       if (ims) out.push(`  images: ${ims}`)
+      // ---- the "visual snapshot as data" aids: alignment columns, overlaps, near-duplicates ----
+      const rr = pg.runs
+      // alignment map: left/right edges shared by 3+ pieces = the document's columns — tells the
+      // model what "lined up" means here and whether an edit broke a column
+      const cols = (edge) => {
+        const groups = new Map()
+        for (const r of rr) { const k = Math.round(edge(r) / 2) * 2; groups.set(k, (groups.get(k) || 0) + 1) }
+        return [...groups.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([x, n]) => `x≈${x}(${n})`).join(', ')
+      }
+      const colL = cols((r) => r.bbox.x)
+      const colR = cols((r) => r.bbox.x + r.bbox.w)
+      if (colL || colR) out.push(`  alignment columns — left-aligned: ${colL || '(none)'}; right-aligned: ${colR || '(none)'}`)
       // self-check aid: flag TEXT pieces whose boxes intersect — the model re-reads pdfInfo after
       // building and fixes what this section flags (move/delete), then re-checks until it's clean
       const laps = []
-      const rr = pg.runs
       for (let i = 0; i < rr.length && laps.length < 40; i++)
         for (let j = i + 1; j < rr.length && laps.length < 40; j++) {
           const A = rr[i].bbox, B = rr[j].bbox
@@ -1674,6 +1694,19 @@ export default function PdfEditor({ source, path, active = true }) {
           if (ox > 1 && oy > 1) laps.push(`${rr[i].id} "${rr[i].text}" ⇄ ${rr[j].id} "${rr[j].text}" (${c1(ox)}x${c1(oy)}pt)`)
         }
       out.push(laps.length ? `  ⚠ OVERLAPPING TEXTS (fix with pdfMove/pdfDelete, then re-check): ${laps.join('; ')}` : '  overlaps: none — texts are cleanly placed')
+      // near-duplicates: the SAME text sitting almost in the same spot (a leftover after a botched
+      // replace — inserted the new value without deleting the old pieces). Even without box overlap.
+      const dups = []
+      const normT = (s) => String(s || '').replace(/\s+/g, '').toLowerCase()
+      for (let i = 0; i < rr.length && dups.length < 20; i++)
+        for (let j = i + 1; j < rr.length && dups.length < 20; j++) {
+          const a = rr[i], b = rr[j]
+          const t = normT(a.text)
+          if (t.length < 2 || t !== normT(b.text)) continue
+          const em = Math.max(a.size || 10, b.size || 10) * 2
+          if (Math.abs(a.bbox.x - b.bbox.x) < em && Math.abs(a.y - b.y) < em) dups.push(`${a.id} & ${b.id} "${a.text}" (Δx=${c1(Math.abs(a.bbox.x - b.bbox.x))}, Δy=${c1(Math.abs(a.y - b.y))})`)
+        }
+      if (dups.length) out.push(`  ⚠ POSSIBLE DUPLICATES — same text twice almost in one place (delete the stale copy): ${dups.join('; ')}`)
     }
     out.push(AI_PDF_MANUAL)
     return out.join('\n')
@@ -1723,9 +1756,21 @@ export default function PdfEditor({ source, path, active = true }) {
           const m = await refreshPage(page)
           // report the EXACT landed geometry so the model lays out the next elements with real
           // numbers (right-aligned amounts, no overlaps) instead of width guesses
-          const landed = allOf(m).filter((o) => o.type === 'text' && !before.has(sigOf(o)))
-            .map((o) => `"${o.text}" x=${Math.round(o.bbox.x * 10) / 10} base=${Math.round(o.y * 10) / 10} w=${Math.round(o.bbox.w * 10) / 10} h=${Math.round(o.bbox.h * 10) / 10}`)
-          return { ok: true, result: { info: landed.length ? `inserted: ${landed.join('; ')}` : 'inserted' } }
+          const fresh = allOf(m).filter((o) => o.type === 'text' && !before.has(sigOf(o)))
+          const landed = fresh.map((o) => `"${o.text}" x=${Math.round(o.bbox.x * 10) / 10} base=${Math.round(o.y * 10) / 10} w=${Math.round(o.bbox.w * 10) / 10} h=${Math.round(o.bbox.h * 10) / 10}`)
+          // instant collision report: the new text landing ON an existing piece almost always means
+          // a replacement where the OLD pieces were not deleted — tell the model right away
+          const freshSet = new Set(fresh)
+          const hit = []
+          for (const o of fresh)
+            for (const r2 of m.runs) {
+              if (freshSet.has(r2)) continue
+              const ox = Math.min(o.bbox.x + o.bbox.w, r2.bbox.x + r2.bbox.w) - Math.max(o.bbox.x, r2.bbox.x)
+              const oy = Math.min(o.bbox.y + o.bbox.h, r2.bbox.y + r2.bbox.h) - Math.max(o.bbox.y, r2.bbox.y)
+              if (ox > 1 && oy > 1 && hit.length < 6) hit.push(`${r2.id} "${r2.text}"`)
+            }
+          const warn = hit.length ? ` ⚠ the new text OVERLAPS existing ${hit.join(', ')} — if this was a replacement you forgot to delete the old pieces: pdfDelete them now` : ''
+          return { ok: true, result: { info: (landed.length ? `inserted: ${landed.join('; ')}` : 'inserted') + warn } }
         }
         case 'pdfDelete': {
           const objs = pick(a.ids ?? a.id)

@@ -309,8 +309,6 @@ export default function PdfView() {
   const openForAiRef = useRef(null)
   openForAiRef.current = async ({ path: p, name } = {}) => {
     if (p) { openTab(p); return { ok: true, path: p } }
-    const want = String(name || '').toLowerCase()
-    if (!want) return { ok: false, error: 'openPdf needs a name or an absolute path' }
     const files = [] // { name, path }
     const walk = async (nodes) => {
       for (const n of nodes || []) {
@@ -323,6 +321,12 @@ export default function PdfView() {
       }
     }
     await walk(tree.roots)
+    const want = String(name || '').toLowerCase()
+    if (!want) {
+      // "открой мой PDF, он там один": no name given → open the tree's ONLY file, else list them
+      if (files.length === 1) { openTab(files[0].path); return { ok: true, path: files[0].path } }
+      return { ok: false, error: `which file? the tree has ${files.length}: ${files.slice(0, 20).map((f) => f.name).join(', ') || '(none)'}` }
+    }
     const hit = files.find((f) => f.name.toLowerCase() === want) || files.find((f) => f.name.toLowerCase().includes(want))
     if (!hit) return { ok: false, error: `"${name}" not found in the Files tree — files: ${files.slice(0, 20).map((f) => f.name).join(', ') || '(none)'}` }
     openTab(hit.path)

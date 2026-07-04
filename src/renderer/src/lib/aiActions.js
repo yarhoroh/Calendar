@@ -276,9 +276,15 @@ export async function execAction(a, onCommand, channel) {
         return { ok: false, error: 'the Files view did not mount — is the app visible?' }
       }
       case 'pdfInfo': {
-        // read tool: the FULL document model + the PDF action manual, fed back to the model
-        const info = await ui('pdfAiInfo')
-        return info ? { ok: true, result: { info } } : { ok: false, error: 'no PDF is open — the user must open (or create) a PDF in the Files tab first' }
+        // read tool: the FULL document model + the PDF action manual, fed back to the model.
+        // Retries briefly — right after openPdf / pdfWorkOnCopy the new tab is still loading.
+        let info = null
+        for (let i = 0; i < 20; i++) {
+          info = await ui('pdfAiInfo')
+          if (info) break
+          await new Promise((res) => setTimeout(res, 200))
+        }
+        return info ? { ok: true, result: { info } } : { ok: false, error: 'no PDF is open — open one first with {"action":"openPdf","name":"…"} (or the user opens it in Files)' }
       }
       case 'pdfEditText':
       case 'pdfRestyle':

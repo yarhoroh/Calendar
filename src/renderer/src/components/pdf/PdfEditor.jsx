@@ -4,11 +4,15 @@ import api from '../../lib/api'
 import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
-import { registerUi, updateUiState } from '../../lib/uiBridge'
+import { registerUi, updateUiState, ui } from '../../lib/uiBridge'
 import { cloneFor } from '../../../../shared/fontClones'
 import { fontCoverageOf, fontCovers } from './fontCoverage'
 import PdfPage from './PdfPage'
 import './PdfEditor.css'
+
+// files the AI itself created this session (copies / new invoices) — in-place saves on these are
+// fine; overwriting a USER's original file needs their explicit request
+const AI_CREATED_PATHS = new Set()
 
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
@@ -25,7 +29,8 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfShape","page":0,"kind":"rect","x":40,"y":100,"w":515,"h":24,"color":"#dddddd","strokeW":1,"radius":0,"fill":"#f2f2f2"} — draw a frame/band/background ("fill" optional; "stroke":"none" = fill only). kind "line": {"x1","y1","x2","y2"} for table rules/separators. kind "ellipse": x/y/w/h box.',
   '- {"action":"createVariable","name":"invoice_no","value":"INV-2026-001"} — make a template variable out of EVERY text in the document equal to value (create the text first with pdfInsert, then variable it). Name it meaningfully (invoice_no, client, due_date, total…).',
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
-  '- {"action":"pdfSave"} — save the document to its own file. {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to it (the reply gives the new file\'s full path — use that path for attachFile / telegramFile / composeMail attachments; the template file stays untouched).',
+  '- {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to the original (the reply gives the new file\'s full path — use it for attachFile / telegramFile / composeMail attachments). A plain pdfSave OVERWRITES the open file and is REFUSED on the user\'s own documents — only when the user explicitly asked to overwrite, retry with {"overwrite":true}. Files you created yourself (copies, new invoices) can be saved in place freely.',
+  '- {"action":"pdfWorkOnCopy","as":"name-copy.pdf"} — save the current state as a copy next to the original AND switch editing to it (the copy opens as the active tab; every later action hits the copy; the original stays untouched). USE THIS FIRST whenever the user asks for serious changes to an existing document and did not say to change the original itself.',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
   'METRICS — plan the layout with real numbers: the page size is in the PAGE header (A4 ≈ 595x842pt). A text line occupies ≈ size×1.3 pt of height (cap height ≈ 0.7×size above the baseline, descenders ≈ 0.25×size below). Rough width estimate ≈ 0.5×size per character (Arial). You do NOT need to guess precisely: every pdfInsert REPLIES with the exact box of what landed — "inserted: …" with x, baseline, w, h per line — use those real numbers to place the next elements, right-align amounts (x = right_edge − w), and verify nothing overlaps. Keep ~40pt page margins.',
   'READING THE PIECES: inside a line every neighbour pair shows its exact <gap Npt>. gap ≲ 0.15×size → GLUED fragments of ONE word/value (PDF just split it — always treat/edit them TOGETHER); gap ≈ a space width → words of one phrase; gap over ~1×size → separate fields/columns. So "0" <gap 0.2> ",00 €" is ONE amount, while "Due:" <gap 40> "04.07.2026" is a label and a value.',
@@ -1830,6 +1835,11 @@ export default function PdfEditor({ source, path, active = true }) {
           return { ok: true }
         }
         case 'pdfSave': {
+          // OVERWRITE GUARD: the user's original file on disk is sacred — an in-place save without
+          // their explicit request once silently destroyed a source invoice. Copies the AI itself
+          // created this session are fair game.
+          if (!a.as && a.overwrite !== true && !AI_CREATED_PATHS.has(path))
+            return { ok: false, error: 'refusing to OVERWRITE the user\'s original file. Save a copy instead: pdfSave {"as":"name.pdf"} — or use pdfWorkOnCopy to continue editing on a copy. Only if the USER explicitly asked to overwrite THIS file, retry with {"overwrite":true}.' }
           // bake the variables into the document BEFORE saving (the UI path does it debounced —
           // a save right after createVariable raced it and produced a template with no variables)
           try { await engineRef.current.writeVariables(variablesRef.current.length ? JSON.stringify(variablesRef.current) : '') } catch { /* best effort */ }
@@ -1845,7 +1855,25 @@ export default function PdfEditor({ source, path, active = true }) {
           }
           const w = await api.pdf.write(out, new Uint8Array(r.bytes))
           if (!w?.ok) return { ok: false, error: w?.error || 'write failed' }
+          if (a.as) AI_CREATED_PATHS.add(out)
           return { ok: true, result: { info: `saved to ${out}` } }
+        }
+        case 'pdfWorkOnCopy':
+        case 'pdfCopy': {
+          // serious edits to a user's document happen on a COPY: current in-memory state → a new
+          // file next to the original, opened as the active tab — every further action hits the
+          // copy, the original file on disk stays untouched
+          const r = await engineRef.current.save()
+          const dir = String(path || '').replace(/[\\/][^\\/]*$/, '')
+          let nm = String(a.as || (path || 'document.pdf').split(/[\\/]/).pop().replace(/\.pdf$/i, '') + '-copy.pdf').split(/[\\/]/).pop().replace(/[:*?"<>|]/g, '_')
+          if (!/\.pdf$/i.test(nm)) nm += '.pdf'
+          const out = dir ? `${dir}\\${nm}` : nm
+          const w = await api.pdf.write(out, new Uint8Array(r.bytes))
+          if (!w?.ok) return { ok: false, error: w?.error || 'write failed' }
+          AI_CREATED_PATHS.add(out)
+          const op = await ui('openPdf', { path: out })
+          if (!op?.ok) return { ok: false, error: `copy saved to ${out} but could not open it: ${op?.error || '?'}` }
+          return { ok: true, result: { info: `working copy created and opened: ${out} — the original is untouched; ALL further actions target the copy. Call pdfInfo next (give it a moment to load).` } }
         }
         default:
           return { ok: false, error: `unknown PDF action "${a.action}"` }

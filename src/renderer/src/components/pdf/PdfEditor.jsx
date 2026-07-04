@@ -753,8 +753,12 @@ export default function PdfEditor({ source, path }) {
       for (const o of texts) {
         const cur = pg.fonts?.[o.f] || {}
         const family = patch.family || cur.name || 'Arial'
-        const bold = patch.bold !== undefined ? patch.bold : !!cur.bold
-        const italic = patch.italic !== undefined ? patch.italic : !!cur.italic
+        // picking a specific DOCUMENT face (e.g. "NimbusSans-Regular") means THAT face — its weight/
+        // slant come from ITS name, not the run's current bold (asking a Regular face as bold missed
+        // {pdf} and hunted a non-existent system "Nimbus Sans Bold" → "недоступен" for an EMBEDDED font)
+        const pickedDoc = patch.family && docFonts.find((d) => d.name === patch.family)
+        const bold = pickedDoc ? /bold|black|heavy/i.test(patch.family) : patch.bold !== undefined ? patch.bold : !!cur.bold
+        const italic = pickedDoc ? /italic|oblique/i.test(patch.family) : patch.italic !== undefined ? patch.italic : !!cur.italic
         const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
         if (!fonts[k]) {
           // CHANGING the font (pipette / dropdown) → use the full loadable face, not the doc's

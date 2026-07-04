@@ -1445,6 +1445,27 @@ if (!gotLock) {
     syncTelegram()
     warmAi(loadSettings().ai || 'agy')
     initAutoUpdate()
+    // DEV-ONLY task injector: hand the in-app AI a task programmatically (agent testing). It rides
+    // the Telegram pipeline — the renderer runs the FULL production loop (engine, actions, PDF
+    // surface) and replies/files go to the user's Telegram. Localhost only, never in a packaged app.
+    if (!app.isPackaged) {
+      import('node:http').then(({ createServer }) => {
+        createServer((req, res) => {
+          if (req.method !== 'POST' || req.url !== '/ai-task') { res.statusCode = 404; return res.end() }
+          let b = ''
+          req.on('data', (d) => (b += d)).on('end', () => {
+            try {
+              const { text } = JSON.parse(b)
+              const chat = loadAiConfig().telegramChat
+              if (!text || !chat) { res.statusCode = 400; return res.end('{"ok":false,"error":"no text or no telegramChat"}') }
+              console.log('[dev-task] →', String(text).slice(0, 120))
+              mainWindow?.webContents?.send('telegram:message', { chatId: chat, text: String(text), from: 'Dev' })
+              res.end('{"ok":true}')
+            } catch { res.statusCode = 400; res.end('{"ok":false}') }
+          })
+        }).listen(51282, '127.0.0.1', () => console.log('[dev-task] injector on 127.0.0.1:51282/ai-task'))
+      }).catch(() => {})
+    }
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

@@ -79,6 +79,12 @@ export default function App() {
     // web/reader commands open their own overlay — they must NOT yank the user to calendar
     if (cmd.kind === 'showReader') return setReader({ title: cmd.title, text: cmd.text, lang: cmd.lang, speak: cmd.speak })
     if (cmd.kind === 'openUrl') return setBrowseUrl(cmd.url)
+    if (cmd.kind === 'pdfView') {
+      // the AI opens a PDF: just show the Files view; the openPdf ui-handler does the rest
+      setView('pdf')
+      localStorage.setItem('view', 'pdf')
+      return
+    }
     if (cmd.kind === 'composeMail') {
       // show mail and open (or, if already open, edit) the composer with the AI's prefill
       setView('mail')

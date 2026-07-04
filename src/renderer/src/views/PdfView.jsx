@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../lib/api'
+import { registerUi } from '../lib/uiBridge'
 import ContextMenu from '../components/ContextMenu'
 import PdfEditorTab from '../components/pdf/PdfEditorTab'
 import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, PdfIcon } from '../components/icons'
@@ -302,6 +303,33 @@ export default function PdfView() {
     setActivePath(paths[paths.length - 1])
     paths.forEach(loadInfo)
   }
+  // the AI can OPEN a PDF here by absolute path or by NAME (searched through the tree: linked
+  // files, then linked folders scanned recursively) — so "сделай счёт из invoicePlugin.pdf" works
+  // even when no tab is open. Registered while the Files view is mounted.
+  const openForAiRef = useRef(null)
+  openForAiRef.current = async ({ path: p, name } = {}) => {
+    if (p) { openTab(p); return { ok: true, path: p } }
+    const want = String(name || '').toLowerCase()
+    if (!want) return { ok: false, error: 'openPdf needs a name or an absolute path' }
+    const files = [] // { name, path }
+    const walk = async (nodes) => {
+      for (const n of nodes || []) {
+        if (n.type === 'linkFile' && n.path) files.push({ name: baseName(n.path), path: n.path })
+        if (n.type === 'linkFolder' && n.path) {
+          const r = await api.pdf?.scan?.(n.path, 'flat')
+          for (const f of r?.files || []) files.push({ name: f.name, path: f.path })
+        }
+        await walk(n.children)
+      }
+    }
+    await walk(tree.roots)
+    const hit = files.find((f) => f.name.toLowerCase() === want) || files.find((f) => f.name.toLowerCase().includes(want))
+    if (!hit) return { ok: false, error: `"${name}" not found in the Files tree — files: ${files.slice(0, 20).map((f) => f.name).join(', ') || '(none)'}` }
+    openTab(hit.path)
+    return { ok: true, path: hit.path }
+  }
+  useEffect(() => registerUi((n, arg) => (n === 'openPdf' ? openForAiRef.current(arg) : undefined)), [])
+
   // "Create new PDF": save dialog → a blank one-page A4 lands on disk, shows in the tree and opens
   // in a tab — a canvas for building a document (invoice/contract) from scratch, incl. by the AI
   const newPdf = async () => {

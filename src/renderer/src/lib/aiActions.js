@@ -263,6 +263,18 @@ export async function execAction(a, onCommand, channel) {
         if (a.id) await api.openAttachment?.(a.id)
         return { ok: true }
       // ---- PDF editor control (the open PDF in the Files tab answers via the ui() bus) ----
+      case 'openPdf':
+      case 'pdfOpen': {
+        // open a PDF in the Files tab by name (searched in the tree) or absolute path — switches
+        // the view there, waits for the Files view to mount, then resolves & opens the tab
+        onCommand?.({ kind: 'pdfView' })
+        for (let i = 0; i < 20; i++) {
+          const r = await ui('openPdf', { path: a.path, name: a.name })
+          if (r !== undefined) return r?.ok ? { ok: true, result: { info: `opened ${r.path}` } } : { ok: false, error: r?.error || 'open failed' }
+          await new Promise((res) => setTimeout(res, 150)) // Files view still mounting
+        }
+        return { ok: false, error: 'the Files view did not mount — is the app visible?' }
+      }
       case 'pdfInfo': {
         // read tool: the FULL document model + the PDF action manual, fed back to the model
         const info = await ui('pdfAiInfo')
@@ -539,7 +551,7 @@ export async function execAction(a, onCommand, channel) {
   }
 }
 
-const MAX_ROUNDS = 5
+const MAX_ROUNDS = 10 // PDF template work legitimately chains many rounds (info → fix → vars → save → send)
 // actions that don't change data — no need to report their success back to the
 // model (navigation, voice/toast, reads, model switch). Everything else (note &
 // folder mutations, tasks, memory, attachments) is reported so the model knows

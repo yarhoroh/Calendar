@@ -170,16 +170,20 @@ function clientFor(acc, password) {
   })
 }
 
-// add an account: verify the login works BEFORE saving, so a bad app password
-// fails loudly instead of silently storing junk
+// add an account OR re-initialize an existing one (same email) with a new password — one common
+// mechanism. Re-adding KEEPS the account's own settings (name, custom hosts) and only swaps the
+// login/password, so a password change (e.g. after a Google password reset revokes the old App
+// Password) is a targeted reconnect, not a delete + re-add. Verifies the login BEFORE saving, so a
+// bad app password fails loudly instead of silently storing junk.
 export async function addMailAccount({ email, password, name, imapHost, imapPort, smtpHost, smtpPort } = {}) {
   const e = String(email || '').trim()
   const pass = String(password || '').trim()
   if (!e || !pass) return { ok: false, error: 'email and app password are required' }
+  const existing = findRaw(e)
   const acc = {
+    ...(existing || GMAIL_IMAP), // reconnect keeps this account's hosts/fields; a new account gets Gmail defaults
     email: e,
-    name: String(name || '').trim() || e,
-    ...GMAIL_IMAP,
+    name: String(name || '').trim() || existing?.name || e,
     ...(imapHost ? { imapHost } : {}),
     ...(imapPort ? { imapPort: Number(imapPort) } : {}),
     ...(smtpHost ? { smtpHost } : {}),

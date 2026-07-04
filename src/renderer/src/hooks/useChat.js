@@ -4,7 +4,7 @@ import { startOfToday, dateKey } from '../lib/dates'
 import { extractActions, runActions } from '../lib/aiActions'
 import { activeContext } from '../lib/activeEditor'
 import { getUiState, ui } from '../lib/uiBridge'
-import { registerChatSink } from '../lib/chatBridge'
+import { registerChatSink, resetAbort, abortActions } from '../lib/chatBridge'
 
 // Tell the AI where the user is (tab / fullscreen / editing / selected folder)
 // and, if a note is open, its content + selection — so it can act on "this note"
@@ -80,39 +80,45 @@ export function useChat({ onCommand }) {
   const send = async (text, images) => {
     const t = text.trim()
     if ((!t && !images?.length) || busy) return
+    resetAbort() // a fresh turn clears any prior stop
     const imgs = images?.length ? images : undefined
     const next = [...messages, { role: 'user', content: t, images: imgs }] // UI shows just the user's text
     setMessages(next)
-    setBusy(true)
-    // the message the AI actually receives carries the open-editor context
-    const forAi = [...messages, { role: 'user', content: withEditorContext(t), images: imgs }]
-    const res = await api.aiSend?.({ messages: forAi, todayKey: dateKey(startOfToday()) })
-    setBusy(false)
-
-    if (!res?.ok) {
-      setMessages((m) => [...m, { role: 'assistant', content: `⚠ ${res?.error || 'нет ответа от CLI'}` }])
-      return
+    setBusy(true) // stays true through the WHOLE turn (reply + the multi-round action loop) so the
+    // Stop button is available while a long PDF build runs, not just during the first reply
+    try {
+      // the message the AI actually receives carries the open-editor context
+      const forAi = [...messages, { role: 'user', content: withEditorContext(t), images: imgs }]
+      const res = await api.aiSend?.({ messages: forAi, todayKey: dateKey(startOfToday()) })
+      if (!res?.ok) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚠ ${res?.error || 'нет ответа от CLI'}` }])
+        return
+      }
+      console.warn('[ai-reply]', JSON.stringify(res.text))
+      const { text: clean, actions } = extractActions(res.text)
+      console.warn('[ai-actions]', actions.length, JSON.stringify(actions))
+      setMessages((m) => [...m, { role: 'assistant', content: clean || '✓' }])
+      // drop a chat/message action that just repeats the reply we already posted (some models
+      // confirm twice — once as text, once as a chat action) so the user doesn't see a duplicate
+      const replyLc = (clean || '').trim().toLowerCase()
+      const acts = actions.filter((a) => {
+        if (!['chat', 'message'].includes(a.action) || !a.text) return true
+        const tl = a.text.trim().toLowerCase()
+        return !(replyLc && (replyLc.includes(tl) || tl.includes(replyLc)))
+      })
+      const fb = await runActions(acts, onCommand)
+      if (fb) setMessages((m) => [...m, { role: 'assistant', content: fb }])
+    } finally {
+      setBusy(false)
     }
-    console.warn('[ai-reply]', JSON.stringify(res.text))
-    const { text: clean, actions } = extractActions(res.text)
-    console.warn('[ai-actions]', actions.length, JSON.stringify(actions))
-    setMessages((m) => [...m, { role: 'assistant', content: clean || '✓' }])
-    // drop a chat/message action that just repeats the reply we already posted (some models
-    // confirm twice — once as text, once as a chat action) so the user doesn't see a duplicate
-    const replyLc = (clean || '').trim().toLowerCase()
-    const acts = actions.filter((a) => {
-      if (!['chat', 'message'].includes(a.action) || !a.text) return true
-      const tl = a.text.trim().toLowerCase()
-      return !(replyLc && (replyLc.includes(tl) || tl.includes(replyLc)))
-    })
-    const fb = await runActions(acts, onCommand)
-    if (fb) setMessages((m) => [...m, { role: 'assistant', content: fb }])
   }
 
   const clear = () => {
     setMessages([])
     api.aiClear?.() // also wipe the AI's own (server-side) context
   }
+  // halt a long multi-round action chain (PDF build etc.) between rounds
+  const stop = () => abortActions()
 
-  return { messages, busy, send, clear }
+  return { messages, busy, send, clear, stop }
 }

@@ -251,7 +251,7 @@ export default function App() {
           {showChat && view !== 'settings' && (
             <div className="app-chat" ref={chatElRef}>
               <ChatPanel messages={chat.messages} busy={chat.busy} onClear={chat.clear} />
-              <PromptBar onSend={chat.send} busy={chat.busy} />
+              <PromptBar onSend={chat.send} busy={chat.busy} onStop={chat.stop} />
             </div>
           )}
           {view === 'settings' && (

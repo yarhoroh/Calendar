@@ -19,7 +19,7 @@ const fileToImage = (file) =>
 
 // Chat input. Enter sends, Ctrl+Enter inserts a new line. Sending is handled by
 // the parent (useChat); while a reply is pending the send button is disabled.
-export default function PromptBar({ onSend, busy }) {
+export default function PromptBar({ onSend, busy, onStop }) {
   const { t } = useI18n()
   const [text, setText] = useState('')
   const [images, setImages] = useState([])
@@ -184,14 +184,20 @@ export default function PromptBar({ onSend, busy }) {
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
-        <button
-          className="promptbar__send"
-          title={t('prompt.send')}
-          onClick={submit}
-          disabled={!canSend}
-        >
-          <SendIcon />
-        </button>
+        {busy && onStop ? (
+          <button className="promptbar__send promptbar__stop" title={t('prompt.stop')} onClick={onStop}>
+            <span className="promptbar__stopsq" />
+          </button>
+        ) : (
+          <button
+            className="promptbar__send"
+            title={t('prompt.send')}
+            onClick={submit}
+            disabled={!canSend}
+          >
+            <SendIcon />
+          </button>
+        )}
       </div>
     </div>
   )

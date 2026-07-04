@@ -2,7 +2,7 @@ import api from './api'
 import { newItem } from '../hooks/useDayItems'
 import { getActiveEditor, replaceSelection, appendToNote, setNoteContent } from './activeEditor'
 import { ui } from './uiBridge'
-import { pushChat, hasChat } from './chatBridge'
+import { pushChat, hasChat, isAborted } from './chatBridge'
 import { openAsk, closeAsk } from './askBridge'
 import { importGoogleEvent, importGoogleEventEveryday } from './importGoogle'
 import { startOfToday, dateKey } from './dates'
@@ -583,9 +583,18 @@ export async function runActions(actions, onCommand, channel) {
   const texts = []
   let lastText = ''
 
+  // pretty names for the in-app progress line, so the user SEES the loop working (and can stop it)
+  const PROG = { pdfInfo: '🔍 читаю документ', pdfInsert: '✍️ вставляю текст', pdfDelete: '🗑 удаляю', pdfEditText: '✏️ правлю текст', pdfRestyle: '🎨 меняю шрифт', pdfMove: '↔️ двигаю', pdfShape: '▭ рисую', createVariable: '🔗 создаю переменную', pdfSetVariable: '🔁 меняю переменную', pdfSave: '💾 сохраняю', pdfWorkOnCopy: '📄 делаю копию', openPdf: '📂 открываю PDF', telegramFile: '📤 отправляю в Telegram', composeMail: '✉️ готовлю письмо' }
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (isTelegram) pending = pending.filter((a) => a.action !== 'speak') // never speak for a messenger
     if (!pending.length) break
+    // cooperative STOP: the user hit "стоп" during a long chain → halt between rounds, tell them
+    if (isAborted()) { pushChat('⏹ Остановлено.', 'system'); return null }
+    // show WHAT is happening this round in the in-app chat (in-app only — Telegram still gets just
+    // the final line), so a long PDF build isn't an invisible background loop
+    const prog = [...new Set(pending.map((a) => PROG[a.action]).filter(Boolean))]
+    if (prog.length && hasChat()) pushChat(`⚙️ ${prog.join(', ')}…`, 'system')
 
     const results = []
     // PDF batch stop-guard: after ANY failed PDF action the page ids the model planned with are

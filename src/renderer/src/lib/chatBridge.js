@@ -20,3 +20,11 @@ export const pushChat = (content, role = 'assistant') => {
   sink({ role, content })
   return true
 }
+
+// ---- cooperative STOP for the multi-round action loop ----
+// A long PDF/action chain runs in runActions; the user needs to SEE it AND be able to halt it.
+// abortActions() raises a flag the loop checks between rounds; resetAbort() clears it on a new turn.
+let aborted = false
+export const abortActions = () => { aborted = true }
+export const isAborted = () => aborted
+export const resetAbort = () => { aborted = false }

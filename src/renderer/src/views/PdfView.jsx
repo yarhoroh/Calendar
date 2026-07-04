@@ -308,7 +308,7 @@ export default function PdfView() {
   // even when no tab is open. Registered while the Files view is mounted.
   const openForAiRef = useRef(null)
   openForAiRef.current = async ({ path: p, name } = {}) => {
-    if (p) { openTab(p); return { ok: true, path: p } }
+    // collect the tree's real files first — so a missing path can report what DOES exist
     const files = [] // { name, path }
     const walk = async (nodes) => {
       for (const n of nodes || []) {
@@ -321,6 +321,14 @@ export default function PdfView() {
       }
     }
     await walk(tree.roots)
+    if (p) {
+      // VERIFY the path exists before opening — a remembered/stale path (a deleted template) used
+      // to open a broken tab while the AI thought it succeeded (returned ok, then pdfInfo saw empty)
+      const st = await api.pdf?.stat?.(p)
+      if (!st?.isPdf) return { ok: false, error: `file not found at ${p} (it may have been deleted/moved). Files that exist now: ${files.map((f) => f.name).join(', ') || '(none)'}` }
+      openTab(p)
+      return { ok: true, path: p }
+    }
     const want = String(name || '').toLowerCase()
     if (!want) {
       // "открой мой PDF, он там один": no name given → open the tree's ONLY file, else list them

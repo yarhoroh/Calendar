@@ -208,3 +208,15 @@
 .promptbar__send--stop {
   background: var(--danger);
 }
+.promptbar__stop {
+  background: var(--danger, #d9534f);
+}
+.promptbar__stop:hover {
+  filter: brightness(1.08);
+}
+.promptbar__stopsq {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: #fff;
+}

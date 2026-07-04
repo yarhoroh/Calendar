@@ -14,7 +14,7 @@ import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperV
 import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
-import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
+import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, createBlankPdf, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
 import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex, getVariables, setVariables } from './pdfIndex'
 import { getGoogleFont, getGoogleFontTTF, googleCloneFor } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor, fontFileFor, bytesOf, normName, invalidateFontCache } from './systemFonts'
@@ -1238,6 +1238,7 @@ ipcMain.handle('pdf:set-tree', (_e, t) => { const r = setPdfTree(t); scheduleInd
 ipcMain.handle('pdf:pick-folder', () => pickPdfFolder())
 ipcMain.handle('pdf:pick-file', () => pickPdfFile())
 ipcMain.handle('pdf:save-dialog', (_e, defaultPath) => savePdfDialog(defaultPath))
+ipcMain.handle('pdf:create-blank', () => createBlankPdf())
 ipcMain.handle('pdf:scan', (_e, { path, mode } = {}) => (mode === 'flat' ? scanFolderFlat(path) : scanFolder(path)))
 ipcMain.handle('pdf:stat', (_e, path) => statPath(path))
 ipcMain.handle('pdf:open', (_e, path) => openPdfPath(path))

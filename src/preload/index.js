@@ -146,6 +146,7 @@ const api = {
     pickFolder: () => ipcRenderer.invoke('pdf:pick-folder'),
     pickFile: () => ipcRenderer.invoke('pdf:pick-file'),
     saveDialog: (defaultPath) => ipcRenderer.invoke('pdf:save-dialog', defaultPath),
+    createBlank: () => ipcRenderer.invoke('pdf:create-blank'), // → path of a fresh one-page A4 PDF (or null)
     scan: (path, mode) => ipcRenderer.invoke('pdf:scan', { path, mode }),
     stat: (path) => ipcRenderer.invoke('pdf:stat', path),
     open: (path) => ipcRenderer.invoke('pdf:open', path),

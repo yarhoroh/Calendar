@@ -30,7 +30,8 @@ export const translations = {
       search: 'Search name or text inside…', clear: 'Clear', noMatch: 'Nothing matches.',
       collapse: 'Collapse', expand: 'Expand', resize: 'Drag to resize',
       placeholderTitle: 'PDF editor', placeholderSub: 'Pick a PDF on the left. The editor lands here.',
-      openFromDisk: 'Open a PDF from disk…'
+      openFromDisk: 'Open a PDF from disk…',
+      newPdf: 'Create a new PDF'
     },
     pdfed: {
       info: 'How to work with the editor',
@@ -330,7 +331,8 @@ export const translations = {
       search: 'Пошук за назвою або текстом…', clear: 'Очистити', noMatch: 'Нічого не знайдено.',
       collapse: 'Згорнути', expand: 'Розгорнути', resize: 'Потягни, щоб змінити ширину',
       placeholderTitle: 'Редактор PDF', placeholderSub: 'Обери PDF зліва. Редактор зʼявиться тут.',
-      openFromDisk: 'Відкрити PDF з диска…'
+      openFromDisk: 'Відкрити PDF з диска…',
+      newPdf: 'Створити новий PDF'
     },
     pdfed: {
       info: 'Як працювати з редактором',

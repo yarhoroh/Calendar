@@ -83,7 +83,7 @@ export default function App() {
       // show mail and open (or, if already open, edit) the composer with the AI's prefill
       setView('mail')
       localStorage.setItem('view', 'mail')
-      ui('composeMail', { from: cmd.from, to: cmd.to, cc: cmd.cc, subject: cmd.subject, html: cmd.html })
+      ui('composeMail', { from: cmd.from, to: cmd.to, cc: cmd.cc, subject: cmd.subject, html: cmd.html, attachments: cmd.attachments })
       return
     }
     setView('calendar')

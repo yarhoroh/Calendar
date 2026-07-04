@@ -25,13 +25,17 @@ function withEditorContext(t) {
           ? `; OPEN MAIL (the email the user is reading right now — use these ids directly for mailOpen): from="${om.from || ''}" subject="${om.subject || ''}" acct:${om.account} thread:${om.threadId || ''} id:${om.id || ''}`
           : '; OPEN MAIL: none (list/search to pick one)')
       : ''
+  // an open PDF in the Files tab → the assistant can fully edit it (it starts with pdfInfo)
+  const pdfState = st.pdfOpen
+    ? `; PDF OPEN: "${st.pdfOpen.name}" (${st.pdfOpen.pages} page(s)) — full PDF editing available: start with {"action":"pdfInfo"}`
+    : ''
   let ctx =
     `[APP STATE: view=${view}; tab=${st.board}; fullscreen=${st.fullscreen ? 'yes' : 'no'}; ` +
     `editing=${st.editing ? 'yes' : 'no'}; selected folder=${st.folder || 'General (all)'}; ` +
     `side panel=${onoff(s.panelOpen)}; theme=${st.theme || '?'}; language=${st.language || '?'}; ` +
     `chat=${onoff(st.showChat)}; everyday-in-calendar=${onoff(s.everydayInCal)}; ` +
     `day-expanded=${onoff(s.expanded)}; focus-blur=${onoff(s.focusBlur)}` +
-    mailState +
+    mailState + pdfState +
     (st.ask?.open ? `; OPEN QUESTION awaiting answer: "${st.ask.question}"` : '') +
     `]`
   // if the New-email composer is open, give the AI its live content so it can fill/fix it

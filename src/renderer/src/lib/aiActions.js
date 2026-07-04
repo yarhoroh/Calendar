@@ -49,13 +49,33 @@ const escapeHtml = (text) => {
   return d.innerHTML.replace(/\n/g, '<br>')
 }
 
+// strip // line comments OUTSIDE of strings (models love annotating their JSON action blocks —
+// plain JSON.parse then fails; "//" inside a quoted value, e.g. a URL, is preserved)
+const stripJsonComments = (s) => {
+  let out = ''
+  let inStr = false
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (inStr) {
+      out += c
+      if (c === '\\') { out += s[++i] ?? ''; continue }
+      if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') { inStr = true; out += c; continue }
+    if (c === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') i++; out += '\n'; continue }
+    out += c
+  }
+  return out
+}
+
 // Pull a ```calendar [...] ``` action block out of the model's reply.
 export function extractActions(text) {
   const m = text.match(/```calendar\s*([\s\S]*?)```/i)
   if (!m) return { text: text.trim(), actions: [] }
   let actions = []
   try {
-    const parsed = JSON.parse(m[1].trim())
+    const parsed = JSON.parse(stripJsonComments(m[1].trim()))
     actions = Array.isArray(parsed) ? parsed : [parsed]
   } catch {
     // ignore malformed action block
@@ -97,9 +117,13 @@ export async function execAction(a, onCommand, channel) {
       case 'composeMail': {
         // open the New-email composer (or edit the one already open) with a prefill. To/Cc may
         // be emails OR names (resolved against contacts here, so no separate lookup round).
+        // attach: absolute file paths (e.g. a pdfSave result) → attachments on the email.
         const toR = a.to != null ? await resolveRecipients(a.to) : { value: undefined, unresolved: [] }
         const ccR = a.cc != null ? await resolveRecipients(a.cc) : { value: undefined, unresolved: [] }
-        onCommand?.({ kind: 'composeMail', from: a.from, to: toR.value, cc: ccR.value, subject: a.subject, html: a.html || a.body })
+        const attachments = Array.isArray(a.attach)
+          ? a.attach.filter(Boolean).map((p) => (typeof p === 'string' ? { name: String(p).split(/[\\/]/).pop(), path: p } : p))
+          : undefined
+        onCommand?.({ kind: 'composeMail', from: a.from, to: toR.value, cc: ccR.value, subject: a.subject, html: a.html || a.body, attachments })
         const missing = [...toR.unresolved, ...ccR.unresolved]
         if (missing.length)
           return {
@@ -238,6 +262,24 @@ export async function execAction(a, onCommand, channel) {
       case 'openFile':
         if (a.id) await api.openAttachment?.(a.id)
         return { ok: true }
+      // ---- PDF editor control (the open PDF in the Files tab answers via the ui() bus) ----
+      case 'pdfInfo': {
+        // read tool: the FULL document model + the PDF action manual, fed back to the model
+        const info = await ui('pdfAiInfo')
+        return info ? { ok: true, result: { info } } : { ok: false, error: 'no PDF is open — the user must open (or create) a PDF in the Files tab first' }
+      }
+      case 'pdfEditText':
+      case 'pdfRestyle':
+      case 'pdfInsert':
+      case 'pdfDelete':
+      case 'pdfMove':
+      case 'pdfShape':
+      case 'createVariable':
+      case 'pdfSetVariable':
+      case 'pdfSave': {
+        const r = await ui('pdfAiAct', a)
+        return r || { ok: false, error: 'no PDF is open — the user must open (or create) a PDF in the Files tab first' }
+      }
       case 'attachFile': {
         if (!a.noteId || !a.path) return { ok: false, error: 'attachFile needs noteId and an absolute path' }
         const r = await api.addAttachmentPath?.(a.noteId, a.path)
@@ -529,6 +571,7 @@ export async function runActions(actions, onCommand, channel) {
 
     const lines = results.map(({ a, r }) => {
       if (r && r.ok === false) return `${a.action}: FAILED — ${r.error || 'failed'}`
+      if (r && r.result && r.result.info) return `${a.action}: ok\n${r.result.info}` // read tools (pdfInfo) / rich results ride whole
       const id = r && r.result && r.result.id
       const label = a.name ? ` name "${a.name}"` : ''
       return id ? `${a.action}: ok (new id: ${id}${label})` : `${a.action}: ok`

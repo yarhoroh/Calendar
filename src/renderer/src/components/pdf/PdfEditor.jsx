@@ -4,6 +4,7 @@ import api from '../../lib/api'
 import ContextMenu from '../ContextMenu'
 import { useI18n } from '../../i18n/I18nContext'
 import { createPdfEngine } from './pdfEngine'
+import { registerUi, updateUiState } from '../../lib/uiBridge'
 import { cloneFor } from '../../../../shared/fontClones'
 import { fontCoverageOf, fontCovers } from './fontCoverage'
 import PdfPage from './PdfPage'
@@ -11,6 +12,24 @@ import './PdfEditor.css'
 
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
+
+// The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
+// chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
+const AI_PDF_MANUAL = [
+  'PDF ACTIONS — emit them in the normal ```calendar block; MANY actions per block are fine (they run in order). Every action takes "page" (default 0):',
+  '- {"action":"pdfEditText","page":0,"id":"b3.l0","text":"new text"} — replace ONE piece\'s text in place (font/size/color/position kept).',
+  '- {"action":"pdfRestyle","page":0,"ids":["b3.l0"],"family":"Arial","size":12,"color":"#c00000","bold":true,"italic":false,"ls":0} — restyle pieces; ONLY the fields you pass change.',
+  '- {"action":"pdfInsert","page":0,"text":"Hello\\nsecond line","x":57,"baseline":120,"size":12,"family":"Arial","bold":false,"color":"#000000","lineHeight":1.3} — insert NEW text. x/baseline in pt from the page TOP-LEFT; baseline = the line the text SITS on. \\n makes extra lines.',
+  '- {"action":"pdfDelete","page":0,"ids":["b3.l0","v2"]} — delete pieces / graphics / images by id.',
+  '- {"action":"pdfMove","page":0,"ids":["b3.l0"],"dx":10,"dy":-5} — shift objects by pt (dy positive = down).',
+  '- {"action":"pdfShape","page":0,"kind":"rect","x":40,"y":100,"w":515,"h":24,"color":"#dddddd","strokeW":1,"radius":0,"fill":"#f2f2f2"} — draw a frame/band/background ("fill" optional; "stroke":"none" = fill only). kind "line": {"x1","y1","x2","y2"} for table rules/separators. kind "ellipse": x/y/w/h box.',
+  '- {"action":"createVariable","name":"invoice_no","value":"INV-2026-001"} — make a template variable out of EVERY text in the document equal to value (create the text first with pdfInsert, then variable it). Name it meaningfully (invoice_no, client, due_date, total…).',
+  '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
+  '- {"action":"pdfSave"} — save the document to its own file. {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to it (the reply gives the new file\'s full path — use that path for attachFile / telegramFile / composeMail attachments; the template file stays untouched).',
+  'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
+  'METRICS — plan the layout with real numbers: the page size is in the PAGE header (A4 ≈ 595x842pt). A text line occupies ≈ size×1.3 pt of height (cap height ≈ 0.7×size above the baseline, descenders ≈ 0.25×size below). Rough width estimate ≈ 0.5×size per character (Arial). You do NOT need to guess precisely: every pdfInsert REPLIES with the exact box of what landed — "inserted: …" with x, baseline, w, h per line — use those real numbers to place the next elements, right-align amounts (x = right_edge − w), and verify nothing overlaps. Keep ~40pt page margins.',
+  'IMPORTANT: after ANY edit the piece ids CHANGE — call {"action":"pdfInfo"} again for fresh ids before further edits. If a font error comes back ("не содержит символы" / "недоступен"), that family cannot render the text — pick another family (document font or Arial/Times New Roman/Courier New) and retry.'
+].join('\n')
 
 // Colour swatch button + dropdown panel: the document's palette, Transparent, and a custom picker.
 // Used for vector stroke/fill (value may be 'none').
@@ -177,9 +196,10 @@ const InsertTextIcon = () => (
 // Clicking a run selects it and frames it on the image (Stage 1); later stages add area selection,
 // rich-text editing of the selected runs, and export back into the PDF stream.
 // Ctrl+wheel zooms (anchored on the cursor); hold Space to pan.
-export default function PdfEditor({ source, path }) {
+export default function PdfEditor({ source, path, active = true }) {
   const { t } = useI18n()
   const [model, setModel] = useState([]) // [{ pageIndex, width, height, runs }]
+  const modelRef = useRef(model); modelRef.current = model // fresh model for the AI dispatch (post-await safety)
   const [imgs, setImgs] = useState([]) // [{ pageIndex, url, width, height }] — re-rendered per scale
   const [pageCount, setPageCount] = useState(0)
   const [fontsNonce, setFontsNonce] = useState(0) // bumped after inserts: new EF faces need FontFaces
@@ -738,73 +758,91 @@ export default function PdfEditor({ source, path }) {
     return f?.bytes ? { bytes: f.bytes, family: fam } : null
   }
 
-  // Re-style the SELECTED text objects on the page: delete their units and re-insert the same text
-  // at the same baselines with the new font/colour/style — position is untouched by construction.
+  // Core re-style/re-text of ANY text runs on a page (used by the toolbar AND the AI): delete their
+  // units and re-insert at the same baselines with the new font/colour/style/text — position is
+  // untouched by construction. patch.text (single run) replaces the content. Throws on font
+  // problems (FONT_UNAVAILABLE|family / worker FONT_MISS|family|chars) — callers present them.
+  const restyleRuns = async (page, texts, patch) => {
+    const pg = modelRef.current.find((p) => p.pageIndex === page)
+    if (!pg) throw new Error(`page ${page} is not loaded`)
+    const fonts = {}
+    const lines = []
+    for (const o of texts) {
+      const cur = pg.fonts?.[o.f] || {}
+      const family = patch.family || cur.name || 'Arial'
+      // picking a specific DOCUMENT face (e.g. "NimbusSans-Regular") means THAT face — its weight/
+      // slant come from ITS name, not the run's current bold (asking a Regular face as bold missed
+      // {pdf} and hunted a non-existent system "Nimbus Sans Bold" → "недоступен" for an EMBEDDED font)
+      const pickedDoc = patch.family && docFonts.find((d) => d.name === patch.family)
+      const bold = pickedDoc ? /bold|black|heavy/i.test(patch.family) : patch.bold !== undefined ? patch.bold : !!cur.bold
+      const italic = pickedDoc ? /italic|oblique/i.test(patch.family) : patch.italic !== undefined ? patch.italic : !!cur.italic
+      const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
+      if (!fonts[k]) {
+        // CHANGING the font (pipette / dropdown) → use the full loadable face, not the doc's
+        // subset: the picked font's subset may not cover THIS run's glyphs (→ "cannot encode").
+        // Pure colour/size restyle keeps the run's own subset (it always covers its own text).
+        const src = await fontSourceFor(family, bold, italic, !!patch.family)
+        if (src) fonts[k] = src
+        else throw new Error(`FONT_UNAVAILABLE|${family}`) // NO substitution, abort BEFORE any delete
+      }
+      // LS is a DELTA over the run's own base layout, never an absolute Tc of the replacement
+      // font: base = current width minus its current spacing; target = base + wanted LS. So
+      // LS=0 always returns to the run's ORIGINAL width (whatever font/kerning produced it),
+      // and 5↔0 cycles are exact. NEW TEXT (patch.text) keeps the run's own ls, no width fit.
+      const gaps = Math.max(1, (o.text || '').length - 1)
+      const sizeScale = patch.size ? patch.size / (o.size || patch.size) : 1
+      const baseW = (o.bbox.w - (o.ls || 0) * gaps) * sizeScale
+      const wantLS = patch.ls !== undefined ? patch.ls : (o.ls || 0)
+      const newText = patch.text !== undefined ? String(patch.text) : o.text
+      lines.push([{
+        text: newText,
+        size: patch.size || o.size,
+        color: patch.color || pg.colors?.[o.c] || '#000000',
+        fontKey: k,
+        x: o.x,
+        baseline: o.y,
+        ls: patch.text !== undefined ? (o.ls || 0) : undefined, // replaced text: natural width, own spacing
+        fitW: patch.text !== undefined ? undefined : baseW + wantLS * gaps
+      }])
+    }
+    const before = new Set(allOf(pg).map(sigOf))
+    // ATOMIC replace: the worker validates every font against the actual text FIRST — if a font
+    // can't encode it (and the fallback can't either), nothing gets deleted
+    await engineRef.current.replaceText(
+      page,
+      texts.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), // x/y anchors → each run's OWN show op is blanked, neighbours untouched
+      { lines },
+      fonts,
+      await getFallbacksFor(fonts)
+    )
+    const m = await refreshPage(page)
+    setFontsNonce((n) => n + 1) // the restyled text may embed a NEW font — refresh the dropdown list
+    return allOf(m).filter((o) => !before.has(sigOf(o)))
+  }
+
+  // human-readable font error (shared by the toolbar banner and the AI feedback)
+  const fontErrText = (err) => {
+    const s = String(err?.message || '')
+    const miss = s.match(/FONT_MISS\|([^|]+)\|(.+)/)
+    if (miss) return `шрифт «${miss[1]}» не содержит символы: ${miss[2]} — выберите другой`
+    const unav = s.match(/FONT_UNAVAILABLE\|(.+)/)
+    if (unav) return `шрифт «${unav[1]}» недоступен для встраивания — выберите другой`
+    return null
+  }
+
+  // Re-style the SELECTED text objects (toolbar path): wraps the core with selection + banner UX.
   const restyleSelected = async (patch) => {
     if (!selected || busyRef.current) return
-    const pg = model.find((p) => p.pageIndex === selected.page)
-    if (!pg) return
     const texts = selected.objs.filter((o) => o.type === 'text')
     if (!texts.length) return
     busyRef.current = true
     try {
-      const fonts = {}
-      const lines = []
-      for (const o of texts) {
-        const cur = pg.fonts?.[o.f] || {}
-        const family = patch.family || cur.name || 'Arial'
-        // picking a specific DOCUMENT face (e.g. "NimbusSans-Regular") means THAT face — its weight/
-        // slant come from ITS name, not the run's current bold (asking a Regular face as bold missed
-        // {pdf} and hunted a non-existent system "Nimbus Sans Bold" → "недоступен" for an EMBEDDED font)
-        const pickedDoc = patch.family && docFonts.find((d) => d.name === patch.family)
-        const bold = pickedDoc ? /bold|black|heavy/i.test(patch.family) : patch.bold !== undefined ? patch.bold : !!cur.bold
-        const italic = pickedDoc ? /italic|oblique/i.test(patch.family) : patch.italic !== undefined ? patch.italic : !!cur.italic
-        const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
-        if (!fonts[k]) {
-          // CHANGING the font (pipette / dropdown) → use the full loadable face, not the doc's
-          // subset: the picked font's subset may not cover THIS run's glyphs (→ "cannot encode").
-          // Pure colour/size restyle keeps the run's own subset (it always covers its own text).
-          const src = await fontSourceFor(family, bold, italic, !!patch.family)
-          if (src) fonts[k] = src
-          else { setEditErr(`Шрифт «${family}» недоступен для встраивания — выберите другой.`); return } // NO substitution, and abort BEFORE any delete so the text isn't lost
-        }
-        // LS is a DELTA over the run's own base layout, never an absolute Tc of the replacement
-        // font: base = current width minus its current spacing; target = base + wanted LS. So
-        // LS=0 always returns to the run's ORIGINAL width (whatever font/kerning produced it),
-        // and 5↔0 cycles are exact.
-        const gaps = Math.max(1, (o.text || '').length - 1)
-        const sizeScale = patch.size ? patch.size / (o.size || patch.size) : 1
-        const baseW = (o.bbox.w - (o.ls || 0) * gaps) * sizeScale
-        const wantLS = patch.ls !== undefined ? patch.ls : (o.ls || 0)
-        lines.push([{
-          text: o.text,
-          size: patch.size || o.size,
-          color: patch.color || pg.colors?.[o.c] || '#000000',
-          fontKey: k,
-          x: o.x,
-          baseline: o.y,
-          ls: undefined, // the worker always fits Tc to the target width
-          fitW: baseW + wantLS * gaps
-        }])
-      }
-      const before = new Set(allOf(pg).map(sigOf))
-      // ATOMIC replace: the worker validates every font against the actual text FIRST — if a font
-      // can't encode it (and the fallback can't either), nothing gets deleted
-      await engineRef.current.replaceText(
-        selected.page,
-        texts.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), // x/y anchors → each run's OWN show op is blanked, neighbours untouched
-        { lines },
-        fonts,
-        await getFallbacksFor(fonts)
-      )
-      const m = await refreshPage(selected.page)
-      const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
+      const changed = await restyleRuns(selected.page, texts, patch)
       console.log(`[pdf][restyle] ${texts.length} run(s) →`, patch)
-      setFontsNonce((n) => n + 1) // the restyled text may embed a NEW font — refresh the dropdown list
       onSelect(selected.page, changed)
     } catch (err) {
-      const mMiss = String(err?.message || '').match(/FONT_MISS\|([^|]+)\|(.+)/)
-      if (mMiss) setEditErr(`Шрифт «${mMiss[1]}» не содержит символы: ${mMiss[2]} — выберите другой.`)
+      const fe = fontErrText(err)
+      if (fe) setEditErr(`Шрифт: ${fe}.`)
       console.error('[pdf] restyle failed (nothing deleted):', err)
     } finally { busyRef.current = false }
   }
@@ -1589,6 +1627,225 @@ export default function PdfEditor({ source, path }) {
     } finally { busyRef.current = false }
   }
 
+  // ================= AI control surface =================
+  // The assistant drives the OPEN document through two ui() calls: 'pdfAiInfo' returns the full
+  // model as text (every text piece with id/font/position grouped into VISUAL LINES — PDF stores
+  // one line as several adjacent fragments) plus the complete action manual; 'pdfAiAct' executes
+  // one action. Only the ACTIVE tab answers (registration below is gated on `active`).
+  const buildAiInfo = () => {
+    const name = (path || '').split(/[\\/]/).pop() || 'document.pdf'
+    const pages = modelRef.current
+    if (!pages.length) return null
+    const c1 = (v) => Math.round(v * 10) / 10
+    const out = []
+    out.push(`PDF OPEN: "${name}" — ${pages.length} page(s). You have FULL edit control via the PDF actions below.`)
+    out.push('HOW PDF TEXT WORKS: a visual line is stored as SEVERAL adjacent text FRAGMENTS ("pieces"). Below, pieces are grouped into their visual LINE — the quoted line text is the pieces joined in reading order. A piece id looks like "b12.l3". One word may span pieces and one piece may hold several words. Coordinates are pt, origin at the page TOP-LEFT; "base" is the text baseline y. To rewrite a whole visual line, act on ALL its pieces (or pdfDelete them and pdfInsert one clean replacement).')
+    out.push(`DOCUMENT FONTS: ${docFonts.map((f) => f.name).join(', ') || '(none — blank page; use any installed family, e.g. Arial, Times New Roman, Courier New)'}. Any installed Windows family or exact Google Fonts name also works — an unusable font returns a clear error, then pick another.`)
+    const vars = variablesRef.current
+    out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
+    for (const pg of pages) {
+      out.push(`PAGE ${pg.pageIndex} — ${Math.round(pg.width)}x${Math.round(pg.height)}pt. Text pieces by visual line:`)
+      const lines = new Map()
+      for (const r of pg.runs) { const key = Math.round(r.y / 2); if (!lines.has(key)) lines.set(key, []); lines.get(key).push(r) }
+      const keys = [...lines.keys()].sort((a, b) => a - b)
+      let n = 0
+      for (const k of keys) {
+        const rs = lines.get(k).sort((a, b) => a.x - b.x)
+        const pieces = rs
+          .map((r) => { const f = pg.fonts?.[r.f] || {}; return `${r.id} "${r.text}" x=${c1(r.x)} w=${c1(r.bbox.w)} ${f.name || '?'} ${r.size ?? '?'}pt${f.bold ? ' bold' : ''}${f.italic ? ' italic' : ''} ${pg.colors?.[r.c] || '#000'}${r.ls ? ` ls=${c1(r.ls)}` : ''}` })
+          .join(' | ')
+        out.push(`  base=${c1(rs[0].y)} "${joinRuns(rs)}" → ${pieces}`)
+        if (++n >= 400) { out.push(`  … (${keys.length - n} more lines omitted)`); break }
+      }
+      const vecs = (pg.vectors || []).slice(0, 80).map((v) => `${v.id} ${v.kind || 'path'} @(${c1(v.bbox.x)},${c1(v.bbox.y)}) ${c1(v.bbox.w)}x${c1(v.bbox.h)}`).join('; ')
+      if (vecs) out.push(`  graphics: ${vecs}`)
+      const ims = (pg.images || []).map((im) => `${im.id} image @(${c1(im.bbox.x)},${c1(im.bbox.y)}) ${c1(im.bbox.w)}x${c1(im.bbox.h)}`).join('; ')
+      if (ims) out.push(`  images: ${ims}`)
+    }
+    out.push(AI_PDF_MANUAL)
+    return out.join('\n')
+  }
+
+  // execute ONE AI action against the open document. Returns { ok } / { ok:false, error } — errors
+  // are worded so the model can SELF-CORRECT (stale ids → re-run pdfInfo; bad font → pick another).
+  const aiDispatch = async (a) => {
+    const page = Number(a.page) || 0
+    const pg = modelRef.current.find((p) => p.pageIndex === page)
+    if (!pg) return { ok: false, error: `page ${page} is not loaded` }
+    const pick = (ids) => {
+      const want = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String)
+      return allOf(pg).filter((o) => want.includes(String(o.id)))
+    }
+    const staleErr = 'no object with those ids on that page — ids change after every edit; call {"action":"pdfInfo"} again and use the fresh ids'
+    try {
+      switch (a.action) {
+        case 'pdfEditText': {
+          const objs = pick(a.id ?? a.ids).filter((o) => o.type === 'text')
+          if (!objs.length) return { ok: false, error: staleErr }
+          await restyleRuns(page, [objs[0]], { text: String(a.text ?? '') })
+          return { ok: true }
+        }
+        case 'pdfRestyle': {
+          const objs = pick(a.ids ?? a.id).filter((o) => o.type === 'text')
+          if (!objs.length) return { ok: false, error: staleErr }
+          await restyleRuns(page, objs, { family: a.family, size: a.size ? Number(a.size) : undefined, color: a.color, bold: a.bold, italic: a.italic, ls: a.ls !== undefined ? Number(a.ls) : undefined })
+          return { ok: true }
+        }
+        case 'pdfInsert': {
+          const text = String(a.text ?? '')
+          if (!text.trim()) return { ok: false, error: 'pdfInsert needs text' }
+          const family = a.family || 'Arial'
+          const bold = !!a.bold, italic = !!a.italic
+          const size = Number(a.size) || 12
+          const k = `${family}|${bold ? 'b' : ''}${italic ? 'i' : ''}`
+          const src = await fontSourceFor(family, bold, italic, true)
+          if (!src) return { ok: false, error: `font "${family}" is not available — use a DOCUMENT FONT from pdfInfo or an installed family (Arial, Times New Roman, …)` }
+          const x = Number(a.x) || 50
+          const baseline = Number(a.baseline ?? a.y) || 50
+          const lh = size * (Number(a.lineHeight) || 1.3)
+          const lines = text.split('\n').map((line, i) => [{ text: line, size, color: a.color || '#000000', fontKey: k, x, baseline: baseline + i * lh, ls: Number(a.ls) || 0 }]).filter((l) => l[0].text !== '')
+          const fonts = { [k]: src }
+          const before = new Set(allOf(pg).map(sigOf))
+          await engineRef.current.insertText(page, { lines }, fonts, await getFallbacksFor(fonts))
+          const m = await refreshPage(page)
+          // report the EXACT landed geometry so the model lays out the next elements with real
+          // numbers (right-aligned amounts, no overlaps) instead of width guesses
+          const landed = allOf(m).filter((o) => o.type === 'text' && !before.has(sigOf(o)))
+            .map((o) => `"${o.text}" x=${Math.round(o.bbox.x * 10) / 10} base=${Math.round(o.y * 10) / 10} w=${Math.round(o.bbox.w * 10) / 10} h=${Math.round(o.bbox.h * 10) / 10}`)
+          return { ok: true, result: { info: landed.length ? `inserted: ${landed.join('; ')}` : 'inserted' } }
+        }
+        case 'pdfDelete': {
+          const objs = pick(a.ids ?? a.id)
+          if (!objs.length) return { ok: false, error: staleErr }
+          const deletedTexts = objs.filter((o) => o.type === 'text').map((o) => ({ x: o.x, y: o.y }))
+          await engineRef.current.deleteObjects(page, objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })))
+          await refreshPage(page)
+          // a deleted text drops out of every variable that referenced it (same as the UI delete)
+          if (deletedTexts.length)
+            setVariables((vs) => vs
+              .map((v) => ({ ...v, occurrences: v.occurrences.filter((o) => !(o.page === page && occParts(o).some((p2) => deletedTexts.some((d) => Math.abs(d.x - p2.x) < 1.5 && Math.abs(d.y - p2.baseline) < 1.5)))) }))
+              .filter((v) => v.occurrences.length))
+          return { ok: true }
+        }
+        case 'pdfMove': {
+          const objs = pick(a.ids ?? a.id)
+          if (!objs.length) return { ok: false, error: staleErr }
+          await moveSelected(page, objs, Number(a.dx) || 0, Number(a.dy) || 0)
+          return { ok: true }
+        }
+        case 'pdfShape': {
+          const kind = ['rect', 'line', 'ellipse', 'arrow'].includes(a.kind) ? a.kind : 'rect'
+          const geo = kind === 'line' || kind === 'arrow'
+            ? { x1: Number(a.x1) || 0, y1: Number(a.y1) || 0, x2: Number(a.x2) || 0, y2: Number(a.y2) || 0 }
+            : { x: Number(a.x) || 0, y: Number(a.y) || 0, w: Number(a.w) || 10, h: Number(a.h) || 10 }
+          await engineRef.current.insertShape(page, kind, geo, { color: a.color || '#000000', strokeW: a.strokeW !== undefined ? Number(a.strokeW) : 1, radius: Number(a.radius) || 0, dash: a.dash || 'solid', head: a.head, fill: a.fill, stroke: a.stroke })
+          await refreshPage(page)
+          return { ok: true }
+        }
+        case 'createVariable': {
+          const value = String(a.value ?? '').trim()
+          const nm = String(a.name ?? value).trim() || value
+          if (!value) return { ok: false, error: 'createVariable needs value — the exact text as it appears in the document' }
+          const chains = findChains(value)
+          if (!chains.length) return { ok: false, error: `text "${value}" not found in the document — check pdfInfo (the value must match the visible text)` }
+          const occurrences = chains.map((c) => occFromRuns(c.page, c.runs))
+          setVariables((vs) => {
+            const existing = vs.find((v) => v.name.toLowerCase() === nm.toLowerCase())
+            if (existing) {
+              const key = (o) => `${o.page}|${Math.round(o.x)}|${Math.round(o.baseline)}`
+              const have = new Set(existing.occurrences.map(key))
+              return vs.map((v) => (v === existing ? { ...v, occurrences: [...existing.occurrences, ...occurrences.filter((o) => !have.has(key(o)))] } : v))
+            }
+            const id = crypto.randomUUID?.() || 'v' + Math.random().toString(36).slice(2)
+            return [...vs, { id, name: nm, value, occurrences }]
+          })
+          setVarsCollapsed(false)
+          return { ok: true, result: { info: `variable "${nm}" bound to ${occurrences.length} place(s)` } }
+        }
+        case 'pdfSetVariable': {
+          const nm = String(a.name ?? '').trim().toLowerCase()
+          const v = variablesRef.current.find((x) => x.name.toLowerCase() === nm)
+          if (!v) return { ok: false, error: `no variable "${a.name}" — existing: ${variablesRef.current.map((x) => x.name).join(', ') || '(none)'}` }
+          const val = String(a.value ?? '')
+          setVariables((vs) => vs.map((x) => (x.id === v.id ? { ...x, value: val } : x)))
+          await applyVariable(v.occurrences, val)
+          return { ok: true }
+        }
+        case 'pdfSave': {
+          const r = await engineRef.current.save()
+          let out = path
+          if (a.as) {
+            const dir = String(path || '').replace(/[\\/][^\\/]*$/, '')
+            let nm = String(a.as).replace(/[\\/:*?"<>|]/g, '_')
+            if (!/\.pdf$/i.test(nm)) nm += '.pdf'
+            out = dir ? `${dir}\\${nm}` : nm
+          }
+          const w = await api.pdf.write(out, new Uint8Array(r.bytes))
+          if (!w?.ok) return { ok: false, error: w?.error || 'write failed' }
+          return { ok: true, result: { info: `saved to ${out}` } }
+        }
+        default:
+          return { ok: false, error: `unknown PDF action "${a.action}"` }
+      }
+    } catch (e) {
+      const fe = fontErrText(e)
+      return { ok: false, error: fe ? `${fe} (this family cannot render that text — choose another and retry)` : e?.message || String(e) }
+    }
+  }
+
+  // registration: latest closures ride in a ref (so one registration survives re-renders), and only
+  // the ACTIVE tab publishes the pdfOpen app-state + answers the AI
+  const aiRef = useRef({})
+  aiRef.current = { buildAiInfo, aiDispatch }
+  useEffect(() => {
+    if (!active) return
+    const name = (path || '').split(/[\\/]/).pop()
+    updateUiState({ pdfOpen: { name, pages: model.length || 1 } })
+    const off = registerUi((n, arg) => {
+      if (n === 'pdfAiInfo') return aiRef.current.buildAiInfo()
+      if (n === 'pdfAiAct') return aiRef.current.aiDispatch(arg)
+      return undefined
+    })
+    return () => { off(); updateUiState({ pdfOpen: null }) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, path, model.length])
+
+  // right-click "Duplicate": a text chain becomes ONE new piece (its joined text, the first piece's
+  // style, a WORKING full font face) dropped at +12/+12; graphics/images are stream-copied as-is
+  const duplicateSelected = async () => {
+    if (!selected || busyRef.current) return
+    busyRef.current = true
+    try {
+      const page = selected.page
+      const pg = modelRef.current.find((p) => p.pageIndex === page)
+      const texts = selected.objs.filter((o) => o.type === 'text')
+      const rest = selected.objs.filter((o) => o.type !== 'text')
+      const before = new Set(allOf(pg).map(sigOf))
+      if (texts.length) {
+        const first = [...texts].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))[0]
+        const f = pg.fonts?.[first.f] || {}
+        const family = baseFamily(f.name || 'Arial')
+        const k = `${family}|${f.bold ? 'b' : ''}${f.italic ? 'i' : ''}`
+        const src = await fontSourceFor(family, !!f.bold, !!f.italic, true) // a FULL loadable face — the copy must be re-editable
+        if (!src) throw new Error(`FONT_UNAVAILABLE|${family}`)
+        const fonts = { [k]: src }
+        const lines = joinRuns(texts).split('\n')
+          .map((line, i) => [{ text: line, size: first.size, color: pg.colors?.[first.c] || '#000000', fontKey: k, x: first.x + 12, baseline: first.y + 12 + i * (first.size || 12) * 1.25, ls: first.ls || 0 }])
+          .filter((l) => l[0].text !== '')
+        await engineRef.current.insertText(page, { lines }, fonts, await getFallbacksFor(fonts))
+      }
+      if (rest.length) await engineRef.current.copyObjects(page, rest.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), 12, 12)
+      const m = await refreshPage(page)
+      const fresh = allOf(m).filter((o) => !before.has(sigOf(o)))
+      console.log(`[pdf][duplicate] ${texts.length} text piece(s) → 1 copy, ${rest.length} object(s) stream-copied`)
+      onSelect(page, fresh)
+    } catch (err) {
+      const fe = fontErrText(err)
+      if (fe) setEditErr(`Копия: ${fe}.`)
+      console.error('[pdf] duplicate failed:', err)
+    } finally { busyRef.current = false }
+  }
+
   // ---- copy / paste: duplicate the selected objects straight into the PDF stream ----
   const copySelected = () => {
     if (!selected) return
@@ -2179,6 +2436,7 @@ export default function PdfEditor({ source, path }) {
             menu.kind === 'sel'
               ? [
                   { label: <span className="pdfed__mi"><CopyIcon /> Copy</span>, onClick: copySelected },
+                  { label: <span className="pdfed__mi"><PasteIcon /> Duplicate</span>, onClick: duplicateSelected },
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><CopyIcon /> Copy text</span>, onClick: copyTextSelected }] : []),
                   ...(selected?.objs.some((o) => o.type === 'text') ? [{ label: <span className="pdfed__mi"><VariableIcon /> Create variable</span>, onClick: startCreateVariable }] : []),
                   ...(selInVar ? [{ label: <span className="pdfed__mi"><VariableIcon /> Remove from variable</span>, onClick: removeSelectionFromVars }] : []),

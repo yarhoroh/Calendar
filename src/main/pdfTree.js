@@ -63,6 +63,39 @@ export async function pickPdfFile() {
   return r.canceled ? [] : r.filePaths
 }
 
+// A minimal valid one-page A4 PDF (empty content stream, correct xref) — the "New PDF" canvas the
+// in-app editor (and the AI) then draws an invoice/contract onto from scratch.
+function blankPdfBytes() {
+  let out = '%PDF-1.4\n'
+  const offsets = []
+  const add = (s) => { offsets.push(out.length); out += s }
+  add('1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n')
+  add('2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n')
+  add('3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 595.28 841.89]/Resources<<>>/Contents 4 0 R>>\nendobj\n')
+  add('4 0 obj\n<</Length 1>>\nstream\n\nendstream\nendobj\n')
+  const xref = out.length
+  out += `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n` + offsets.map((o) => String(o).padStart(10, '0') + ' 00000 n \n').join('')
+  out += `trailer\n<</Size ${offsets.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
+
+// "Create new PDF": ask where to put it, write the blank page, hand the path back so the caller
+// opens it in a tab (same flow as opening from disk)
+export async function createBlankPdf() {
+  const r = await dialog.showSaveDialog({
+    title: 'New PDF',
+    defaultPath: 'new.pdf',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  })
+  if (r.canceled || !r.filePath) return null
+  try {
+    writeFileSync(r.filePath, blankPdfBytes())
+    return r.filePath
+  } catch {
+    return null
+  }
+}
+
 // "Save" dialog for the editor: starts in the source file's folder with its name preselected.
 // Keeping the same name → the OS itself asks to confirm the overwrite; a new name → a copy.
 export async function savePdfDialog(defaultPath) {

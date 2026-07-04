@@ -302,6 +302,14 @@ export default function PdfView() {
     setActivePath(paths[paths.length - 1])
     paths.forEach(loadInfo)
   }
+  // "Create new PDF": save dialog → a blank one-page A4 lands on disk, shows in the tree and opens
+  // in a tab — a canvas for building a document (invoice/contract) from scratch, incl. by the AI
+  const newPdf = async () => {
+    const path = await api.pdf?.createBlank?.()
+    if (!path) return
+    addChild(null, { id: uid(), type: 'linkFile', name: baseName(path), path })
+    openTab(path)
+  }
   const selectFile = (node) => openTab(node.path)
 
   // ---- reveal a file in the tree: expand every folder on its path (scanning as needed) + scroll to it ----
@@ -657,6 +665,7 @@ export default function PdfView() {
             <div className="pdf__placeholder-title">{t('pdf.placeholderTitle')}</div>
             <div className="pdf__placeholder-sub">{t('pdf.placeholderSub')}</div>
             <button className="pdf__placeholder-open" onClick={addTab}>{t('pdf.openFromDisk')}</button>
+            <button className="pdf__placeholder-open" onClick={newPdf}>{t('pdf.newPdf')}</button>
           </div>
         ) : (
           <div className="pdf__tabs-wrap">
@@ -697,6 +706,9 @@ export default function PdfView() {
                 <button className="pdf-tab__add" title={t('pdf.addTab')} onClick={addTab}>
                   ＋
                 </button>
+                <button className="pdf-tab__add" title={t('pdf.newPdf')} onClick={newPdf}>
+                  🗎+
+                </button>
               </div>
               {scroll.right && (
                 <button className="pdf-tabs__nav" title={t('pdf.scrollRight')} onClick={() => scrollTabs(1)}>
@@ -708,7 +720,7 @@ export default function PdfView() {
               {/* one editor instance per open tab; only the active one is shown, so each PDF keeps its state */}
               {tabs.map((p) => (
                 <div key={p} className="pdf__tab-pane" style={{ display: p === activePath ? undefined : 'none' }}>
-                  <PdfEditorTab path={p} />
+                  <PdfEditorTab path={p} active={p === activePath} />
                 </div>
               ))}
             </div>

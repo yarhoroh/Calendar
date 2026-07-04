@@ -1826,6 +1826,13 @@ function shapeOps(kind, g, style, H) {
   } else { // rect, optionally rounded
     p = roundRectPath(g.x, H - g.y - g.h, g.w, g.h, style.radius || 0)
   }
+  // fill support (backgrounds / filled frames): style.fill = hex → fill (+ stroke unless
+  // style.stroke === 'none'); no fill → plain stroke, exactly as before
+  const fillCol = style.fill && style.fill !== 'none' ? hexRgbOps(style.fill) : null
+  if (fillCol) {
+    const noStroke = style.stroke === 'none'
+    return `q ${noStroke ? '' : `${col} RG `}${fillCol} rg ${n2(sw)} w 1 j 1 J ${p} ${noStroke ? 'f' : 'B'} Q\n`
+  }
   return `q ${col} RG ${n2(sw)} w 1 j 1 J ${p} S Q\n`
 }
 // rectangle path ops in USER coordinates (y-up, yB = bottom), rounded with bezier arcs

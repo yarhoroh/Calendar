@@ -28,6 +28,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfSave"} — save the document to its own file. {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to it (the reply gives the new file\'s full path — use that path for attachFile / telegramFile / composeMail attachments; the template file stays untouched).',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
   'METRICS — plan the layout with real numbers: the page size is in the PAGE header (A4 ≈ 595x842pt). A text line occupies ≈ size×1.3 pt of height (cap height ≈ 0.7×size above the baseline, descenders ≈ 0.25×size below). Rough width estimate ≈ 0.5×size per character (Arial). You do NOT need to guess precisely: every pdfInsert REPLIES with the exact box of what landed — "inserted: …" with x, baseline, w, h per line — use those real numbers to place the next elements, right-align amounts (x = right_edge − w), and verify nothing overlaps. Keep ~40pt page margins.',
+  'SELF-CHECK LOOP: after building or changing a layout, call {"action":"pdfInfo"} again and READ it back — every page lists its lines with real coordinates and an OVERLAPS section that flags texts sitting on top of each other. If something overlaps, misaligns or is missing: fix it (pdfMove / pdfDelete / pdfInsert) and re-check with pdfInfo again, until the overlaps section says "none". Only then pdfSave and report to the user.',
   'IMPORTANT: after ANY edit the piece ids CHANGE — call {"action":"pdfInfo"} again for fresh ids before further edits. If a font error comes back ("не содержит символы" / "недоступен"), that family cannot render the text — pick another family (document font or Arial/Times New Roman/Courier New) and retry.'
 ].join('\n')
 
@@ -1661,6 +1662,18 @@ export default function PdfEditor({ source, path, active = true }) {
       if (vecs) out.push(`  graphics: ${vecs}`)
       const ims = (pg.images || []).map((im) => `${im.id} image @(${c1(im.bbox.x)},${c1(im.bbox.y)}) ${c1(im.bbox.w)}x${c1(im.bbox.h)}`).join('; ')
       if (ims) out.push(`  images: ${ims}`)
+      // self-check aid: flag TEXT pieces whose boxes intersect — the model re-reads pdfInfo after
+      // building and fixes what this section flags (move/delete), then re-checks until it's clean
+      const laps = []
+      const rr = pg.runs
+      for (let i = 0; i < rr.length && laps.length < 40; i++)
+        for (let j = i + 1; j < rr.length && laps.length < 40; j++) {
+          const A = rr[i].bbox, B = rr[j].bbox
+          const ox = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x)
+          const oy = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y)
+          if (ox > 1 && oy > 1) laps.push(`${rr[i].id} "${rr[i].text}" ⇄ ${rr[j].id} "${rr[j].text}" (${c1(ox)}x${c1(oy)}pt)`)
+        }
+      out.push(laps.length ? `  ⚠ OVERLAPPING TEXTS (fix with pdfMove/pdfDelete, then re-check): ${laps.join('; ')}` : '  overlaps: none — texts are cleanly placed')
     }
     out.push(AI_PDF_MANUAL)
     return out.join('\n')

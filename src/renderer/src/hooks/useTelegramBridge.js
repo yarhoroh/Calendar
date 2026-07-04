@@ -8,13 +8,18 @@ import { pushChat } from '../lib/chatBridge'
 // Telegram. Reuses the live AI session (same assistant the app uses).
 export function useTelegramBridge({ onCommand }) {
   useEffect(() => {
-    const off = api.onTelegramMessage?.(async ({ chatId, text, from, images }) => {
-      if (!text && !images?.length) return
-      const body = text || (images?.length ? '(sent an image)' : '')
+    const off = api.onTelegramMessage?.(async ({ chatId, text, from, images, files }) => {
+      if (!text && !images?.length && !files?.length) return
+      const body = text || (images?.length ? '(sent an image)' : files?.length ? '(sent a file)' : '')
+      // an incoming file is already saved on disk — tell the AI its exact path so it can attach it
+      // to a note with attachFile (noteId + this path). It must find/confirm which note they mean.
+      const fileNote = files?.length
+        ? `\n\n[The user attached ${files.length} file(s): ${files.map((f) => `"${f.name}" saved at ${f.path}`).join('; ')}. To KEEP a file, attach it to a note with attachFile (its noteId + that EXACT path). If they didn't say which note, ask which one.]`
+        : ''
       // mirror the Telegram exchange into the in-app chat so it's one shared
       // conversation on screen (the AI session is already shared across channels)
       pushChat(`📨 ${from || 'Telegram'}: ${body}`, 'user')
-      const content = `[Incoming Telegram message${from ? ` from ${from}` : ''}] ${body}\n\n(This arrived from Telegram; your text reply is sent back to them there. Do what they ask — read any attached image, add notes/reminders, answer, etc. — and reply briefly.)`
+      const content = `[Incoming Telegram message${from ? ` from ${from}` : ''}] ${body}${fileNote}\n\n(This arrived from Telegram; your text reply is sent back to them there. Do what they ask — read any attached image, save/attach any file, add notes/reminders, answer, etc. — and reply briefly.)`
       const res = await api.aiSend?.({ messages: [{ role: 'user', content, images }] })
       if (!res?.ok) {
         api.telegramReply?.(chatId, `⚠ ${res?.error || 'no reply'}`)

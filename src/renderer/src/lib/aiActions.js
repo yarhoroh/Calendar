@@ -120,6 +120,14 @@ export async function execAction(a, onCommand, channel) {
         const r = await api.sendTelegram?.(a.text)
         return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'telegram send failed' }
       }
+      case 'telegramFile':
+      case 'sendTelegramFile': {
+        // send a note's attached file to the user's Telegram — pass the attachment id (from a
+        // note's {files: name[id:..]}) or an absolute path. Goes to the last chat that messaged.
+        if (!a.id && !a.path) return { ok: false, error: 'telegramFile needs a note attachment id (from {files: name[id:..]}) or a path' }
+        const r = await api.sendTelegramFile?.({ id: a.id, path: a.path, caption: a.caption })
+        return r?.ok ? { ok: true } : { ok: false, error: r?.error || 'telegram file send failed' }
+      }
       case 'chat':
       case 'message': {
         // proactively post a message into the in-app chat (for background tasks /

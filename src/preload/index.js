@@ -100,6 +100,7 @@ const api = {
   getTelegramStatus: () => ipcRenderer.invoke('telegram:status'),
   telegramReply: (chatId, text) => ipcRenderer.send('telegram:reply', { chatId, text }),
   sendTelegram: (text) => ipcRenderer.invoke('telegram:send', text),
+  sendTelegramFile: (arg) => ipcRenderer.invoke('telegram:send-file', arg), // { id } or { path }
   onTelegramMessage: (cb) => {
     const h = (_e, m) => cb(m)
     ipcRenderer.on('telegram:message', h)

@@ -2,12 +2,17 @@
 // works from a desktop app behind NAT, no public webhook needed. Incoming text
 // is handed to onMessage; replies go back through sendTelegram.
 
+import { app } from 'electron'
+import { join } from 'node:path'
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+
 const API = 'https://api.telegram.org/bot'
 
 let token = ''
 let offset = 0
 let running = false
 let onMessage = () => {}
+let fileSeq = 0
 
 async function call(method, body, signal) {
   const res = await fetch(`${API}${token}/${method}`, {
@@ -24,17 +29,54 @@ export function sendTelegram(chatId, text) {
   return call('sendMessage', { chat_id: chatId, text }).catch(() => {})
 }
 
-// Download a Telegram photo (largest size) as a base64 image the AI can see.
-async function downloadPhoto(photos) {
-  const ph = photos[photos.length - 1] // last entry = highest resolution
-  if (!ph?.file_id) return null
-  const f = await call('getFile', { file_id: ph.file_id })
+// Send a local file to a Telegram chat as a document (original quality, any type).
+// multipart upload via the global FormData/Blob (Node 20+). Returns the API result.
+export async function sendTelegramFile(chatId, filePath, caption) {
+  if (!token || !chatId || !filePath) return { ok: false, description: 'missing chat or file' }
+  if (!existsSync(filePath)) return { ok: false, description: 'file not found on disk' }
+  try {
+    const buf = readFileSync(filePath)
+    const name = String(filePath).split(/[\\/]/).pop() || 'file'
+    const form = new FormData()
+    form.append('chat_id', String(chatId))
+    if (caption) form.append('caption', String(caption).slice(0, 1000))
+    form.append('document', new Blob([buf]), name)
+    const res = await fetch(`${API}${token}/sendDocument`, { method: 'POST', body: form })
+    return res.json()
+  } catch (e) {
+    return { ok: false, description: e?.message || 'send file failed' }
+  }
+}
+
+// where incoming Telegram files are saved — persisted under userData (attachments are
+// linked by PATH, not copied, so a temp dir that gets cleaned would break the link)
+function incomingDir() {
+  const d = join(app.getPath('userData'), 'telegram-files')
+  try {
+    mkdirSync(d, { recursive: true })
+  } catch {
+    /* already exists */
+  }
+  return d
+}
+const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 120)
+const mediaTypeOf = (p) => (p.endsWith('.png') ? 'image/png' : p.endsWith('.webp') ? 'image/webp' : 'image/jpeg')
+
+// download a Telegram file by file_id ONCE → { buf, path } (path = Telegram's, for the ext)
+async function fetchFile(fileId) {
+  if (!fileId) return null
+  const f = await call('getFile', { file_id: fileId })
   const path = f?.result?.file_path
   if (!path) return null
   const res = await fetch(`https://api.telegram.org/file/bot${token}/${path}`)
-  const buf = Buffer.from(await res.arrayBuffer())
-  const media_type = path.endsWith('.png') ? 'image/png' : path.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
-  return { media_type, data: buf.toString('base64') }
+  if (!res.ok) return null
+  return { buf: Buffer.from(await res.arrayBuffer()), path }
+}
+// save a downloaded buffer to the incoming dir under a unique, safe name → absolute path
+function saveIncoming(buf, name) {
+  const dest = join(incomingDir(), `${Date.now()}-${fileSeq++}-${safeName(name)}`)
+  writeFileSync(dest, buf)
+  return dest
 }
 
 async function poll() {
@@ -47,16 +89,22 @@ async function poll() {
           offset = u.update_id + 1
           const m = u.message || u.edited_message
           if (!m) continue
-          if (m.photo?.length) {
-            const img = await downloadPhoto(m.photo).catch(() => null)
-            onMessage({
-              chatId: m.chat.id,
-              from: m.from?.first_name || '',
-              text: m.caption || '',
-              images: img ? [img] : []
-            })
+          const from = m.from?.first_name || ''
+          if (m.document) {
+            // a real file (any type) → save to disk; the AI can attach it to a note by path
+            const d = await fetchFile(m.document.file_id).catch(() => null)
+            const files = d ? [{ name: safeName(m.document.file_name || d.path.split('/').pop()), path: saveIncoming(d.buf, m.document.file_name || d.path.split('/').pop()) }] : []
+            onMessage({ chatId: m.chat.id, from, text: m.caption || '', files })
+          } else if (m.photo?.length) {
+            // a photo → download once; give the AI BOTH the base64 (so it can SEE it) and a saved
+            // file path (so it can attach it to a note, same as a document)
+            const ph = m.photo[m.photo.length - 1] // highest resolution
+            const d = await fetchFile(ph?.file_id).catch(() => null)
+            const images = d ? [{ media_type: mediaTypeOf(d.path), data: d.buf.toString('base64') }] : []
+            const files = d ? [{ name: safeName(`photo-${ph?.file_unique_id || fileSeq}.jpg`), path: saveIncoming(d.buf, `photo-${ph?.file_unique_id || fileSeq}.jpg`) }] : []
+            onMessage({ chatId: m.chat.id, from, text: m.caption || '', images, files })
           } else if (m.text) {
-            onMessage({ chatId: m.chat.id, text: m.text, from: m.from?.first_name || '' })
+            onMessage({ chatId: m.chat.id, text: m.text, from })
           }
         }
       } else if (r && r.ok === false) {

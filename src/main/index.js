@@ -8,7 +8,7 @@ import { askAgy, resetAgy, detectAgy, agyAskRaw } from './agy'
 import { askGemini, resetGemini, geminiAskRaw, pingGemini } from './gemini'
 import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
-import { startTelegram, stopTelegram, sendTelegram } from './telegram'
+import { startTelegram, stopTelegram, sendTelegram, sendTelegramFile } from './telegram'
 import electronUpdater from 'electron-updater'
 import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperVoice, setSpeedResolver } from './tts'
 import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
@@ -651,6 +651,18 @@ ipcMain.handle('telegram:send', async (_e, text) => {
   const res = await sendTelegram(chat, text) // await the API so we report real delivery, not a false success
   if (res && res.ok) return { ok: true }
   return { ok: false, error: res?.description || 'Telegram did not confirm delivery (message not sent)' }
+})
+// send a FILE to the last Telegram chat — arg = { id } (a note attachment id) or { path } (absolute)
+ipcMain.handle('telegram:send-file', async (_e, arg) => {
+  if (!telegramOk) return { ok: false, error: 'telegram bridge is off (no/invalid token)' }
+  const chat = lastTelegramChat || loadAiConfig().telegramChat
+  if (!chat) return { ok: false, error: 'no Telegram chat yet — message the bot once so I know where to send' }
+  let path = arg?.path
+  if (!path && arg?.id) path = attachmentById(arg.id)?.path // resolve a note attachment id → its file path
+  if (!path) return { ok: false, error: 'file not found (bad attachment id or missing path)' }
+  const res = await sendTelegramFile(chat, path, arg?.caption)
+  if (res && res.ok) return { ok: true }
+  return { ok: false, error: res?.description || 'Telegram did not confirm the file (not sent)' }
 })
 
 // ---- Google Calendar (read-only import) ---------------------------------

@@ -54,11 +54,13 @@ drives the calendar **and your mail**, answers questions about your notes,
 - **Read aloud & "speak the selection"** — read an article/email aloud through the global TTS queue (survives navigating away), or select any text in the reader / email body / browser and hit a floating ▶ to speak just that fragment.
 - **Folder actions** — right-click a folder to *mark all read*, *delete read*, *empty Trash* or *delete all Spam*; bulk mark/delete from the selection bar.
 - **Compose & send (SMTP)** — a **New email** button (pinned at the bottom of the folder tree) opens a composer: the **From** account defaults to the mailbox you're in and switches via a dropdown; **To/Cc** are Gmail-style chips with **contact autocomplete** (built from everyone you've corresponded with) and ↑/↓ keyboard navigation; the body is the **rich editor** (fonts, sizes, alignment, lists, inline images). **Drag files anywhere onto the email** — or use the paperclip — to attach them. Send hands the message to a **background queue** (the button shows a live count) so you go straight back to the list; Gmail files it into Sent automatically.
+- **Change an app password in place** — each mailbox has a **🔑 Change password** action in Settings → *Email* (it also pops up right on an auth failure) to re-enter a new app password **without removing the account** — e.g. after a Google password reset revokes the old App Password — keeping the mailbox and all its settings.
 - **AI mail watchers** — see the assistant section: it can watch a mailbox for new mail and ping you, and read / search / translate / summarize / mark / delete mail on command.
 
-### 🤖 AI assistant (local CLI)
-Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI — your data is not sent to a third-party cloud:
+### 🤖 AI assistant (local CLI or free Gemini API)
+Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI (they run on your own machine/login) — or connect the **free Google Gemini API** with your own key:
 - **Runs on your own login** — Antigravity (Google's `agy` CLI) answers per message via its `--print` mode using your existing Antigravity subscription; Claude runs as a live streaming session; Codex resumes its session. For Antigravity the full chat history is sent every turn, so it always remembers the conversation.
+- **Free Gemini API option** — instead of a local CLI, pick **Gemini API** as the engine and paste a free key from [Google AI Studio](https://aistudio.google.com/apikey) in Settings → *Gemini API*. It drives the exact same chat + calendar/mail actions over Google's REST API; the free tier runs on the **Flash** models (pick one in the same panel, with a live **Test** button). Incapable/zero-quota models are filtered out, rate-limit bursts auto-retry, and the key is stored **only** in your local `ai-config.json` — never in the build or repo.
 - **Pick the model** per engine in an editable config file (`ai-config.json`), or just ask the assistant to switch model — it rewrites the config and restarts itself. (A bad model self-heals back to the default.)
 - **Reads notes on demand** — the assistant requests only the date/range it needs (`getNotes`), so it scales to any number of notes instead of stuffing them all into every prompt.
 - **Controls the UI:** "go to this date", "open the every-day board", "expand fullscreen".
@@ -84,6 +86,13 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 - **The assistant** can read (`listGoogleEvents`), import (`importGoogleEvents` — all, or one by title/id), and **create events on a shared calendar** (`addGoogleEvent`), e.g. *"add a shared task tomorrow at 3pm on the Family calendar"*. A periodic check is just a normal scheduled task.
   - *Setup (one-time):* in [Google Cloud Console](https://console.cloud.google.com/) create a project, enable the **Google Calendar API**, configure the **OAuth consent screen**, and create an **OAuth client ID** of type **Desktop app**. Paste the `client id` / `client secret` into `ai-config.json` (`googleClientId` / `googleClientSecret`, open it from Settings → *Assistant config file*) or, for distributed builds, into `.env` as `MAIN_VITE_GOOGLE_CLIENT_ID` / `MAIN_VITE_GOOGLE_CLIENT_SECRET`. Scopes used: `calendar.readonly` + `calendar.events` (read + create/edit events). Then **Connect Google account** and sign in in your browser.
   - *Note:* **Publish** the consent screen to **Production** so refresh tokens don't expire (Testing mode drops them after ~7 days). Unverified is fine for personal/shared use — users just see a one-time "Google hasn't verified this app" notice; full Google verification removes it but needs a review. The desktop `client secret` is **not** a real secret (Google's own model for installed apps — it's protected by PKCE + each user's own login).
+
+### 📄 PDF editor & full-text search
+- **Edit real PDFs on the page** — open a PDF in the **Files** tab and edit it directly: **move, rotate, resize and delete** text, lines, arrows and images; **draw** free-angle lines/arrows with a live dashed preview; **magnetic smart guides** snap to other objects' edges. Rotation writes true page angles into the content stream, and every selection frame, handle and hit-test follows the object's **own axis** (one shared geometry function, so text / vectors / images / arrows all behave identically).
+- **Retype text in its own font** — double-click any text to edit it in place; the editor loads the PDF's **actual embedded font** (repairing subset fonts so they both render and encode), so glyphs and letter-spacing stay identical instead of drifting. Change font / size / colour / weight / letter-spacing per piece or for the whole line, with the letter-spacing value directly editable.
+- **No silent font substitution** — one font per run: a font that lacks the characters you typed — or that can't be embedded at all — is clearly **disabled in the picker** (greyed with a reason), so you consciously pick one that works; the dropdown always shows the run's real font.
+- **Full-text search across your PDFs** — a background worker pool indexes every PDF you open into the Files tree (SQLite **FTS5**), so you can search **by content**, with per-file status badges showing indexing progress.
+- Everything runs **locally** via **MuPDF-WASM**; the file on disk changes only when you explicitly save (unused fonts are cleaned out on save).
 
 ### 🎙️ Voice input (speech-to-text)
 - A **mic button** in the chat (next to **+**) **and in the note editor** (next to the fullscreen icon): **push-to-talk** — hold to record, release to transcribe. In the chat the text lands **at the cursor** in the prompt; in a note it's inserted **at the caret** — into the **title** if that field is focused, otherwise the body (or the end if no caret is set).
@@ -116,7 +125,8 @@ Chat with a local AI — **Antigravity** (default), **Claude** or **Codex** CLI 
 | Note editor | Tiptap (rich text → HTML, inline base64 images) |
 | Storage | better-sqlite3 |
 | Email | imapflow (IMAP), cached in SQLite |
-| AI | local Antigravity (`agy --print`) / Claude (stream-json) / Codex CLI |
+| AI | local Antigravity (`agy --print`) / Claude (stream-json) / Codex CLI, or Google Gemini API (REST, free tier) |
+| PDF | MuPDF-WASM (editor + render), SQLite FTS5 full-text index |
 | Voice out | Piper (bundled) / Supertonic (ONNX, onnxruntime) / Windows SAPI |
 | Voice in | sherpa-onnx (offline STT, model downloaded at runtime) |
 | Packaging | electron-builder (Windows NSIS) |
@@ -136,12 +146,13 @@ npm run dist         # build the .exe installer (Windows, into release/)
 ```
 
 ### Requirements for the AI chat
-The chat works if one of these CLIs is installed and logged in (pick the engine in Settings):
+Pick the engine in Settings — either a local CLI (installed and logged in) or the Gemini API:
 - **Antigravity CLI** (`agy`, default) — install Antigravity and sign in with your Google account; the app drives it with your existing subscription.
 - **Claude CLI** — install and log in.
 - **Codex CLI** — install and log in.
+- **Gemini API** (no install) — create a free key at [Google AI Studio](https://aistudio.google.com/apikey), paste it in Settings → *Gemini API*, and pick it as the engine. Runs on Google's free-tier **Flash** models.
 
-If no CLI is found / signed in, the calendar and notes still work — the chat just shows a "not found" status.
+If no CLI is found / signed in (and no Gemini key is set), the calendar and notes still work — the chat just shows a "not found" status.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "calendar",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Calendar with notes — desktop app",
   "main": "./out/main/index.js",
   "author": "Calendar",

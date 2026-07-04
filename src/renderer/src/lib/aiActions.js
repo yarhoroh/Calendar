@@ -572,7 +572,10 @@ const NO_REPORT = new Set([
 export async function runActions(actions, onCommand, channel) {
   const isTelegram = typeof channel === 'string' && channel.startsWith('telegram:')
   let pending = actions || []
+  // only the LAST round's prose reaches the user — intermediate "now I'll…" narration of a long
+  // multi-round task was spamming Telegram with work logs; failures are still always surfaced
   const texts = []
+  let lastText = ''
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (isTelegram) pending = pending.filter((a) => a.action !== 'speak') // never speak for a messenger
@@ -601,9 +604,9 @@ export async function runActions(actions, onCommand, channel) {
           role: 'user',
           content:
             `[action results] Outcome of the actions you just ran:\n${lines.join('\n')}\n\n` +
-            'If you still need to act now — e.g. you just created a folder/note and need its new id to do the next step — emit the next ```calendar block USING these ids. ' +
+            'If you still need to act now — e.g. you just created a folder/note and need its new id to do the next step — reply with ONLY the next ```calendar block USING these ids (NO prose while work continues: the user must not receive progress logs). ' +
             'If a step FAILED, tell the user briefly why and do NOT repeat the same failing action. ' +
-            'If everything is done, just confirm briefly to the user with NO action block.'
+            'If everything is done, confirm to the user in ONE short sentence with NO action block.'
         }
       ]
     })
@@ -613,9 +616,10 @@ export async function runActions(actions, onCommand, channel) {
       break
     }
     const parsed = extractActions(fb.text)
-    if (parsed.text) texts.push(parsed.text)
+    if (parsed.text) lastText = parsed.text // keep only the freshest prose — the final one wins
     pending = parsed.actions
   }
 
+  if (lastText) texts.push(lastText)
   return texts.length ? texts.join('\n\n') : null
 }

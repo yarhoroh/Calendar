@@ -1544,7 +1544,13 @@ export default function PdfEditor({ source, path }) {
         // chars). EDIT: keep the DOCUMENT'S OWN font (NimbusSans stays NimbusSans — same glyphs,
         // same heights); the worker still validates encodability and falls back per-run if a newly
         // typed character isn't in the subset.
-        const src = await fontSourceFor(s.fontName, s.bold, s.italic, !te.replaceItems)
+        // a DOCUMENT face carries its weight in the NAME: "NimbusSans-Regular" is regular even if the
+        // span is styled bold — resolve it as regular so {pdf} uses the EMBEDDED bytes (asking bold
+        // missed {pdf} and reported an embedded font as "недоступен")
+        const pd = docFonts.find((d) => d.name === s.fontName)
+        const b = pd ? /bold|black|heavy/i.test(s.fontName) : s.bold
+        const it = pd ? /italic|oblique/i.test(s.fontName) : s.italic
+        const src = await fontSourceFor(s.fontName, b, it, !te.replaceItems)
         if (src) fonts[k] = src
         else { setEditErr(`Шрифт «${s.fontName}» недоступен для встраивания — выберите другой.`); return } // no substitution: stop (finally resets busy), keep the editor open
       }

@@ -78,6 +78,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfInsert","page":0,"text":"Hello\\nsecond line","x":57,"baseline":120,"size":12,"family":"Arial","bold":false,"color":"#000000","lineHeight":1.3} — insert NEW text. x/baseline in pt from the page TOP-LEFT; baseline = the line the text SITS on. \\n makes extra lines.',
   '- {"action":"pdfDelete","page":0,"ids":["b3.l0","v2"]} — delete pieces / graphics / images by id.',
   '- {"action":"pdfMove","page":0,"ids":["b3.l0"],"dx":10,"dy":-5} — shift objects by pt (dy positive = down).',
+  '- {"action":"pdfAlign","page":0,"ids":["b5","b6","b7"],"edge":"right"} — align several objects to a common edge: "left"/"right" (line up a column of labels or amounts), "top"/"bottom" (line up a row). RIGHT-align number columns (amounts) so their right edges match; the reply of pdfInsert gives each piece\'s width so you can also place them by x = rightEdge − width. Respect the MARGINS from pdfInfo — never put content within ~12pt of the page edge (it looks cut off).',
   '- {"action":"pdfShape","page":0,"kind":"rect","x":40,"y":100,"w":515,"h":24,"color":"#dddddd","strokeW":1,"radius":0,"fill":"#f2f2f2"} — draw a frame/band/background ("fill" optional; "stroke":"none" = fill only). kind "line": {"x1","y1","x2","y2"} for table rules/separators. kind "ellipse": x/y/w/h box. For a rect/ellipse the reply lists every text OVERLAPPING the frame with its padding from the L/R/T/B edges (pt): use it to check the frame wraps the text cleanly (roughly equal paddings) — a NEGATIVE padding means the frame edge CUTS through that text, so grow/move the frame or reposition the text. A filled band drawn OVER text also needs pdfReorder "back" so the text shows.',
   '- {"action":"createVariable","name":"invoice_no","value":"INV-2026-001"} — make a template variable out of EVERY text in the document equal to value (create the text first with pdfInsert, then variable it). Name it meaningfully (invoice_no, client, due_date, total…).',
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
@@ -226,6 +227,20 @@ const AlignTopIcon = () => (
     <path d="M3 4h18" />
     <rect x="6" y="7" width="4" height="13" fill="currentColor" stroke="none" />
     <rect x="14" y="7" width="4" height="8" fill="currentColor" stroke="none" />
+  </svg>
+)
+const AlignRightIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M20 3v18" />
+    <rect x="4" y="6" width="13" height="4" fill="currentColor" stroke="none" />
+    <rect x="9" y="14" width="8" height="4" fill="currentColor" stroke="none" />
+  </svg>
+)
+const AlignBottomIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M3 20h18" />
+    <rect x="6" y="4" width="4" height="13" fill="currentColor" stroke="none" />
+    <rect x="14" y="9" width="4" height="8" fill="currentColor" stroke="none" />
   </svg>
 )
 
@@ -1304,18 +1319,27 @@ export default function PdfEditor({ source, path, active = true }) {
       const objs = selected.objs
       const minX = Math.min(...objs.map((o) => o.bbox.x))
       const minY = Math.min(...objs.map((o) => o.bbox.y))
-      // align-left works PER LINE: every piece of a line shifts by the SAME delta (that of the
-      // line's leftmost piece) so advance-chained continuations ("Horokho"+"v") follow their leader
-      // instead of each being dragged to minX independently
+      const maxX = Math.max(...objs.map((o) => o.bbox.x + o.bbox.w)) // rightmost edge
+      const maxY = Math.max(...objs.map((o) => o.bbox.y + o.bbox.h)) // bottom edge
+      // horizontal align works PER LINE: every piece of a line shifts by the SAME delta (that of the
+      // line's leading piece) so advance-chained continuations ("Horokho"+"v") follow their leader
+      // instead of each being snapped independently. left → line's leftmost; right → line's rightmost.
       const lineOf = new Map()
       let li = 0, prevY = null
       for (const o of [...objs].sort((a, b) => a.bbox.y - b.bbox.y)) {
         if (prevY !== null && o.bbox.y - prevY > 6) li++
         lineOf.set(o, li); prevY = o.bbox.y
       }
-      const lineLeft = new Map()
-      for (const o of objs) { const k = lineOf.get(o); lineLeft.set(k, Math.min(lineLeft.has(k) ? lineLeft.get(k) : Infinity, o.bbox.x)) }
-      const dOf = (o) => ({ dx: edge === 'left' ? minX - lineLeft.get(lineOf.get(o)) : 0, dy: edge === 'top' ? minY - o.bbox.y : 0 })
+      const lineLeft = new Map(), lineRight = new Map()
+      for (const o of objs) {
+        const k = lineOf.get(o)
+        lineLeft.set(k, Math.min(lineLeft.has(k) ? lineLeft.get(k) : Infinity, o.bbox.x))
+        lineRight.set(k, Math.max(lineRight.has(k) ? lineRight.get(k) : -Infinity, o.bbox.x + o.bbox.w))
+      }
+      const dOf = (o) => ({
+        dx: edge === 'left' ? minX - lineLeft.get(lineOf.get(o)) : edge === 'right' ? maxX - lineRight.get(lineOf.get(o)) : 0,
+        dy: edge === 'top' ? minY - o.bbox.y : edge === 'bottom' ? maxY - (o.bbox.y + o.bbox.h) : 0
+      })
       const items = objs
         .map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y, ...dOf(o) }))
         .filter((it) => Math.abs(it.dx) > 0.01 || Math.abs(it.dy) > 0.01)
@@ -1718,6 +1742,16 @@ export default function PdfEditor({ source, path, active = true }) {
       for (const im of pg.images || []) els.push({ id: im.id, t: 'IMG', z: im.z, x: im.bbox.x, y: im.bbox.y, w: im.bbox.w, h: im.bbox.h })
       out.push(`  PAGE ${pg.pageIndex} [0,0,1000,${g(H, W)}] (${Math.round(W)}x${Math.round(H)}pt):`)
       if (!els.length) { out.push('    (empty page)'); continue }
+      // MARGINS + content box: where the real content sits, and the safe area. Text put outside the
+      // right/left margins looks broken (nearly off-page). The right margin edge is the x to
+      // RIGHT-ALIGN amounts to; the left margin is where left-aligned labels start.
+      const cx0 = Math.min(...els.map((e) => e.x)), cx1 = Math.max(...els.map((e) => e.x + e.w))
+      const cy0 = Math.min(...els.map((e) => e.y)), cy1 = Math.max(...els.map((e) => e.y + e.h))
+      const rr = (v) => Math.round(v)
+      out.push(`  MARGINS (pt): left=${rr(cx0)}, right=${rr(W - cx1)}, top=${rr(cy0)}, bottom=${rr(H - cy1)} | content box x ${rr(cx0)}..${rr(cx1)}, y ${rr(cy0)}..${rr(cy1)} of ${rr(W)}x${rr(H)}. Keep new content INSIDE these margins; RIGHT-ALIGN amounts to x≈${rr(cx1)} (right edge − text width), LEFT-ALIGN labels to x≈${rr(cx0)}.`)
+      const nearEdge = els.filter((e) => e.x < 12 || (e.x + e.w) > W - 12 || e.y < 12 || (e.y + e.h) > H - 12)
+        .slice(0, 8).map((e) => `${e.id}${e.text ? ` "${e.text}"` : ''}`)
+      if (nearEdge.length) out.push(`  ⚠ TOO CLOSE TO PAGE EDGE (<12pt, may look cut off): ${nearEdge.join(', ')} — move them inside the margins.`)
       const elLine = (e) => e.t === 'T'
         ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
         : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex}`
@@ -1885,6 +1919,20 @@ export default function PdfEditor({ source, path, active = true }) {
           await engineRef.current.restackObjects(page, objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), mode)
           await refreshPage(page)
           return { ok: true, result: { info: `moved ${objs.length} object(s) ${mode}` } }
+        }
+        case 'pdfAlign': {
+          const objs = pick(a.ids)
+          if (objs.length < 2) return { ok: false, error: 'pdfAlign needs 2+ ids' }
+          const edge = ['left', 'right', 'top', 'bottom'].includes(a.edge) ? a.edge : 'left'
+          const minX = Math.min(...objs.map((o) => o.bbox.x)), minY = Math.min(...objs.map((o) => o.bbox.y))
+          const maxX = Math.max(...objs.map((o) => o.bbox.x + o.bbox.w)), maxY = Math.max(...objs.map((o) => o.bbox.y + o.bbox.h))
+          const items = objs.map((o) => ({
+            type: o.type, bbox: o.bbox, x: o.x, y: o.y,
+            dx: edge === 'left' ? minX - o.bbox.x : edge === 'right' ? maxX - (o.bbox.x + o.bbox.w) : 0,
+            dy: edge === 'top' ? minY - o.bbox.y : edge === 'bottom' ? maxY - (o.bbox.y + o.bbox.h) : 0
+          })).filter((it) => Math.abs(it.dx) > 0.01 || Math.abs(it.dy) > 0.01)
+          if (items.length) { await engineRef.current.moveObjects(page, items); await refreshPage(page) }
+          return { ok: true, result: { info: `aligned ${objs.length} object(s) to ${edge}` } }
         }
         case 'pdfShape': {
           const kind = ['rect', 'line', 'ellipse', 'arrow'].includes(a.kind) ? a.kind : 'rect'
@@ -2237,7 +2285,9 @@ export default function PdfEditor({ source, path, active = true }) {
           /* 2+ objects → align tools: everything to the leftmost / the topmost of the selection */
           <>
             <button className="pdfed__btn" onClick={() => alignSelected('left')} title="Align left edges (to the leftmost object)"><AlignLeftIcon /></button>
+            <button className="pdfed__btn" onClick={() => alignSelected('right')} title="Align right edges (to the rightmost object)"><AlignRightIcon /></button>
             <button className="pdfed__btn" onClick={() => alignSelected('top')} title="Align top edges (to the topmost object)"><AlignTopIcon /></button>
+            <button className="pdfed__btn" onClick={() => alignSelected('bottom')} title="Align bottom edges (to the lowest object)"><AlignBottomIcon /></button>
             <button className="pdfed__btn" disabled={(selected?.objs.length || 0) < 3} onClick={distributeRows} title="Distribute into rows at equal spacing (the gap between the first two)"><DistributeRowsIcon /></button>
             <span className="pdfed__sep" />
           </>

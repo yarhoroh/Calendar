@@ -129,7 +129,10 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
   const doReply = async (all) => {
     const m = src()
     const me = (msg.account || '').toLowerCase()
-    let recips = [oneEmail(m.from)]
+    // the message's `from` field is the DISPLAY NAME only (the address was dropped on parse) — the
+    // real address lives in `fromEmail`. Use it, or fall back to extracting an <email> from `from`.
+    const sender = m.fromEmail || oneEmail(m.from)
+    let recips = [sender].filter((e) => e && e.includes('@')) // never put a bare name into To (can't send)
     if (all) {
       const extra = [...emailsOf(m.to), ...emailsOf(m.cc)].filter((e) => e.toLowerCase() !== me)
       recips = [...new Set([...recips, ...extra])]

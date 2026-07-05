@@ -10,15 +10,21 @@ import RecipientInput from './RecipientInput'
 // Gmail-style chips with contact autocomplete; the body is the rich note editor (fonts,
 // alignment, inline images). Drag files onto it — or use the paperclip — to attach them.
 // Send hands the message to the parent's background queue and closes immediately.
-// recipients arrive from the AI as a string ("a@x.com, b@y.com") or already as chips
+// recipients arrive from the AI as a string ("a@x.com, b@y.com") or already as chips. A token may
+// be a bare address OR "Name <a@x.com>" — split the two so the chip shows the name but SENDS the
+// address (a whole "Name <a@x.com>" left in the email field could break delivery / show as a name).
 const parseRecips = (v) => {
   if (Array.isArray(v)) return v
   if (typeof v === 'string' && v.trim())
     return v
       .split(/[,;]/)
-      .map((e) => e.trim())
+      .map((s) => s.trim())
       .filter(Boolean)
-      .map((email) => ({ email, name: email }))
+      .map((tok) => {
+        const m = tok.match(/^(.*?)\s*<([^>]+)>$/)
+        if (m) return { email: m[2].trim(), name: (m[1].trim().replace(/^"|"$/g, '')) || m[2].trim() }
+        return { email: tok, name: tok }
+      })
   return []
 }
 

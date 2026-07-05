@@ -8,7 +8,7 @@ import { extractReadUrl, fetchReadUrl } from './urlTool'
 // duplicate-request guard below (stop feeding the same data twice).
 const MAX_STEPS = 16
 // the reply "promised" to do something (so it should have emitted an action)
-const PROMISES = /напомн|нагад|remind|постав|добав|add(ed|ing)?\b|schedul|заплан|буду|will |готов|done|видал|удал|delet|створ|create|отправ|надісл|send|sent|сохран|збереж|saved?|выполн|виконан/i
+const PROMISES = /напомн|нагад|remind|постав|добав|add(ed|ing)?\b|schedul|заплан|буду|will |готов|done|видал|удал|delet|створ|create|отправ|надісл|send|sent|сохран|збереж|saved?|выполн|виконан|процесс|process|запуст|скрипт|script|фонов|background|выравн|вирівн|align/i
 const hasBlock = (t) => /```calendar/i.test(t || '')
 // Appended when the model answers the user FROM fetched data (notes / events / mail). Weak models
 // pad a plain lookup with a pointless "shall I add reminders?" — this keeps the answer to the facts
@@ -37,7 +37,7 @@ export async function chatLoop({ sendOne, isFresh, ctx, userMsg, images }) {
       // if the reply promised something yet emitted no block, force it once
       if (!hasBlock(reply.text) && PROMISES.test(`${userMsg} ${reply.text}`)) {
         const forced = await sendOne(
-          'If the user\'s request needs a calendar action (addNote / addAiTask / delete / etc.), output ONLY the ```calendar [...] block for it now — no other text. If nothing is truly needed, output ```calendar []```.'
+          'You cannot "start a process" — you act ONLY through the action block. Output ONLY the ```calendar [...] block for the request now, no other text: a PDF task starts with {"action":"pdfInfo"} (or {"action":"openPdf","name":"…"} first if none is open); a note/reminder uses addNote/addAiTask; etc. If nothing is truly needed, output ```calendar []```.'
         )
         const m = forced?.ok && forced.text.match(/```calendar[\s\S]*?```/i)
         if (m) return { ok: true, text: `${reply.text}\n${m[0]}` }

@@ -69,6 +69,50 @@ function slmSplit(els, W, H, id, depth) {
   }]
 }
 
+// SLM alignment grid — cluster the elements' edges into the document's real COLUMNS (shared
+// vertical lines) and ROWS (shared horizontal lines), and flag near-misses (an element ALMOST on a
+// line but shifted by a few pt). Pure geometry on boxes → reused as-is for HTML / WinForms later.
+// els: [{ id, x, y, w, h }]; W/H page size. tol scales with the page so it works at any size.
+function slmGrid(els, W, H) {
+  if (els.length < 2) return { cols: [], rows: [], shifts: [] }
+  const TOL = Math.max(2, W * 0.004) // "on the same line" if within this many pt
+  const NEAR = TOL * 3 // within this but NOT within TOL → a near-miss (shifted)
+  const BAND = Math.max(6, H * 0.012) // rows this far apart count as DISTINCT
+  // 1D clustering on `v` (the edge), carrying each member's `cross` (perpendicular coord). A real
+  // alignment line must span ≥2 DISTINCT cross-bands — otherwise it's just adjacent fragments of ONE
+  // value on a single line (a split number), not a column. Break a cluster when the gap exceeds tol.
+  const cluster = (pts, bandSize) => {
+    const s = [...pts].sort((a, b) => a.v - b.v)
+    const out = []
+    for (const p of s) {
+      const last = out[out.length - 1]
+      if (last && p.v - last.v0 <= TOL) { last.ids.push(p.id); last.sum += p.v; last.at = last.sum / last.ids.length; last.bands.add(Math.round(p.cross / bandSize)) }
+      else out.push({ v0: p.v, at: p.v, sum: p.v, ids: [p.id], bands: new Set([Math.round(p.cross / bandSize)]) })
+    }
+    return out.filter((c) => c.ids.length >= 2 && c.bands.size >= 2) // 2+ members on 2+ distinct bands
+  }
+  const byLeft = cluster(els.map((e) => ({ v: e.x, id: e.id, cross: e.y })), BAND)
+  const byRight = cluster(els.map((e) => ({ v: e.x + e.w, id: e.id, cross: e.y })), BAND)
+  const byTop = cluster(els.map((e) => ({ v: e.y, id: e.id, cross: e.x })), Math.max(20, W * 0.05))
+  const px = (v, D) => Math.round((v / D) * 1000) / 10 // percent, 1 decimal
+  const r1 = (v) => Math.round(v * 10) / 10
+  let ci = 0, ri = 0
+  const cols = [
+    ...byLeft.map((c) => ({ id: 'CL' + ci++, kind: 'left', at: c.at, pct: px(c.at, W), n: c.ids.length })),
+    ...byRight.map((c) => ({ id: 'CR' + ci++, kind: 'right', at: c.at, pct: px(c.at, W), n: c.ids.length }))
+  ].sort((a, b) => b.n - a.n).slice(0, 12).sort((a, b) => a.at - b.at) // the strongest lines, left→right
+  const rows = byTop.map((c) => ({ id: 'R' + ri++, at: c.at, pct: px(c.at, H), n: c.ids.length })).sort((a, b) => a.at - b.at)
+  // near-misses: an element's left/right edge close to a column of the SAME kind but not on it
+  const shifts = []
+  for (const e of els) {
+    for (const [edge, val] of [['left', e.x], ['right', e.x + e.w]]) {
+      const near = cols.filter((c) => c.kind === edge).map((c) => ({ c, d: val - c.at })).filter(({ d }) => Math.abs(d) > TOL && Math.abs(d) <= NEAR).sort((a, b) => Math.abs(a.d) - Math.abs(b.d))[0]
+      if (near && shifts.length < 20) shifts.push(`${e.id} ${edge} edge is ${r1(near.d)}pt off column ${near.c.id}(${r1(near.c.at)}pt) — align it`)
+    }
+  }
+  return { cols, rows, shifts, r1 }
+}
+
 // The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
 // chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
 const AI_PDF_MANUAL = [
@@ -1732,7 +1776,7 @@ export default function PdfEditor({ source, path, active = true }) {
     const vars = variablesRef.current
     out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
     // ---- SLM: the spatial overview (region tree). Detailed pt-accurate lines follow below. ----
-    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; boxes are [x,y,w,h] on a 0..1000 grid (origin top-left). "columns" = split left/right, "stacked" = split top/bottom. Each element shows "z<n>" = its PAINT ORDER: a HIGHER z is drawn ON TOP (covers lower z). So a background must have a LOWER z than the text over it; if a fill/shape has a higher z than text it sits ON that text and hides it — send it to back with pdfReorder. Read this for the LAYOUT; use the pt-accurate line list below for exact edits.')
+    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; region boxes are [x,y,w,h] on a 0..1000 grid (origin top-left); "columns"=split left/right, "stacked"=split top/bottom. Each element also shows "%[L R T B]" = its left/right/top/bottom edges as PERCENT of the page ("R93" = right edge 93% across, "T12" = top 12% down) — read position/extent from this. Each PAGE lists its COLUMNS and ROWS (the real alignment lines several objects share, with x/y in pt and %) and flags any element that is MISALIGNED (a few pt off a column) — snap objects to these lines (pdfAlign / place at that x). "z<n>" = PAINT ORDER: higher z is ON TOP; a background needs LOWER z than the text over it (a fill covering text → pdfReorder back). Use SLM for LAYOUT + alignment; the pt-accurate line list below is for exact edits.')
     for (const pg of pages) {
       const W = pg.width || 1, H = pg.height || 1
       const g = (v, D) => Math.round((v / D) * 1000)
@@ -1753,9 +1797,18 @@ export default function PdfEditor({ source, path, active = true }) {
       const nearEdge = els.filter((e) => e.x < 12 || (e.x + e.w) > W - 12 || e.y < 12 || (e.y + e.h) > H - 12)
         .slice(0, 8).map((e) => `${e.id}${e.text ? ` "${e.text}"` : ''}`)
       if (nearEdge.length) out.push(`  ⚠ TOO CLOSE TO PAGE EDGE (<12pt, may look cut off): ${nearEdge.join(', ')} — move them inside the margins.`)
+      // GRID: the document's real alignment lines (columns = shared vertical edges, rows = shared
+      // tops) + which elements are SHIFTED off them. Snap objects to these to keep the layout tidy.
+      const grid = slmGrid(els, W, H)
+      if (grid.cols.length) out.push(`  COLUMNS (vertical alignment lines; snap left/right edges to these): ${grid.cols.map((c) => `${c.id} ${c.kind}@x=${grid.r1(c.at)}(${c.pct}%)×${c.n}`).join(' | ')}`)
+      if (grid.rows.length) out.push(`  ROWS (horizontal alignment lines; tops): ${grid.rows.map((r) => `${r.id} y=${grid.r1(r.at)}(${r.pct}%)×${r.n}`).join(' | ')}`)
+      if (grid.shifts.length) out.push(`  ⚠ MISALIGNED (near a column but not on it — nudge to fix): ${grid.shifts.join('; ')}`)
+      // percentage box for each element — L/R (horizontal) and T/B (vertical) as % of the page, so
+      // the model reads position/extent intuitively ("right edge at 93%, width 15%")
+      const pctBox = (e) => `%[L${(e.x / W * 100).toFixed(1)} R${((e.x + e.w) / W * 100).toFixed(1)} T${(e.y / H * 100).toFixed(1)} B${((e.y + e.h) / H * 100).toFixed(1)}]`
       const elLine = (e) => e.t === 'T'
-        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
-        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
+        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
       const walk = (node, d) => {
         const pad = '    ' + '  '.repeat(d)
         if (node.els) {

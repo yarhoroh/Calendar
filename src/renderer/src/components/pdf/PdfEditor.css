@@ -859,8 +859,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 .pdfed__zbtn:hover {
-  background: #1473e6;
-  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 .pdfed__rotbadge {
   position: absolute;

@@ -582,7 +582,7 @@ export async function execAction(a, onCommand, channel) {
         // used to think a made-up command worked and then narrate a fake "done").
         return READ_TOOLS.has(a.action)
           ? { ok: true }
-          : { ok: false, error: `unknown action "${a.action}". Use a valid action from the protocol (e.g. addNote, addAiTask, delete, pdfInfo, pdfInsert, pdfShape, pdfSetVariable, pdfSave, telegramFile, composeMail …). Re-emit the ```calendar block with a correct action name.` }
+          : { ok: false, error: `unknown action "${a.action}". Use a valid action from the protocol (e.g. addNote, addAiTask, delete, pdfInfo, pdfInsert, pdfShape, pdfSetVariable, pdfSave, telegramFile, composeMail …). Re-emit the calendar action block with a correct action name.` }
     }
   } catch (e) {
     return { ok: false, error: e?.message || String(e) }

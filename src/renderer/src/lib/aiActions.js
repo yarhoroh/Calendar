@@ -303,6 +303,8 @@ export async function execAction(a, onCommand, channel) {
       case 'pdfInsert':
       case 'pdfDelete':
       case 'pdfMove':
+      case 'pdfReorder':
+      case 'pdfRestack':
       case 'pdfShape':
       case 'createVariable':
       case 'pdfSetVariable':
@@ -615,7 +617,7 @@ export async function runActions(actions, onCommand, channel) {
     // PDF batch stop-guard: after ANY failed PDF action the page ids the model planned with are
     // suspect — running the REST of its PDF batch (e.g. the pdfInsert paired with a failed
     // pdfDelete) duplicated content. Skip them; the model redoes the step from a fresh pdfInfo.
-    const PDF_CHAIN = new Set(['pdfEditText', 'pdfRestyle', 'pdfInsert', 'pdfDelete', 'pdfMove', 'pdfShape', 'createVariable', 'pdfSetVariable', 'pdfSave'])
+    const PDF_CHAIN = new Set(['pdfEditText', 'pdfRestyle', 'pdfInsert', 'pdfDelete', 'pdfMove', 'pdfReorder', 'pdfRestack', 'pdfShape', 'createVariable', 'pdfSetVariable', 'pdfSave'])
     let pdfAborted = false
     for (const a of pending) {
       if (pdfAborted && PDF_CHAIN.has(a.action)) {

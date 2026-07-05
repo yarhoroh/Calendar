@@ -83,6 +83,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
   '- {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to the original (the reply gives the new file\'s full path — use it for attachFile / telegramFile / composeMail attachments). A plain pdfSave OVERWRITES the open file and is REFUSED on the user\'s own documents — only when the user explicitly asked to overwrite, retry with {"overwrite":true}. Files you created yourself (copies, new invoices) can be saved in place freely.',
   '- {"action":"pdfWorkOnCopy","as":"name-copy.pdf"} — save the current state as a copy next to the original AND switch editing to it (the copy opens as the active tab; every later action hits the copy; the original stays untouched). USE THIS FIRST whenever the user asks for serious changes to an existing document and did not say to change the original itself.',
+  '- {"action":"pdfReorder","page":0,"ids":["v1"],"mode":"back"} — change Z-ORDER (stacking). mode: "back" (behind everything — for a background band/fill), "front" (on top), "backward"/"forward" (one step). Paint order = stack order: whatever has the HIGHER z sits on top. If a background/fill covers text (its z is higher), send it "back". Draw backgrounds/bands FIRST so text drawn later is on top; if you added a fill after the text, reorder it back.',
   '- {"action":"pdfNew","name":"invoice.pdf"} — create a BLANK A4 PDF from scratch, open it and link it into Files (lands in a linked folder, else Documents/Calendar PDFs). Creating a document FROM NOTHING is fully supported — use this, then pdfInfo, then build it.',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
   'METRICS — plan the layout with real numbers: the page size is in the PAGE header (A4 ≈ 595x842pt). A text line occupies ≈ size×1.3 pt of height (cap height ≈ 0.7×size above the baseline, descenders ≈ 0.25×size below). Rough width estimate ≈ 0.5×size per character (Arial). You do NOT need to guess precisely: every pdfInsert REPLIES with the exact box of what landed — "inserted: …" with x, baseline, w, h per line — use those real numbers to place the next elements, right-align amounts (x = right_edge − w), and verify nothing overlaps. Keep ~40pt page margins.',
@@ -1706,20 +1707,20 @@ export default function PdfEditor({ source, path, active = true }) {
     const vars = variablesRef.current
     out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
     // ---- SLM: the spatial overview (region tree). Detailed pt-accurate lines follow below. ----
-    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; boxes are [x,y,w,h] on a 0..1000 grid (origin top-left). "columns" = split left/right, "stacked" = split top/bottom. Read this for the LAYOUT (what sits where, which blocks/columns/rows exist); use the pt-accurate line list further down for exact edits.')
+    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; boxes are [x,y,w,h] on a 0..1000 grid (origin top-left). "columns" = split left/right, "stacked" = split top/bottom. Each element shows "z<n>" = its PAINT ORDER: a HIGHER z is drawn ON TOP (covers lower z). So a background must have a LOWER z than the text over it; if a fill/shape has a higher z than text it sits ON that text and hides it — send it to back with pdfReorder. Read this for the LAYOUT; use the pt-accurate line list below for exact edits.')
     for (const pg of pages) {
       const W = pg.width || 1, H = pg.height || 1
       const g = (v, D) => Math.round((v / D) * 1000)
       const nb = (b) => `${g(b[0], W)},${g(b[1], H)},${g(b[2], W)},${g(b[3], H)}`
       const els = []
-      for (const r of pg.runs) { const f = pg.fonts?.[r.f] || {}; els.push({ id: r.id, t: 'T', x: r.bbox.x, y: r.bbox.y, w: r.bbox.w, h: r.bbox.h, text: r.text, font: f.name, size: r.size, bold: f.bold, italic: f.italic, color: pg.colors?.[r.c] }) }
-      for (const v of pg.vectors || []) els.push({ id: v.id, t: v.kind || 'shape', x: v.bbox.x, y: v.bbox.y, w: v.bbox.w, h: v.bbox.h })
-      for (const im of pg.images || []) els.push({ id: im.id, t: 'IMG', x: im.bbox.x, y: im.bbox.y, w: im.bbox.w, h: im.bbox.h })
+      for (const r of pg.runs) { const f = pg.fonts?.[r.f] || {}; els.push({ id: r.id, t: 'T', z: r.z, x: r.bbox.x, y: r.bbox.y, w: r.bbox.w, h: r.bbox.h, text: r.text, font: f.name, size: r.size, bold: f.bold, italic: f.italic, color: pg.colors?.[r.c] }) }
+      for (const v of pg.vectors || []) els.push({ id: v.id, t: v.kind || 'shape', z: v.z, x: v.bbox.x, y: v.bbox.y, w: v.bbox.w, h: v.bbox.h })
+      for (const im of pg.images || []) els.push({ id: im.id, t: 'IMG', z: im.z, x: im.bbox.x, y: im.bbox.y, w: im.bbox.w, h: im.bbox.h })
       out.push(`  PAGE ${pg.pageIndex} [0,0,1000,${g(H, W)}] (${Math.round(W)}x${Math.round(H)}pt):`)
       if (!els.length) { out.push('    (empty page)'); continue }
       const elLine = (e) => e.t === 'T'
-        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
-        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] p${pg.pageIndex}`
+        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex}`
       const walk = (node, d) => {
         const pad = '    ' + '  '.repeat(d)
         if (node.els) {
@@ -1876,6 +1877,15 @@ export default function PdfEditor({ source, path, active = true }) {
           await moveSelected(page, objs, Number(a.dx) || 0, Number(a.dy) || 0)
           return { ok: true }
         }
+        case 'pdfReorder':
+        case 'pdfRestack': {
+          const objs = pick(a.ids ?? a.id)
+          if (!objs.length) return { ok: false, error: staleErr }
+          const mode = ['front', 'back', 'forward', 'backward'].includes(a.mode) ? a.mode : 'back'
+          await engineRef.current.restackObjects(page, objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), mode)
+          await refreshPage(page)
+          return { ok: true, result: { info: `moved ${objs.length} object(s) ${mode}` } }
+        }
         case 'pdfShape': {
           const kind = ['rect', 'line', 'ellipse', 'arrow'].includes(a.kind) ? a.kind : 'rect'
           const geo = kind === 'line' || kind === 'arrow'
@@ -1983,6 +1993,26 @@ export default function PdfEditor({ source, path, active = true }) {
 
   // right-click "Duplicate": a text chain becomes ONE new piece (its joined text, the first piece's
   // style, a WORKING full font face) dropped at +12/+12; graphics/images are stream-copied as-is
+  // Z-ORDER (stacking): move the selected objects forward/back in the paint order. Reselect the
+  // same objects by their unchanged bbox/text (z changed, geometry didn't).
+  const restackSelected = async (mode) => {
+    if (!selected || busyRef.current) return
+    busyRef.current = true
+    try {
+      const page = selected.page
+      const items = selected.objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y }))
+      await engineRef.current.restackObjects(page, items, mode)
+      const m = await refreshPage(page)
+      // re-find each object by a geometry/text signature (its z moved, its box did not)
+      const keep = selected.objs.map((o) => {
+        const cands = allOf(m).filter((r) => r.type === o.type && Math.abs(r.bbox.x - o.bbox.x) < 1.5 && Math.abs(r.bbox.y - o.bbox.y) < 1.5 && (o.type !== 'text' || (r.text || '') === (o.text || '')))
+        return cands[0]
+      }).filter(Boolean)
+      console.log(`[pdf][restack] ${items.length} obj(s) → ${mode}`)
+      onSelect(page, keep)
+    } catch (err) { console.error('[pdf] restack failed:', err) } finally { busyRef.current = false }
+  }
+
   const duplicateSelected = async () => {
     if (!selected || busyRef.current) return
     busyRef.current = true
@@ -2357,6 +2387,12 @@ export default function PdfEditor({ source, path, active = true }) {
         </button>
         {selected?.objs.length > 0 && (
           <>
+            {/* z-order (stacking): move the selection forward/back in the paint order */}
+            <span className="pdfed__sep" />
+            <button className="pdfed__btn" title="Send to back (behind everything)" onClick={() => restackSelected('back')}>⤓</button>
+            <button className="pdfed__btn" title="Send backward (one step)" onClick={() => restackSelected('backward')}>▽</button>
+            <button className="pdfed__btn" title="Bring forward (one step)" onClick={() => restackSelected('forward')}>△</button>
+            <button className="pdfed__btn" title="Bring to front (on top)" onClick={() => restackSelected('front')}>⤒</button>
             <span className="pdfed__spacer" />
             <span className="pdfed__sbinfo">{geoText()}</span>
           </>

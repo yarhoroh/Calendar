@@ -44,6 +44,7 @@ export function createPdfEngine() {
     insertImage: (pageIndex, bytes, x, y, w, h) => call('insertImage', { pageIndex, bytes, x, y, w, h }, [bytes]), // place a PNG/JPEG at x/y (pt, top-left)
     resizeObject: (pageIndex, item, nb, rotSpec) => call('resizeObject', { pageIndex, item, nb, rotSpec }), // stretch an image/vector (rotSpec: scale along the object's own axes)
     rotateObjects: (pageIndex, items, angle, cx, cy) => call('rotateObjects', { pageIndex, items, angle, cx, cy }), // rotate as a group around a pivot (device pt, deg clockwise)
+    restackObjects: (pageIndex, items, mode) => call('restackObjects', { pageIndex, items, mode }), // z-order: mode = front|back|forward|backward
     insertShape: (pageIndex, kind, geo, style) => call('insertShape', { pageIndex, kind, geo, style }), // rect (radius) / line / ellipse
     recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex or 'none'
     setVectorRadius: (pageIndex, item, radius) => call('setVectorRadius', { pageIndex, item, radius }), // rebuild the path as a rounded rect

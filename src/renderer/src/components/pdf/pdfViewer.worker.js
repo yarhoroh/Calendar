@@ -1596,6 +1596,49 @@ function rotateObjectsImpl(pageIndex, items, angle, cx, cy) {
   return jobs.size
 }
 
+// Z-ORDER: in a PDF the paint order IS the stack order — a unit drawn LATER in the stream sits ON
+// TOP. Re-stacking relocates a unit's (balanced) segment to a new position: 'back' = stream start
+// (behind all), 'front' = stream end (on top), 'backward'/'forward' = one step past a neighbour
+// unit. The segment is wrapped q..Q (self-contained; at these depth-0 boundaries the CTM is the
+// page base, same as where it was captured), and its net-state leak is LEFT at the old spot so the
+// content that followed it renders unchanged. One item at a time (units re-collected each pass so
+// offsets stay valid).
+function restackObjects(pageIndex, items, mode) {
+  const lp = doc.loadPage(pageIndex)
+  const H = lp.getBounds()[3]; lp.destroy()
+  const pageObj = doc.findPage(pageIndex)
+  let moved = 0
+  for (const it of items || []) {
+    const units = collectUnits(pageObj, H)
+    const u = matchUnit(units, it)
+    if (!u) continue
+    const cs = readStream(pageObj, u.stream)
+    const segEnd = extendOverTrailingQs(cs, u.start, u.end)
+    const seg = balanceSeg(cs.slice(u.start, segEnd))
+    const net = segNetState(cs.slice(u.start, segEnd))
+    const tail = (net.ops ? net.ops + '\n' : '') + (net.cm ? `${net.cm.map((v) => +v.toFixed(6)).join(' ')} cm\n` : '')
+    const block = `\nq\n${seg}\nQ\n`
+    const su = units.filter((x) => x.stream === u.stream).sort((a, b) => a.start - b.start)
+    const idx = su.indexOf(u)
+    const left = cs.slice(0, u.start), leftTail = left + tail, right = cs.slice(segEnd)
+    let out
+    if (mode === 'back') out = block + leftTail + right
+    else if (mode === 'front') out = leftTail + right + block
+    else if (mode === 'backward') {
+      const prev = su[idx - 1]
+      out = prev ? cs.slice(0, prev.start) + block + cs.slice(prev.start, u.start) + tail + right : block + leftTail + right
+    } else { // forward
+      const next = su[idx + 1]
+      if (!next) out = leftTail + right + block
+      else { const nEnd = extendOverTrailingQs(cs, next.start, next.end); out = left + tail + cs.slice(segEnd, nEnd) + block + cs.slice(nEnd) }
+    }
+    writeStream(pageObj, u.stream, out)
+    moved++
+  }
+  if (!moved) throw new Error('cannot locate the objects in the stream — nothing changed')
+  return moved
+}
+
 // Recolor a vector: replace its stroke (RG/G/K) and/or fill (rg/g/k) colour operators inside the
 // unit; a unit with no own colour op (inherited state) gets one prefixed.
 function recolorVector(pageIndex, item, colors) {
@@ -2092,6 +2135,7 @@ export const __test = {
   collectUnits,
   moveObjectsImpl: (...a) => moveObjectsImpl(...a),
   rotateObjectsImpl: (...a) => rotateObjectsImpl(...a),
+  restackObjects: (...a) => restackObjects(...a),
   docFontBytes: (...a) => docFontBytes(...a),
   getFontsInfo: (...a) => getFontsInfo(...a),
   copyObjectsImpl: (...a) => copyObjectsImpl(...a),
@@ -2176,6 +2220,10 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       if (!doc) throw new Error('no document open')
       const n = rotateObjectsImpl(params.pageIndex, params.items, params.angle, params.cx, params.cy)
       self.postMessage({ id, result: { rotated: n } })
+    } else if (type === 'restackObjects') {
+      if (!doc) throw new Error('no document open')
+      const n = restackObjects(params.pageIndex, params.items, params.mode)
+      self.postMessage({ id, result: { moved: n } })
     } else if (type === 'insertImage') {
       if (!doc) throw new Error('no document open')
       insertImage(params.pageIndex, params.bytes, params.x, params.y, params.w, params.h)

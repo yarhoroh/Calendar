@@ -569,7 +569,9 @@ export async function execAction(a, onCommand, channel) {
   }
 }
 
-const MAX_ROUNDS = 10 // PDF template work legitimately chains many rounds (info → fix → vars → save → send)
+const MAX_ROUNDS = 40 // generous: building a whole document from scratch legitimately chains dozens
+// of rounds (pdfNew → info → many insert/shape batches → info → fixes → vars → save). The user can
+// hit Stop anytime, and the loop tells them if it hits the cap — so it never silently "hangs".
 // actions that don't change data — no need to report their success back to the
 // model (navigation, voice/toast, reads, model switch). Everything else (note &
 // folder mutations, tasks, memory, attachments) is reported so the model knows
@@ -658,6 +660,10 @@ export async function runActions(actions, onCommand, channel) {
     const parsed = extractActions(fb.text)
     if (parsed.text) lastText = parsed.text // keep only the freshest prose — the final one wins
     pending = parsed.actions
+    // hit the round cap with work still queued → say so instead of stopping silently (looked "hung")
+    if (round === MAX_ROUNDS - 1 && pending.length) {
+      pushChat(`⏸ Достигнут лимит шагов (${MAX_ROUNDS}) — работа не закончена. Напиши «продолжай», чтобы доделать (или «стоп»).`, 'system')
+    }
   }
 
   if (lastText) texts.push(lastText)

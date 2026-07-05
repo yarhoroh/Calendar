@@ -569,9 +569,10 @@ export async function execAction(a, onCommand, channel) {
   }
 }
 
-const MAX_ROUNDS = 40 // generous: building a whole document from scratch legitimately chains dozens
-// of rounds (pdfNew → info → many insert/shape batches → info → fixes → vars → save). The user can
-// hit Stop anytime, and the loop tells them if it hits the cap — so it never silently "hangs".
+const MAX_ROUNDS = 200 // building a whole document from scratch can chain a LOT of rounds (a weak
+// model does ~1 action per round: pdfNew → info → dozens of insert/shape batches → info → fixes →
+// vars → save). The user can hit Stop anytime, and the loop announces the cap — so it never silently
+// hangs. High but bounded, as a runaway-loop backstop.
 // actions that don't change data — no need to report their success back to the
 // model (navigation, voice/toast, reads, model switch). Everything else (note &
 // folder mutations, tasks, memory, attachments) is reported so the model knows

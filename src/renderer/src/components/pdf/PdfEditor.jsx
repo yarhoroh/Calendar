@@ -2387,12 +2387,6 @@ export default function PdfEditor({ source, path, active = true }) {
         </button>
         {selected?.objs.length > 0 && (
           <>
-            {/* z-order (stacking): move the selection forward/back in the paint order */}
-            <span className="pdfed__sep" />
-            <button className="pdfed__btn" title="Send to back (behind everything)" onClick={() => restackSelected('back')}>⤓</button>
-            <button className="pdfed__btn" title="Send backward (one step)" onClick={() => restackSelected('backward')}>▽</button>
-            <button className="pdfed__btn" title="Bring forward (one step)" onClick={() => restackSelected('forward')}>△</button>
-            <button className="pdfed__btn" title="Bring to front (on top)" onClick={() => restackSelected('front')}>⤒</button>
             <span className="pdfed__spacer" />
             <span className="pdfed__sbinfo">{geoText()}</span>
           </>
@@ -2545,6 +2539,7 @@ export default function PdfEditor({ source, path, active = true }) {
                 onSelect={onSelect}
                 onMove={moveSelected}
                 onRotate={rotateSelected}
+                onRestack={restackSelected}
                 onResize={resizeSelected}
                 onResizeRot={resizeRotSelected}
                 onLineGeo={lineGeoSelected}

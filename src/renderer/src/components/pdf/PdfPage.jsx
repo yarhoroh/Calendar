@@ -109,7 +109,7 @@ const HANDLES = [
   ['sw', 0, 1, 'nesw-resize'], ['w', 0, 0.5, 'ew-resize']
 ]
 
-export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onResizeRot, onRotate, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onEditText, onPipettePick, onTextCommit, onTextCancel }) {
+export default function PdfPage({ page, image, scale, selected, selMode, showAll, nudge, insertMode, textEdit, pipette, rte, onSelect, onMove, onResize, onResizeRot, onRotate, onRestack, onLineGeo, onLiveGeo, onSprite, onMenu, onInsertAt, onEditText, onPipettePick, onTextCommit, onTextCancel }) {
   const { pageIndex, runs, images, vectors } = page
   const objects = [...runs, ...(images || []), ...(vectors || [])]
   const W = (image?.width ?? page.width) * scale
@@ -611,6 +611,23 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 ? resizeBox
                 : { x: union.x + gdx, y: union.y + gdy, w: union.w, h: union.h })}
             />
+          )
+        })()}
+        {/* z-order strip — floats just above the selection frame (same visual family as the rotate
+            grip). Works for EVERY object kind (text / image / vector / line — it hangs on the shared
+            union frame). Buttons: send-to-back / backward / forward / bring-to-front. */}
+        {union && onRestack && !ghost && !resizeBox && !rotResize && !rotDrag && !parked && !textEdit && !insertMode && !lineDrag && (() => {
+          const bx = union.x + union.w / 2, by = union.y // top-centre of the axis frame
+          const btn = (mode, glyph, title) => (
+            <div className="pdfed__zbtn" title={title} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }} onClick={(e) => { e.stopPropagation(); onRestack(mode) }}>{glyph}</div>
+          )
+          return (
+            <div className="pdfed__zbar" style={{ left: bx * scale, top: by * scale - 14 }} onMouseDown={(e) => e.stopPropagation()}>
+              {btn('back', '⤓', 'Send to back (behind everything)')}
+              {btn('backward', '▽', 'Send backward (one step)')}
+              {btn('forward', '△', 'Bring forward (one step)')}
+              {btn('front', '⤒', 'Bring to front (on top)')}
+            </div>
           )
         })()}
         {/* rotation UI: pivot dot (draggable — the rotation centre) + a rotate grip at the bottom-right

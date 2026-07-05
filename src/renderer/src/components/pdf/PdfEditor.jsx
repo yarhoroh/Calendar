@@ -78,7 +78,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfInsert","page":0,"text":"Hello\\nsecond line","x":57,"baseline":120,"size":12,"family":"Arial","bold":false,"color":"#000000","lineHeight":1.3} — insert NEW text. x/baseline in pt from the page TOP-LEFT; baseline = the line the text SITS on. \\n makes extra lines.',
   '- {"action":"pdfDelete","page":0,"ids":["b3.l0","v2"]} — delete pieces / graphics / images by id.',
   '- {"action":"pdfMove","page":0,"ids":["b3.l0"],"dx":10,"dy":-5} — shift objects by pt (dy positive = down).',
-  '- {"action":"pdfShape","page":0,"kind":"rect","x":40,"y":100,"w":515,"h":24,"color":"#dddddd","strokeW":1,"radius":0,"fill":"#f2f2f2"} — draw a frame/band/background ("fill" optional; "stroke":"none" = fill only). kind "line": {"x1","y1","x2","y2"} for table rules/separators. kind "ellipse": x/y/w/h box.',
+  '- {"action":"pdfShape","page":0,"kind":"rect","x":40,"y":100,"w":515,"h":24,"color":"#dddddd","strokeW":1,"radius":0,"fill":"#f2f2f2"} — draw a frame/band/background ("fill" optional; "stroke":"none" = fill only). kind "line": {"x1","y1","x2","y2"} for table rules/separators. kind "ellipse": x/y/w/h box. For a rect/ellipse the reply lists every text OVERLAPPING the frame with its padding from the L/R/T/B edges (pt): use it to check the frame wraps the text cleanly (roughly equal paddings) — a NEGATIVE padding means the frame edge CUTS through that text, so grow/move the frame or reposition the text. A filled band drawn OVER text also needs pdfReorder "back" so the text shows.',
   '- {"action":"createVariable","name":"invoice_no","value":"INV-2026-001"} — make a template variable out of EVERY text in the document equal to value (create the text first with pdfInsert, then variable it). Name it meaningfully (invoice_no, client, due_date, total…).',
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
   '- {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to the original (the reply gives the new file\'s full path — use it for attachFile / telegramFile / composeMail attachments). A plain pdfSave OVERWRITES the open file and is REFUSED on the user\'s own documents — only when the user explicitly asked to overwrite, retry with {"overwrite":true}. Files you created yourself (copies, new invoices) can be saved in place freely.',
@@ -1892,7 +1892,26 @@ export default function PdfEditor({ source, path, active = true }) {
             ? { x1: Number(a.x1) || 0, y1: Number(a.y1) || 0, x2: Number(a.x2) || 0, y2: Number(a.y2) || 0 }
             : { x: Number(a.x) || 0, y: Number(a.y) || 0, w: Number(a.w) || 10, h: Number(a.h) || 10 }
           await engineRef.current.insertShape(page, kind, geo, { color: a.color || '#000000', strokeW: a.strokeW !== undefined ? Number(a.strokeW) : 1, radius: Number(a.radius) || 0, dash: a.dash || 'solid', head: a.head, fill: a.fill, stroke: a.stroke })
-          await refreshPage(page)
+          const m = await refreshPage(page)
+          // for a FRAME/box (rect/ellipse) report which texts fall inside it and their padding from
+          // each edge — so the model sees if the frame sits cleanly around the text (even paddings)
+          // or cuts through it (a negative padding = the frame edge crosses that text)
+          if (kind === 'rect' || kind === 'ellipse') {
+            const R = geo, rr = Math.round
+            const inside = []
+            for (const o of (m.find((p) => p.pageIndex === page)?.runs || [])) {
+              const b = o.bbox
+              const ox = Math.min(R.x + R.w, b.x + b.w) - Math.max(R.x, b.x)
+              const oy = Math.min(R.y + R.h, b.y + b.h) - Math.max(R.y, b.y)
+              if (ox <= 0 || oy <= 0) continue // no overlap with the frame
+              const pL = rr(b.x - R.x), pR = rr(R.x + R.w - (b.x + b.w)), pT = rr(b.y - R.y), pB = rr(R.y + R.h - (b.y + b.h))
+              const cut = pL < 0 || pR < 0 || pT < 0 || pB < 0
+              inside.push(`${o.id} "${o.text}" pad L=${pL} R=${pR} T=${pT} B=${pB}${cut ? ' ⚠CUTS through this text (frame edge crosses it)' : ''}`)
+              if (inside.length >= 12) break
+            }
+            const info = `frame [${rr(R.x)},${rr(R.y)},${rr(R.w)},${rr(R.h)}] drawn. ${inside.length ? `Texts overlapping it (padding from L/R/T/B edges in pt; negative = the frame cuts that text): ${inside.join('; ')}` : 'no text overlaps it (clear area).'}`
+            return { ok: true, result: { info } }
+          }
           return { ok: true }
         }
         case 'createVariable': {

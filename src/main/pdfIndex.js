@@ -73,7 +73,8 @@ const { pathToFileURL } = require('node:url')
 `
 
 const POOL_SIZE = Math.max(1, Math.min(4, (os.cpus()?.length || 2) - 1))
-let pool = [] // [{ worker, ready, busy, job }]
+const JOB_TIMEOUT = 120000 // a single file stuck longer than this → the worker is hung (corrupt PDF)
+let pool = [] // [{ worker, ready, busy, job, timer }]
 let teardownTimer = null
 
 export function initPdfIndex(notifyFn) {
@@ -160,7 +161,10 @@ export function syncIndex(getTree) {
     const st = safeStat(path)
     if (!st || st.size > MAX_BYTES) continue
     const row = rows.get(key)
-    const changed = !row || row.status === 'pending' || row.status === 'error' ||
+    // 'indexing' counts as changed too: if a doc is somehow still 'indexing' when we sync (a crash
+    // left it mid-flight and the startup reset missed it), re-queue it from scratch rather than
+    // trusting a half-done state — the result is only ever committed atomically on completion.
+    const changed = !row || row.status === 'pending' || row.status === 'error' || row.status === 'indexing' ||
       Math.abs((row.mtime || 0) - st.mtimeMs) > 1 || (row.size || 0) !== st.size
     if (changed) {
       db.prepare(`INSERT INTO docs (key, path, status, reachable) VALUES (?, ?, 'pending', 1)
@@ -214,7 +218,7 @@ export function reindexPath(path) {
 
 // ---- worker pool ----
 function spawnWorker() {
-  const rec = { worker: null, ready: false, busy: false, job: null }
+  const rec = { worker: null, ready: false, busy: false, job: null, timer: null }
   try {
     rec.worker = new Worker(WORKER_SRC, { eval: true, workerData: { mupdfPath: mupdfEntry() } })
   } catch {
@@ -222,20 +226,36 @@ function spawnWorker() {
   }
   rec.worker.on('message', (m) => {
     if (m.type === 'ready') { rec.ready = true; dispatch(); return }
-    if (m.type === 'fatal') { try { rec.worker.terminate() } catch {}; pool = pool.filter((w) => w !== rec); return }
+    if (m.type === 'fatal') { clearTimeout(rec.timer); try { rec.worker.terminate() } catch {}; pool = pool.filter((w) => w !== rec); return }
     if (m.type === 'done') {
+      clearTimeout(rec.timer)
       rec.busy = false; rec.job = null
       try { writeResult(m.key, m.path, m.result) } catch {}
       dispatch()
     }
   })
   rec.worker.on('error', () => {
+    clearTimeout(rec.timer)
     if (rec.job) { try { db.prepare('UPDATE docs SET status=?, error=? WHERE key=?').run('error', 'worker crashed', rec.job.key) } catch {}; notify?.() }
     pool = pool.filter((w) => w !== rec)
     pump()
   })
-  rec.worker.on('exit', () => { pool = pool.filter((w) => w !== rec) })
+  rec.worker.on('exit', () => { clearTimeout(rec.timer); pool = pool.filter((w) => w !== rec) })
   return rec
+}
+
+// a job that never returns (mupdf hung on a corrupt/huge page) would leave the doc stuck at
+// 'indexing' forever (the eternal orange badge). Kill the hung worker, mark the file 'error' (a
+// clear red — not a fake in-progress), and respawn so the rest of the queue keeps flowing.
+function onJobTimeout(rec) {
+  const job = rec.job
+  try { rec.worker.terminate() } catch {}
+  pool = pool.filter((w) => w !== rec)
+  if (job) {
+    try { if (db.prepare('SELECT 1 FROM docs WHERE key=?').get(job.key)) db.prepare("UPDATE docs SET status='error', error='timed out (file too large or corrupt)' WHERE key=?").run(job.key) } catch {}
+    notify?.()
+  }
+  pump()
 }
 function ensurePool() {
   while (pool.length < POOL_SIZE) {
@@ -255,6 +275,8 @@ function dispatch() {
     try { db.prepare("UPDATE docs SET status='indexing' WHERE key=?").run(job.key) } catch {}
     notify?.()
     rec.worker.postMessage({ type: 'job', id: ++jobSeq, key: job.key, path: job.path })
+    clearTimeout(rec.timer)
+    rec.timer = setTimeout(() => onJobTimeout(rec), JOB_TIMEOUT) // never let a file hang the slot forever
   }
   maybeTeardown()
 }

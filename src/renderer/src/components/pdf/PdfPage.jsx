@@ -622,7 +622,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             <div className="pdfed__zbtn" title={title} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }} onClick={(e) => { e.stopPropagation(); onRestack(mode) }}>{glyph}</div>
           )
           return (
-            <div className="pdfed__zbar" style={{ left: bx * scale, top: by * scale - 14 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="pdfed__zbar" style={{ left: bx * scale, top: by * scale - 3 }} onMouseDown={(e) => e.stopPropagation()}>
               {btn('back', '⤓', 'Send to back (behind everything)')}
               {btn('backward', '▽', 'Send backward (one step)')}
               {btn('forward', '△', 'Bring forward (one step)')}

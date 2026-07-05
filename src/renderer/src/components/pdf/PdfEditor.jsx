@@ -75,7 +75,7 @@ const AI_PDF_MANUAL = [
   'PDF ACTIONS — emit them in the normal ```calendar block; MANY actions per block are fine (they run in order). Every action takes "page" (default 0):',
   '- {"action":"pdfEditText","page":0,"id":"b3.l0","text":"new text"} — replace ONE piece\'s text in place (font/size/color/position kept).',
   '- {"action":"pdfRestyle","page":0,"ids":["b3.l0"],"family":"Arial","size":12,"color":"#c00000","bold":true,"italic":false,"ls":0} — restyle pieces; ONLY the fields you pass change.',
-  '- {"action":"pdfInsert","page":0,"text":"Hello\\nsecond line","x":57,"baseline":120,"size":12,"family":"Arial","bold":false,"color":"#000000","lineHeight":1.3} — insert NEW text. x/baseline in pt from the page TOP-LEFT; baseline = the line the text SITS on. \\n makes extra lines.',
+  '- {"action":"pdfInsert","page":0,"text":"Hello\\nsecond line","x":57,"baseline":120,"size":12,"family":"Arial","bold":false,"color":"#000000","lineHeight":1.3} — insert NEW text. x/baseline in pt from the page TOP-LEFT; baseline = the line the text SITS on. \\n makes extra lines; "lineHeight" (×size) is the LINE SPACING between them (default 1.3). To insert a line that matches the surrounding text\'s rhythm, step the baseline by the SAME Δ shown between existing lines in pdfInfo (e.g. neighbouring lines Δ15 → put your new line 15pt below the one above it). Keep line spacing consistent. ("ls" on pdfInsert/pdfRestyle is LETTER spacing — the gap between characters, different from line spacing.)',
   '- {"action":"pdfDelete","page":0,"ids":["b3.l0","v2"]} — delete pieces / graphics / images by id.',
   '- {"action":"pdfMove","page":0,"ids":["b3.l0"],"dx":10,"dy":-5} — shift objects by pt (dy positive = down).',
   '- {"action":"pdfAlign","page":0,"ids":["b5","b6","b7"],"edge":"right"} — align several objects to a common edge: "left"/"right" (line up a column of labels or amounts), "top"/"bottom" (line up a row). RIGHT-align number columns (amounts) so their right edges match; the reply of pdfInsert gives each piece\'s width so you can also place them by x = rightEdge − width. Respect the MARGINS from pdfInfo — never put content within ~12pt of the page edge (it looks cut off).',
@@ -1768,11 +1768,11 @@ export default function PdfEditor({ source, path, active = true }) {
       for (const node of slmSplit(els, W, H, 'R', 0)) walk(node, 0)
     }
     for (const pg of pages) {
-      out.push(`PAGE ${pg.pageIndex} — ${Math.round(pg.width)}x${Math.round(pg.height)}pt. Text pieces by visual line:`)
+      out.push(`PAGE ${pg.pageIndex} — ${Math.round(pg.width)}x${Math.round(pg.height)}pt. Text pieces by visual line ("base"=baseline y; "Δ"=vertical step in pt from the previous line's baseline = the LINE SPACING; a consistent Δ means even spacing — match it when inserting a line between others):`)
       const lines = new Map()
       for (const r of pg.runs) { const key = Math.round(r.y / 2); if (!lines.has(key)) lines.set(key, []); lines.get(key).push(r) }
       const keys = [...lines.keys()].sort((a, b) => a - b)
-      let n = 0
+      let n = 0, prevBase = null
       for (const k of keys) {
         const rs = lines.get(k).sort((a, b) => a.x - b.x)
         // the pieces of one visual line, with the exact GAP between neighbours — this is how the
@@ -1784,7 +1784,10 @@ export default function PdfEditor({ source, path, active = true }) {
             return `${gap}${r.id} "${r.text}" [${c1(r.bbox.x)}..${c1(r.bbox.x + r.bbox.w)}] ${f.name || '?'} ${r.size ?? '?'}pt${f.bold ? ' bold' : ''}${f.italic ? ' italic' : ''} ${pg.colors?.[r.c] || '#000'}${r.ls ? ` ls=${c1(r.ls)}` : ''}`
           })
           .join('')
-        out.push(`  base=${c1(rs[0].y)} "${joinRuns(rs)}" → ${pieces}`)
+        const base = rs[0].y
+        const dStep = prevBase !== null ? ` Δ${c1(base - prevBase)}` : ''
+        prevBase = base
+        out.push(`  base=${c1(base)}${dStep} "${joinRuns(rs)}" → ${pieces}`)
         if (++n >= 400) { out.push(`  … (${keys.length - n} more lines omitted)`); break }
       }
       const vecs = (pg.vectors || []).slice(0, 80).map((v) => `${v.id} ${v.kind || 'path'} @(${c1(v.bbox.x)},${c1(v.bbox.y)}) ${c1(v.bbox.w)}x${c1(v.bbox.h)}`).join('; ')

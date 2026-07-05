@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../lib/api'
 import { startOfToday, dateKey } from '../lib/dates'
-import { extractActions, runActions } from '../lib/aiActions'
+import { extractActions, runActions, BAD_JSON_HINT } from '../lib/aiActions'
 import { activeContext } from '../lib/activeEditor'
 import { getUiState, ui } from '../lib/uiBridge'
 import { registerChatSink, resetAbort, abortActions } from '../lib/chatBridge'
@@ -95,7 +95,12 @@ export function useChat({ onCommand }) {
         return
       }
       console.warn('[ai-reply]', JSON.stringify(res.text))
-      const { text: clean, actions } = extractActions(res.text)
+      let { text: clean, actions, parseError } = extractActions(res.text)
+      // malformed action block → ask the model to re-emit valid JSON (with the exact error + format)
+      if (parseError && !actions.length) {
+        const fix = await api.aiSend?.({ messages: [{ role: 'user', content: BAD_JSON_HINT.replace('%E', parseError) }] })
+        if (fix?.ok) { const r2 = extractActions(fix.text); actions = r2.actions; if (r2.text) clean = r2.text }
+      }
       console.warn('[ai-actions]', actions.length, JSON.stringify(actions))
       setMessages((m) => [...m, { role: 'assistant', content: clean || '✓' }])
       // drop a chat/message action that just repeats the reply we already posted (some models

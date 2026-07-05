@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import api from '../lib/api'
-import { extractActions, runActions } from '../lib/aiActions'
+import { extractActions, runActions, BAD_JSON_HINT } from '../lib/aiActions'
 import { pushChat } from '../lib/chatBridge'
 
 // Routes incoming Telegram messages through the same AI pipeline as the chat:
@@ -25,7 +25,12 @@ export function useTelegramBridge({ onCommand }) {
         api.telegramReply?.(chatId, `⚠ ${res?.error || 'no reply'}`)
         return
       }
-      const { text: clean, actions } = extractActions(res.text)
+      let { text: clean, actions, parseError } = extractActions(res.text)
+      // malformed action block from the model → re-request valid JSON before giving up
+      if (parseError && !actions.length) {
+        const fix = await api.aiSend?.({ messages: [{ role: 'user', content: BAD_JSON_HINT.replace('%E', parseError) }] })
+        if (fix?.ok) { const r2 = extractActions(fix.text); actions = r2.actions; if (r2.text) clean = r2.text }
+      }
       const channel = `telegram:${chatId}`
       // a clarifying question (ask) must NOT pop the desktop dialog for a Telegram chat — the
       // user isn't at the computer. Deliver the question AS the Telegram reply (use the ask

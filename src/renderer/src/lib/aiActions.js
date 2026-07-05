@@ -69,19 +69,31 @@ const stripJsonComments = (s) => {
   return out
 }
 
-// Pull a ```calendar [...] ``` action block out of the model's reply.
+// read tools the main-side chatLoop already resolved — a no-op if they reach the renderer executor
+const READ_TOOLS = new Set(['getNotes', 'listGoogleEvents', 'mailSearch', 'mailList', 'mailOpen', 'readUrl'])
+
+// Pull a ```calendar [...] ``` action block out of the model's reply. If a block is present but its
+// JSON won't parse, `parseError` is set (with a short reason) so the caller can tell the model its
+// JSON was malformed and re-request a valid block, instead of silently doing nothing.
 export function extractActions(text) {
   const m = text.match(/```calendar\s*([\s\S]*?)```/i)
   if (!m) return { text: text.trim(), actions: [] }
   let actions = []
+  let parseError = null
   try {
     const parsed = JSON.parse(stripJsonComments(m[1].trim()))
     actions = Array.isArray(parsed) ? parsed : [parsed]
-  } catch {
-    // ignore malformed action block
+  } catch (e) {
+    parseError = e?.message || 'invalid JSON'
   }
-  return { text: text.replace(m[0], '').trim(), actions }
+  return { text: text.replace(m[0], '').trim(), actions, parseError }
 }
+
+// the correction fed back when the model's action block was not valid JSON
+export const BAD_JSON_HINT =
+  'Your ```calendar block was NOT valid JSON (%E). It must be a JSON ARRAY of action objects, e.g. ' +
+  '```calendar\n[{"action":"pdfInfo"}]\n``` — double quotes on every key and string, no trailing commas, no comments. ' +
+  'Re-emit ONLY a corrected ```calendar block.'
 
 // Execute one action the AI emitted; returns { ok, error } so the caller can
 // tell the model whether it worked. `onCommand` drives the calendar UI.
@@ -565,7 +577,12 @@ export async function execAction(a, onCommand, channel) {
         return { ok: true }
       }
       default:
-        return { ok: true } // getNotes / mailSearch / mailList / mailOpen are handled elsewhere
+        // read tools resolved earlier in the main-side chatLoop → silent no-op here. ANYTHING else
+        // is an unknown/misspelled action: tell the model instead of silently reporting success (it
+        // used to think a made-up command worked and then narrate a fake "done").
+        return READ_TOOLS.has(a.action)
+          ? { ok: true }
+          : { ok: false, error: `unknown action "${a.action}". Use a valid action from the protocol (e.g. addNote, addAiTask, delete, pdfInfo, pdfInsert, pdfShape, pdfSetVariable, pdfSave, telegramFile, composeMail …). Re-emit the ```calendar block with a correct action name.` }
     }
   } catch (e) {
     return { ok: false, error: e?.message || String(e) }
@@ -661,7 +678,13 @@ export async function runActions(actions, onCommand, channel) {
       if (fails.length) texts.push(`⚠ ${fails.join('; ')}`)
       break
     }
-    const parsed = extractActions(fb.text)
+    let parsed = extractActions(fb.text)
+    // the model answered with a MALFORMED action block → tell it the exact problem + format and let
+    // it re-emit, rather than silently ending with nothing done
+    if (parsed.parseError && !parsed.actions.length) {
+      const fix = await api.aiSend?.({ messages: [{ role: 'user', content: BAD_JSON_HINT.replace('%E', parsed.parseError) }] })
+      if (fix?.ok) parsed = extractActions(fix.text)
+    }
     if (parsed.text) lastText = parsed.text // keep only the freshest prose — the final one wins
     pending = parsed.actions
     // hit the round cap with work still queued → say so instead of stopping silently (looked "hung")

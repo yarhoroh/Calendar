@@ -17,6 +17,58 @@ const AI_CREATED_PATHS = new Set()
 const SIZES = [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 80, 90]
 const LH_OPTS = [1, 1.15, 1.25, 1.4, 1.5, 1.75, 2]
 
+// ================= SLM — Spatial Layout Map =================
+// A medium-agnostic way to hand a 2D layout to an AI as TEXT it can reason about spatially: every
+// object (from ANY source — PDF scan, HTML getBoundingClientRect, image OCR) becomes a box; the
+// page is recursively split along the widest whitespace gutter (recursive XY-cut) into a NESTING
+// TREE of regions (header/body/footer → columns → rows), so the model sees structure, not a flat
+// list. Boxes are normalised to a 0..1000 grid (origin top-left) so pt / px / image-px compare
+// identically. Only the PDF adapter (buildSlm) lives here; the tree builder (slmSplit) is pure.
+
+// merge [a,b] intervals, return the gaps BETWEEN them as {at (midpoint), size}
+function gapsOf(intervals) {
+  const iv = intervals.filter((x) => x[1] > x[0]).sort((a, b) => a[0] - b[0])
+  if (iv.length < 2) return []
+  const merged = [iv[0].slice()]
+  for (let i = 1; i < iv.length; i++) {
+    const last = merged[merged.length - 1]
+    if (iv[i][0] <= last[1]) last[1] = Math.max(last[1], iv[i][1])
+    else merged.push(iv[i].slice())
+  }
+  const gaps = []
+  for (let i = 1; i < merged.length; i++) gaps.push({ at: (merged[i - 1][1] + merged[i][0]) / 2, size: merged[i][0] - merged[i - 1][1] })
+  return gaps
+}
+
+// recursive XY-cut → an array of region nodes { id, box:[x,y,w,h], dir, children } | { id, box, els }
+// els carry all their attributes; W/H are page dims (for the gutter thresholds in page units)
+function slmSplit(els, W, H, id, depth) {
+  const bx = () => {
+    const x0 = Math.min(...els.map((e) => e.x)), y0 = Math.min(...els.map((e) => e.y))
+    const x1 = Math.max(...els.map((e) => e.x + e.w)), y1 = Math.max(...els.map((e) => e.y + e.h))
+    return [x0, y0, x1 - x0, y1 - y0]
+  }
+  if (els.length <= 3 || depth >= 6) return [{ id, box: bx(), els }]
+  const vGaps = gapsOf(els.map((e) => [e.x, e.x + e.w])) // vertical gutters → column split
+  const hGaps = gapsOf(els.map((e) => [e.y, e.y + e.h])) // horizontal gutters → row-group split
+  const bestV = vGaps.sort((a, b) => b.size - a.size)[0]
+  const bestH = hGaps.sort((a, b) => b.size - a.size)[0]
+  const COL = Math.max(18, W * 0.03) // a real column gutter (pt)
+  const ROW = Math.max(10, H * 0.018) // a real row-group gutter (pt)
+  const vScore = bestV && bestV.size > COL ? bestV.size / COL : 0
+  const hScore = bestH && bestH.size > ROW ? bestH.size / ROW : 0
+  if (!vScore && !hScore) return [{ id, box: bx(), els }]
+  const vertical = vScore >= hScore // cut columns first when the column gutter is the more decisive
+  const cut = vertical ? bestV.at : bestH.at
+  const key = vertical ? (e) => e.x + e.w / 2 : (e) => e.y + e.h / 2
+  const A = els.filter((e) => key(e) < cut), B = els.filter((e) => key(e) >= cut)
+  if (!A.length || !B.length) return [{ id, box: bx(), els }]
+  return [{
+    id, box: bx(), dir: vertical ? 'columns' : 'stacked',
+    children: [...slmSplit(A, W, H, id + 'a', depth + 1), ...slmSplit(B, W, H, id + 'b', depth + 1)]
+  }]
+}
+
 // The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
 // chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
 const AI_PDF_MANUAL = [
@@ -1653,6 +1705,33 @@ export default function PdfEditor({ source, path, active = true }) {
     out.push(`DOCUMENT FONTS: ${docFonts.map((f) => f.name).join(', ') || '(none — blank page; use any installed family, e.g. Arial, Times New Roman, Courier New)'}. Any installed Windows family or exact Google Fonts name also works — an unusable font returns a clear error, then pick another.`)
     const vars = variablesRef.current
     out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
+    // ---- SLM: the spatial overview (region tree). Detailed pt-accurate lines follow below. ----
+    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; boxes are [x,y,w,h] on a 0..1000 grid (origin top-left). "columns" = split left/right, "stacked" = split top/bottom. Read this for the LAYOUT (what sits where, which blocks/columns/rows exist); use the pt-accurate line list further down for exact edits.')
+    for (const pg of pages) {
+      const W = pg.width || 1, H = pg.height || 1
+      const g = (v, D) => Math.round((v / D) * 1000)
+      const nb = (b) => `${g(b[0], W)},${g(b[1], H)},${g(b[2], W)},${g(b[3], H)}`
+      const els = []
+      for (const r of pg.runs) { const f = pg.fonts?.[r.f] || {}; els.push({ id: r.id, t: 'T', x: r.bbox.x, y: r.bbox.y, w: r.bbox.w, h: r.bbox.h, text: r.text, font: f.name, size: r.size, bold: f.bold, italic: f.italic, color: pg.colors?.[r.c] }) }
+      for (const v of pg.vectors || []) els.push({ id: v.id, t: v.kind || 'shape', x: v.bbox.x, y: v.bbox.y, w: v.bbox.w, h: v.bbox.h })
+      for (const im of pg.images || []) els.push({ id: im.id, t: 'IMG', x: im.bbox.x, y: im.bbox.y, w: im.bbox.w, h: im.bbox.h })
+      out.push(`  PAGE ${pg.pageIndex} [0,0,1000,${g(H, W)}] (${Math.round(W)}x${Math.round(H)}pt):`)
+      if (!els.length) { out.push('    (empty page)'); continue }
+      const elLine = (e) => e.t === 'T'
+        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] p${pg.pageIndex}`
+      const walk = (node, d) => {
+        const pad = '    ' + '  '.repeat(d)
+        if (node.els) {
+          out.push(`${pad}${node.id} [${nb(node.box)}] — ${node.els.length} el:`)
+          for (const e of node.els.sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))) out.push(`${pad}  ${elLine(e)}`)
+        } else {
+          out.push(`${pad}${node.id} [${nb(node.box)}] ${node.dir}:`)
+          for (const c of node.children) walk(c, d + 1)
+        }
+      }
+      for (const node of slmSplit(els, W, H, 'R', 0)) walk(node, 0)
+    }
     for (const pg of pages) {
       out.push(`PAGE ${pg.pageIndex} — ${Math.round(pg.width)}x${Math.round(pg.height)}pt. Text pieces by visual line:`)
       const lines = new Map()

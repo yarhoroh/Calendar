@@ -84,6 +84,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
   '- {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to the original (the reply gives the new file\'s full path — use it for attachFile / telegramFile / composeMail attachments). A plain pdfSave OVERWRITES the open file and is REFUSED on the user\'s own documents — only when the user explicitly asked to overwrite, retry with {"overwrite":true}. Files you created yourself (copies, new invoices) can be saved in place freely.',
   '- {"action":"pdfWorkOnCopy","as":"name-copy.pdf"} — save the current state as a copy next to the original AND switch editing to it (the copy opens as the active tab; every later action hits the copy; the original stays untouched). USE THIS FIRST whenever the user asks for serious changes to an existing document and did not say to change the original itself.',
+  '- {"action":"pdfStyleShape","page":0,"ids":["v1"],"fill":"#f2f2f2","stroke":"#cccccc","strokeW":1,"radius":4,"opacity":1} — restyle an EXISTING shape/box IN PLACE: "fill" = its BACKGROUND colour, "stroke" = its BORDER colour, "strokeW" = border width (pt), "radius" = rounded corners, "opacity" 0..1 ("none" clears a fill or border). To CHANGE a box\'s colour/size/border, use THIS or pdfDelete + a fresh pdfShape — do NOT draw another box on top of the old one. To REMOVE a box, pdfDelete it by its v-id. Every shape in pdfInfo shows its current fill= and border= so you know what you are changing. A shape has TWO colours: fill (background) and stroke (the outline); "stroke":"none" = filled-only (a solid band), "fill":"none" = outline-only (an empty frame).',
   '- {"action":"pdfReorder","page":0,"ids":["v1"],"mode":"back"} — change Z-ORDER (stacking). mode: "back" (behind everything — for a background band/fill), "front" (on top), "backward"/"forward" (one step). Paint order = stack order: whatever has the HIGHER z sits on top. If a background/fill covers text (its z is higher), send it "back". Draw backgrounds/bands FIRST so text drawn later is on top; if you added a fill after the text, reorder it back.',
   '- {"action":"pdfNew","name":"invoice.pdf"} — create a BLANK A4 PDF from scratch, open it and link it into Files (lands in a linked folder, else Documents/Calendar PDFs). Creating a document FROM NOTHING is fully supported — use this, then pdfInfo, then build it.',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
@@ -1738,7 +1739,7 @@ export default function PdfEditor({ source, path, active = true }) {
       const nb = (b) => `${g(b[0], W)},${g(b[1], H)},${g(b[2], W)},${g(b[3], H)}`
       const els = []
       for (const r of pg.runs) { const f = pg.fonts?.[r.f] || {}; els.push({ id: r.id, t: 'T', z: r.z, x: r.bbox.x, y: r.bbox.y, w: r.bbox.w, h: r.bbox.h, text: r.text, font: f.name, size: r.size, bold: f.bold, italic: f.italic, color: pg.colors?.[r.c] }) }
-      for (const v of pg.vectors || []) els.push({ id: v.id, t: v.kind || 'shape', z: v.z, x: v.bbox.x, y: v.bbox.y, w: v.bbox.w, h: v.bbox.h })
+      for (const v of pg.vectors || []) els.push({ id: v.id, t: v.kind || 'shape', z: v.z, x: v.bbox.x, y: v.bbox.y, w: v.bbox.w, h: v.bbox.h, fill: v.fc !== undefined ? pg.colors?.[v.fc] : null, stroke: pg.colors?.[v.c], sw: v.strokeW })
       for (const im of pg.images || []) els.push({ id: im.id, t: 'IMG', z: im.z, x: im.bbox.x, y: im.bbox.y, w: im.bbox.w, h: im.bbox.h })
       out.push(`  PAGE ${pg.pageIndex} [0,0,1000,${g(H, W)}] (${Math.round(W)}x${Math.round(H)}pt):`)
       if (!els.length) { out.push('    (empty page)'); continue }
@@ -1754,7 +1755,7 @@ export default function PdfEditor({ source, path, active = true }) {
       if (nearEdge.length) out.push(`  ⚠ TOO CLOSE TO PAGE EDGE (<12pt, may look cut off): ${nearEdge.join(', ')} — move them inside the margins.`)
       const elLine = (e) => e.t === 'T'
         ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
-        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
       const walk = (node, d) => {
         const pad = '    ' + '  '.repeat(d)
         if (node.els) {
@@ -1936,6 +1937,23 @@ export default function PdfEditor({ source, path, active = true }) {
           })).filter((it) => Math.abs(it.dx) > 0.01 || Math.abs(it.dy) > 0.01)
           if (items.length) { await engineRef.current.moveObjects(page, items); await refreshPage(page) }
           return { ok: true, result: { info: `aligned ${objs.length} object(s) to ${edge}` } }
+        }
+        case 'pdfStyleShape': {
+          // edit an EXISTING shape/box IN PLACE — background (fill), border (stroke) colour, border
+          // width, corner radius, opacity. So the model changes a box instead of drawing a new one
+          // over it. ("none" clears a fill/stroke.)
+          const objs = pick(a.ids ?? a.id).filter((o) => o.type === 'vector')
+          if (!objs.length) return { ok: false, error: 'no shape/box with those ids (vectors only) — check pdfInfo' }
+          for (const o of objs) {
+            const it = { type: o.type, bbox: o.bbox, x: o.x, y: o.y }
+            if (a.fill !== undefined || a.stroke !== undefined || a.color !== undefined)
+              await engineRef.current.recolorVector(page, it, { fill: a.fill, stroke: a.stroke ?? a.color })
+            if (a.strokeW !== undefined) await engineRef.current.setStrokeWidth(page, it, Number(a.strokeW))
+            if (a.radius !== undefined) await engineRef.current.setVectorRadius(page, it, Number(a.radius))
+            if (a.opacity !== undefined) await engineRef.current.setOpacity(page, it, Math.max(0, Math.min(1, Number(a.opacity))))
+          }
+          await refreshPage(page)
+          return { ok: true, result: { info: `restyled ${objs.length} shape(s)` } }
         }
         case 'pdfShape': {
           const kind = ['rect', 'line', 'ellipse', 'arrow'].includes(a.kind) ? a.kind : 'rect'

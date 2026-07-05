@@ -2091,9 +2091,20 @@ export default function PdfEditor({ source, path, active = true }) {
       const items = selected.objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y }))
       await engineRef.current.restackObjects(page, items, mode)
       const m = await refreshPage(page)
-      // re-find each object by a geometry/text signature (its z moved, its box did not)
+      // re-find each object by a geometry/type signature (its z moved, its box did NOT). Step-by-
+      // step (forward/backward) failed because on an invoice boxes and text overlap: a loose bbox
+      // match grabbed a DIFFERENT overlapping object, so the next click moved the wrong one. Match
+      // tightly (type + kind/text + full bbox) and pick the NEAREST by centre so stepping stays on
+      // the same object.
       const keep = selected.objs.map((o) => {
-        const cands = allOf(m).filter((r) => r.type === o.type && Math.abs(r.bbox.x - o.bbox.x) < 1.5 && Math.abs(r.bbox.y - o.bbox.y) < 1.5 && (o.type !== 'text' || (r.text || '') === (o.text || '')))
+        const cx = o.bbox.x + o.bbox.w / 2, cy = o.bbox.y + o.bbox.h / 2
+        const cands = allOf(m)
+          .filter((r) => r.type === o.type
+            && Math.abs(r.bbox.x - o.bbox.x) < 2 && Math.abs(r.bbox.y - o.bbox.y) < 2
+            && Math.abs(r.bbox.w - o.bbox.w) < 2 && Math.abs(r.bbox.h - o.bbox.h) < 2
+            && (o.type !== 'text' || (r.text || '') === (o.text || ''))
+            && (o.type !== 'vector' || (r.kind || '') === (o.kind || '')))
+          .sort((a, b) => Math.hypot(a.bbox.x + a.bbox.w / 2 - cx, a.bbox.y + a.bbox.h / 2 - cy) - Math.hypot(b.bbox.x + b.bbox.w / 2 - cx, b.bbox.y + b.bbox.h / 2 - cy))
         return cands[0]
       }).filter(Boolean)
       console.log(`[pdf][restack] ${items.length} obj(s) → ${mode}`)

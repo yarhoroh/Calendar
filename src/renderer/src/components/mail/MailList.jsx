@@ -15,8 +15,8 @@ import './MailList.css'
 
 const PER_PAGE = 50
 
-// row date: time for today's mail; otherwise the FULL date as day + month-in-words + year, plus the
-// quarter in small letters at the end ("15 октября 2026 q4") — a complete число/месяц/год + квартал
+// row date: time for today's mail; otherwise the full date with BOTH the numeric month AND its name,
+// plus the quarter in small letters ("15.10.2026 октября q4") — число / номер+название месяца / год
 function fmtDate(ms) {
   if (!ms) return ''
   const d = new Date(ms)
@@ -24,7 +24,8 @@ function fmtDate(ms) {
   const p = (n) => String(n).padStart(2, '0')
   if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}`
   const q = Math.floor(d.getMonth() / 3) + 1 // Jan–Mar=1 … Oct–Dec=4
-  return `${d.getDate()} ${d.toLocaleDateString(undefined, { month: 'long' })} ${d.getFullYear()} q${q}`
+  const month = d.toLocaleDateString(undefined, { month: 'long' })
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${month} q${q}`
 }
 
 // The message list. ONE component for both a single account and the unified

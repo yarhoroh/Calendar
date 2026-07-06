@@ -15,15 +15,16 @@ import './MailList.css'
 
 const PER_PAGE = 50
 
-// short relative date for the row (time today, "Mon D" this year, else full)
+// row date: time for today's mail; otherwise the FULL date as day + month-in-words + year, plus the
+// quarter in small letters at the end ("15 октября 2026 q4") — a complete число/месяц/год + квартал
 function fmtDate(ms) {
   if (!ms) return ''
   const d = new Date(ms)
   const now = new Date()
   const p = (n) => String(n).padStart(2, '0')
   if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}`
-  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  const q = Math.floor(d.getMonth() / 3) + 1 // Jan–Mar=1 … Oct–Dec=4
+  return `${d.getDate()} ${d.toLocaleDateString(undefined, { month: 'long' })} ${d.getFullYear()} q${q}`
 }
 
 // The message list. ONE component for both a single account and the unified

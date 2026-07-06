@@ -113,6 +113,51 @@ function slmGrid(els, W, H) {
   return { cols, rows, shifts, r1 }
 }
 
+// Virtual document GRID — split the WHOLE page into a spreadsheet-like grid of rows × columns whose
+// lines are the whitespace gutters between the elements' edges, then place every element in its
+// cell(s). A wide element spans several columns (colspan), a tall one several rows (rowspan). This
+// turns spatial questions into grid navigation the model does itself: "under X" = same column, next
+// row; "beside X" = same row, next column. Pure geometry → reused for HTML / WinForms later.
+function slmTable(els, W, H) {
+  if (els.length < 2) return null
+  const TOLX = Math.max(3, W * 0.01) // vertical grid lines: edges within this many pt are ONE column line
+  // COLUMNS: cluster every left & right edge into vertical grid lines (x). A column = the gap
+  // between two consecutive lines; a wide element spans several.
+  const boundaries = (vals, tol) => {
+    const s = [...vals].sort((a, b) => a - b)
+    const out = []
+    for (const v of s) {
+      const last = out[out.length - 1]
+      if (last && v - last.v0 <= tol) { last.sum += v; last.n++; last.at = last.sum / last.n }
+      else out.push({ v0: v, at: v, sum: v, n: 1 })
+    }
+    return out.map((c) => Math.round(c.at * 10) / 10)
+  }
+  const colB = boundaries(els.flatMap((e) => [e.x, e.x + e.w]), TOLX)
+  // ROWS = visual LINES, not every edge: sort element centres top→bottom and start a new row only
+  // when the vertical gap jumps (so one line's pieces share a row). rowB = each row's centre y.
+  const cs = els.map((e) => ({ c: e.y + e.h / 2, h: e.h })).sort((a, b) => a.c - b.c)
+  const bands = []
+  for (const { c, h } of cs) {
+    const last = bands[bands.length - 1]
+    if (last && c - last.c <= Math.max(3, h * 0.7)) { last.sum += c; last.n++; last.c = last.sum / last.n }
+    else bands.push({ c, sum: c, n: 1 })
+  }
+  const rowB = bands.map((b) => Math.round(b.c * 10) / 10)
+  const nearest = (B, v) => { let bi = 0, bd = Infinity; for (let i = 0; i < B.length; i++) { const d = Math.abs(B[i] - v); if (d < bd) { bd = d; bi = i } } return bi }
+  const cellOf = (e) => {
+    // columns: the element sits between col-line ci (its left) and cj (its right) → slots ci+1..cj
+    const ci = nearest(colB, e.x), cj = nearest(colB, e.x + e.w)
+    const cCol = Math.min(ci, cj) + 1, ceCol = Math.max(Math.max(ci, cj), cCol)
+    // rows: which line-bands the element's vertical span covers (usually one; a tall box spans many)
+    let r0 = Infinity, r1 = -Infinity
+    for (let i = 0; i < rowB.length; i++) if (rowB[i] >= e.y - 1 && rowB[i] <= e.y + e.h + 1) { r0 = Math.min(r0, i); r1 = Math.max(r1, i) }
+    if (r0 === Infinity) r0 = r1 = nearest(rowB, e.y + e.h / 2)
+    return { rs: r0 + 1, re: r1 + 1, cs: cCol, ce: ceCol }
+  }
+  return { colB, rowB, cellOf, cols: Math.max(0, colB.length - 1), rows: rowB.length }
+}
+
 // The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
 // chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
 const AI_PDF_MANUAL = [
@@ -1776,7 +1821,7 @@ export default function PdfEditor({ source, path, active = true }) {
     const vars = variablesRef.current
     out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
     // ---- SLM: the spatial overview (region tree). Detailed pt-accurate lines follow below. ----
-    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; region boxes are [x,y,w,h] on a 0..1000 grid (origin top-left); "columns"=split left/right, "stacked"=split top/bottom. Each element also shows "%[L R T B]" = its left/right/top/bottom edges as PERCENT of the page ("R93" = right edge 93% across, "T12" = top 12% down) — read position/extent from this. Each PAGE lists its COLUMNS and ROWS (the real alignment lines several objects share, with x/y in pt and %) and flags any element that is MISALIGNED (a few pt off a column) — snap objects to these lines (pdfAlign / place at that x). "z<n>" = PAINT ORDER: higher z is ON TOP; a background needs LOWER z than the text over it (a fill covering text → pdfReorder back). Use SLM for LAYOUT + alignment; the pt-accurate line list below is for exact edits.')
+    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; region boxes are [x,y,w,h] on a 0..1000 grid (origin top-left); "columns"=split left/right, "stacked"=split top/bottom. Each element also shows "%[L R T B]" = its left/right/top/bottom edges as PERCENT of the page ("R93" = right edge 93% across, "T12" = top 12% down) — read position/extent from this. Each PAGE lists its COLUMNS and ROWS (the real alignment lines several objects share, with x/y in pt and %) and flags any element that is MISALIGNED (a few pt off a column) — snap objects to these lines (pdfAlign / place at that x). "z<n>" = PAINT ORDER: higher z is ON TOP; a background needs LOWER z than the text over it (a fill covering text → pdfReorder back). Each PAGE is also split into a VIRTUAL GRID (a spreadsheet of rows×cols along the whitespace gutters) and every element is tagged "@R<row>C<col>" with the cell it sits in (a range like R3C5-6 = it spans those cells). Reason about position with the grid: SAME column + next row = directly BELOW; same row + next column = BESIDE. Use SLM for LAYOUT + alignment; the pt-accurate line list below is for exact edits.')
     for (const pg of pages) {
       const W = pg.width || 1, H = pg.height || 1
       const g = (v, D) => Math.round((v / D) * 1000)
@@ -1803,12 +1848,21 @@ export default function PdfEditor({ source, path, active = true }) {
       if (grid.cols.length) out.push(`  COLUMNS (vertical alignment lines; snap left/right edges to these): ${grid.cols.map((c) => `${c.id} ${c.kind}@x=${grid.r1(c.at)}(${c.pct}%)×${c.n}`).join(' | ')}`)
       if (grid.rows.length) out.push(`  ROWS (horizontal alignment lines; tops): ${grid.rows.map((r) => `${r.id} y=${grid.r1(r.at)}(${r.pct}%)×${r.n}`).join(' | ')}`)
       if (grid.shifts.length) out.push(`  ⚠ MISALIGNED (near a column but not on it — nudge to fix): ${grid.shifts.join('; ')}`)
+      // VIRTUAL GRID: split the whole page into a spreadsheet grid, then tag each element with the
+      // cell(s) it occupies. "under X" = same column, next row; "beside X" = same row, next column.
+      const table = slmTable(els, W, H)
+      if (table) out.push(`  GRID (virtual spreadsheet of the page, ${table.rows} rows × ${table.cols} cols; each element below is tagged @R<row>C<col>, a range like R3C5-6 = spans those cells): column x-lines (pt) ${table.colB.map((v) => Math.round(v)).join(',')} · row y-lines (pt) ${table.rowB.map((v) => Math.round(v)).join(',')}`)
+      const cellTag = (e) => {
+        if (!table) return ''
+        const { rs, re, cs, ce } = table.cellOf(e)
+        return ` @R${rs === re ? rs : `${rs}-${re}`}C${cs === ce ? cs : `${cs}-${ce}`}`
+      }
       // percentage box for each element — L/R (horizontal) and T/B (vertical) as % of the page, so
       // the model reads position/extent intuitively ("right edge at 93%, width 15%")
       const pctBox = (e) => `%[L${(e.x / W * 100).toFixed(1)} R${((e.x + e.w) / W * 100).toFixed(1)} T${(e.y / H * 100).toFixed(1)} B${((e.y + e.h) / H * 100).toFixed(1)}]`
       const elLine = (e) => e.t === 'T'
-        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
-        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
+        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)}${cellTag(e)} z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)}${cellTag(e)} z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
       const walk = (node, d) => {
         const pad = '    ' + '  '.repeat(d)
         if (node.els) {

@@ -161,6 +161,7 @@ function slmTable(els, W, H) {
 // The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
 // chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
 const AI_PDF_MANUAL = [
+  'COORDINATE CONTRACT — READ THIS FIRST. Every coordinate you PASS to an action (pdfInsert x/baseline, pdfShape x/y/w/h and x1/y1/x2/y2, pdfMove dx/dy, pdfAlign) is in POINTS (pt), measured from the page TOP-LEFT, y growing DOWNWARD — the SAME unit and origin as the "[x,y,w,h]" pt boxes in the DETAILED line list and the MARGINS/GRID x-y line values in pdfInfo. Those pt numbers are the ONLY thing you may use as an action coordinate. The other pdfInfo numbers are for READING layout only and must NEVER be passed as a coordinate: the region-tree "0..1000 grid" boxes, the "%[L R T B]" percentages, and the "@R<n>C<n>" grid cells. If you want to draw a line at a text\'s top edge, take that text\'s pt y from the detailed list — do NOT convert a grid/%/cell value. Mixing them up puts shapes in the wrong place (a grid value used as pt lands too low).',
   'PDF ACTIONS — emit them in the normal ```calendar block; MANY actions per block are fine (they run in order). Every action takes "page" (default 0):',
   '- {"action":"pdfEditText","page":0,"id":"b3.l0","text":"new text"} — replace ONE piece\'s text in place (font/size/color/position kept).',
   '- {"action":"pdfRestyle","page":0,"ids":["b3.l0"],"family":"Arial","size":12,"color":"#c00000","bold":true,"italic":false,"ls":0} — restyle pieces; ONLY the fields you pass change.',
@@ -2069,13 +2070,20 @@ export default function PdfEditor({ source, path, active = true }) {
             : { x: Number(a.x) || 0, y: Number(a.y) || 0, w: Number(a.w) || 10, h: Number(a.h) || 10 }
           await engineRef.current.insertShape(page, kind, geo, { color: a.color || '#000000', strokeW: a.strokeW !== undefined ? Number(a.strokeW) : 1, radius: Number(a.radius) || 0, dash: a.dash || 'solid', head: a.head, fill: a.fill, stroke: a.stroke })
           const m = await refreshPage(page)
-          // for a FRAME/box (rect/ellipse) report which texts fall inside it and their padding from
-          // each edge — so the model sees if the frame sits cleanly around the text (even paddings)
-          // or cuts through it (a negative padding = the frame edge crosses that text)
+          const pgm = (m || []).find((p) => p.pageIndex === page)
+          const rr = Math.round
+          // report where the shape ACTUALLY landed (the new vector's real bbox, pt top-left) so the
+          // model can self-check placement — if this isn't where it meant, it used a wrong coordinate
+          // (e.g. a grid/% value instead of pt) and can redo it
+          const nv = pgm?.vectors?.[pgm.vectors.length - 1]?.bbox
+          const where = nv ? ` — landed at pt [${rr(nv.x)},${rr(nv.y)},${rr(nv.w)},${rr(nv.h)}] (top-left; confirm this is where you intended)` : ''
+          // for a FRAME/box (rect/ellipse) also report which texts fall inside it and their padding
+          // from each edge — so the model sees if the frame wraps the text cleanly (even paddings) or
+          // cuts through it (a negative padding = the frame edge crosses that text)
           if (kind === 'rect' || kind === 'ellipse') {
-            const R = geo, rr = Math.round
+            const R = geo
             const inside = []
-            for (const o of (m.find((p) => p.pageIndex === page)?.runs || [])) {
+            for (const o of (pgm?.runs || [])) {
               const b = o.bbox
               const ox = Math.min(R.x + R.w, b.x + b.w) - Math.max(R.x, b.x)
               const oy = Math.min(R.y + R.h, b.y + b.h) - Math.max(R.y, b.y)
@@ -2085,10 +2093,10 @@ export default function PdfEditor({ source, path, active = true }) {
               inside.push(`${o.id} "${o.text}" pad L=${pL} R=${pR} T=${pT} B=${pB}${cut ? ' ⚠CUTS through this text (frame edge crosses it)' : ''}`)
               if (inside.length >= 12) break
             }
-            const info = `frame [${rr(R.x)},${rr(R.y)},${rr(R.w)},${rr(R.h)}] drawn. ${inside.length ? `Texts overlapping it (padding from L/R/T/B edges in pt; negative = the frame cuts that text): ${inside.join('; ')}` : 'no text overlaps it (clear area).'}`
+            const info = `frame [${rr(R.x)},${rr(R.y)},${rr(R.w)},${rr(R.h)}] drawn${where}. ${inside.length ? `Texts overlapping it (padding from L/R/T/B edges in pt; negative = the frame cuts that text): ${inside.join('; ')}` : 'no text overlaps it (clear area).'}`
             return { ok: true, result: { info } }
           }
-          return { ok: true }
+          return { ok: true, result: { info: `${kind} drawn${where}.` } }
         }
         case 'createVariable': {
           const value = String(a.value ?? '').trim()

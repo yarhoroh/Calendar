@@ -1776,7 +1776,7 @@ export default function PdfEditor({ source, path, active = true }) {
     const vars = variablesRef.current
     out.push(vars.length ? `VARIABLES: ${vars.map((v) => `"${v.name}" = "${v.value}" (${v.occurrences.length} place(s))`).join('; ')}` : 'VARIABLES: none yet.')
     // ---- SLM: the spatial overview (region tree). Detailed pt-accurate lines follow below. ----
-    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; region boxes are [x,y,w,h] on a 0..1000 grid (origin top-left); "columns"=split left/right, "stacked"=split top/bottom. Each element also shows "%[L R T B]" = its left/right/top/bottom edges as PERCENT of the page ("R93" = right edge 93% across, "T12" = top 12% down) — read position/extent from this. Each PAGE lists its COLUMNS and ROWS (the real alignment lines several objects share, with x/y in pt and %) and flags any element that is MISALIGNED (a few pt off a column) — snap objects to these lines (pdfAlign / place at that x). "z<n>" = PAINT ORDER: higher z is ON TOP; a background needs LOWER z than the text over it (a fill covering text → pdfReorder back). Use SLM for LAYOUT + alignment; the pt-accurate line list below is for exact edits.')
+    out.push('SPATIAL MAP (SLM) — the page as a NESTING TREE of regions cut by whitespace; region boxes are [x,y,w,h] on a 0..1000 grid (origin top-left); "columns"=split left/right, "stacked"=split top/bottom. Each element also shows "%[L R T B]" = its left/right/top/bottom edges as PERCENT of the page ("R93" = right edge 93% across, "T12" = top 12% down) — read position/extent from this. Each PAGE lists its COLUMNS and ROWS (the real alignment lines several objects share, with x/y in pt and %) and flags any element that is MISALIGNED (a few pt off a column) — snap objects to these lines (pdfAlign / place at that x). "z<n>" = PAINT ORDER: higher z is ON TOP; a background needs LOWER z than the text over it (a fill covering text → pdfReorder back). Each element also shows "↑id" = the element directly ABOVE it and "↓id" = the one directly BELOW it (nearest line whose x-range overlaps) — so "what is under/above X" is a direct read; a piece on X\'s SAME line is beside X and never appears as its ↑/↓. Use SLM for LAYOUT + alignment; the pt-accurate line list below is for exact edits.')
     for (const pg of pages) {
       const W = pg.width || 1, H = pg.height || 1
       const g = (v, D) => Math.round((v / D) * 1000)
@@ -1803,12 +1803,29 @@ export default function PdfEditor({ source, path, active = true }) {
       if (grid.cols.length) out.push(`  COLUMNS (vertical alignment lines; snap left/right edges to these): ${grid.cols.map((c) => `${c.id} ${c.kind}@x=${grid.r1(c.at)}(${c.pct}%)×${c.n}`).join(' | ')}`)
       if (grid.rows.length) out.push(`  ROWS (horizontal alignment lines; tops): ${grid.rows.map((r) => `${r.id} y=${grid.r1(r.at)}(${r.pct}%)×${r.n}`).join(' | ')}`)
       if (grid.shifts.length) out.push(`  ⚠ MISALIGNED (near a column but not on it — nudge to fix): ${grid.shifts.join('; ')}`)
+      // VERTICAL NEIGHBOURS: for each element, the element directly ABOVE (↑) and BELOW (↓) it — the
+      // nearest one on another line whose x-range overlaps this one. So "what is UNDER X" is a direct
+      // read (X's ↓), not a guess: a value on X's OWN line does NOT appear here (it's beside X, not
+      // below). If ↓ is blank, nothing sits under X.
+      if (els.length <= 600) {
+        const ov = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) // horizontal overlap, pt
+        for (const e of els) {
+          let up = null, dn = null
+          for (const o of els) {
+            if (o === e || ov(e, o) <= 2) continue
+            if (o.y > e.y + 2) { if (!dn || o.y < dn.y) dn = o } // strictly lower → below
+            else if (o.y < e.y - 2) { if (!up || o.y > up.y) up = o } // strictly higher → above
+          }
+          e._up = up?.id; e._dn = dn?.id
+        }
+      }
+      const nbr = (e) => `${e._up ? ` ↑${e._up}` : ''}${e._dn ? ` ↓${e._dn}` : ''}`
       // percentage box for each element — L/R (horizontal) and T/B (vertical) as % of the page, so
       // the model reads position/extent intuitively ("right edge at 93%, width 15%")
       const pctBox = (e) => `%[L${(e.x / W * 100).toFixed(1)} R${((e.x + e.w) / W * 100).toFixed(1)} T${(e.y / H * 100).toFixed(1)} B${((e.y + e.h) / H * 100).toFixed(1)}]`
       const elLine = (e) => e.t === 'T'
-        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
-        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)} z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
+        ? `${e.id} T "${e.text}" [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)}${nbr(e)} z${e.z ?? '?'} p${pg.pageIndex} ${e.font || '?'} ${e.size ?? '?'}pt${e.bold ? ' bold' : ''}${e.italic ? ' italic' : ''} ${e.color || '#000'}`
+        : `${e.id} ${e.t} [${nb([e.x, e.y, e.w, e.h])}] ${pctBox(e)}${nbr(e)} z${e.z ?? '?'} p${pg.pageIndex}${e.t === 'IMG' ? '' : ` fill=${e.fill || 'none'} border=${e.stroke || 'none'}${e.sw ? ` ${c1(e.sw)}pt` : ''}`}`
       const walk = (node, d) => {
         const pad = '    ' + '  '.repeat(d)
         if (node.els) {

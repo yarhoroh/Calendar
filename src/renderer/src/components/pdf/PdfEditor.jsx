@@ -158,6 +158,10 @@ function slmTable(els, W, H) {
   return { colB, rowB, cellOf, cols: Math.max(0, colB.length - 1), rows: rowB.length }
 }
 
+// letter-spacing quick-pick values for the LS dropdown (pt) — the +/− buttons still nudge freely and
+// the value is click-to-type; this is just the fast common presets
+const LS_PRESETS = [-2, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3, 5]
+
 // The PDF action manual handed to the AI TOGETHER with the document model (pdfInfo) — the base
 // chat prompt carries only a one-line pointer, so PDF instructions cost nothing until needed.
 const AI_PDF_MANUAL = [
@@ -974,6 +978,9 @@ export default function PdfEditor({ source, path, active = true }) {
         fitW: patch.text !== undefined ? undefined : baseW + wantLS * gaps
       }])
     }
+    // replaceText re-inserts each run UNROTATED at its baseline anchor — remember which runs were
+    // rotated so we can turn their fresh copies back afterwards (LS/colour/size must not drop rotation)
+    const rotated = texts.filter((o) => o.rot).map((o) => ({ x: o.x, y: o.y, rot: o.rot }))
     const before = new Set(allOf(pg).map(sigOf))
     // ATOMIC replace: the worker validates every font against the actual text FIRST — if a font
     // can't encode it (and the fallback can't either), nothing gets deleted
@@ -984,7 +991,17 @@ export default function PdfEditor({ source, path, active = true }) {
       fonts,
       await getFallbacksFor(fonts)
     )
-    const m = await refreshPage(page)
+    let m = await refreshPage(page)
+    // restore rotation: rotate each rotated run's fresh (unrotated) copy back around its baseline
+    // anchor by the original angle — the anchor is the fixed point shared by the un/rotated run, so
+    // this lands it exactly where it was, now carrying the new LS/colour/size
+    for (const r of rotated) {
+      const fresh = allOf(m).find((o) => o.type === 'text' && !o.rot && Math.abs(o.x - r.x) < 1.5 && Math.abs(o.y - r.y) < 1.5)
+      if (fresh) {
+        await engineRef.current.rotateObjects(page, [{ type: fresh.type, bbox: fresh.bbox, x: fresh.x, y: fresh.y }], -r.rot, fresh.x, fresh.y)
+        m = await refreshPage(page)
+      }
+    }
     setFontsNonce((n) => n + 1) // the restyled text may embed a NEW font — refresh the dropdown list
     return allOf(m).filter((o) => !before.has(sigOf(o)))
   }
@@ -1319,7 +1336,10 @@ export default function PdfEditor({ source, path, active = true }) {
   const pickLS = (v) => {
     const ls = isNaN(v) ? 0 : v
     setLetterS(ls)
-    if (!textEdit && selected) deferMutation(() => restyleSelected({ ls }))
+    // in the text editor apply LS to the SELECTION via the RTE (like font/size/colour do); only when
+    // NOT editing does it restyle the committed run
+    if (textEdit) rteRef.current?.exec('letterSpacing', ls)
+    else if (selected) deferMutation(() => restyleSelected({ ls }))
   }
   // LH on a selection of SEVERAL text lines: respace their baselines (top line stays put,
   // every next baseline lands at prev + LH × its size) — plain per-item vertical moves
@@ -2560,6 +2580,10 @@ export default function PdfEditor({ source, path, active = true }) {
               <span className="pdfed__lsval" style={{ cursor: 'pointer' }} title="Click = type a value" onMouseDown={(e) => e.preventDefault()} onClick={() => setLsEdit(String(+letterS.toFixed(2)))}>{letterS ? (letterS > 0 ? '+' : '') + +letterS.toFixed(2) : '0'}</span>
             )}
             <button className="pdfed__lsbtn" disabled={styleLocked && !selected?.objs.some((o) => o.type === 'text')} onMouseDown={(e) => e.preventDefault()} onClick={() => pickLS(+(letterS + 0.1).toFixed(2))} title="Wider (+0.1)">+</button>
+            <select className="pdfed__lssel" title="Letter spacing presets" value={LS_PRESETS.includes(+letterS.toFixed(1)) ? +letterS.toFixed(1) : ''} onMouseDown={(e) => e.stopPropagation()} onChange={(e) => pickLS(parseFloat(e.target.value))}>
+              {!LS_PRESETS.includes(+letterS.toFixed(1)) && <option value="" disabled>{+letterS.toFixed(2)}</option>}
+              {LS_PRESETS.map((v) => <option key={v} value={v}>{v > 0 ? '+' + v : v}</option>)}
+            </select>
           </span>
         </label>
         <div className="pdfed__colorwrap">

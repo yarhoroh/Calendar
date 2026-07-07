@@ -262,6 +262,17 @@
   display: grid;
   place-items: center;
 }
+.pdfed__lssel {
+  height: 22px;
+  margin-left: 2px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
+  border-radius: 5px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 46px;
+}
 .pdfed__lsbtn:hover:not(:disabled) {
   background: var(--active, rgba(20, 115, 230, 0.15));
   color: var(--accent, #1473e6);

@@ -100,12 +100,18 @@ async function callAnthropic(sys, msgs, channel) {
   const model = cfg.anthropicModel || 'claude-sonnet-4-6'
   if (!key) return { ok: false, text: '', error: 'no Anthropic API key — set it in Settings' }
   const cacheMode = cfg.anthropicCache || '5m' // 'off' | '5m' | '1h'
+  const cc = cacheMode === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
   const body = { model, max_tokens: MAX_TOKENS, messages: msgs }
-  if (sys) {
-    // cache the static preamble unless caching is off. 1h TTL costs 2× on write but survives an hour.
-    body.system = cacheMode === 'off'
-      ? sys
-      : [{ type: 'text', text: sys, cache_control: cacheMode === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' } }]
+  // breakpoint 1: the static preamble (system). 1h TTL costs 2× on write but survives an hour.
+  if (sys) body.system = cacheMode === 'off' ? sys : [{ type: 'text', text: sys, cache_control: cc }]
+  // breakpoint 2: the WHOLE conversation so far — mark the last message so the growing history
+  // (PDF manual + doc model + every prior turn) is read from cache next call instead of re-billed in
+  // full. Built without mutating the persistent `messages` (no stale breakpoints accumulate).
+  if (cacheMode !== 'off' && msgs.length) {
+    const last = msgs[msgs.length - 1]
+    const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content.map((b) => ({ ...b }))
+    blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: cc }
+    body.messages = [...msgs.slice(0, -1), { ...last, content: blocks }]
   }
   const beta = ['prompt-caching-2024-07-31']
   if (cacheMode === '1h') beta.push('extended-cache-ttl-2025-04-11')

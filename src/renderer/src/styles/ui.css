@@ -38,7 +38,7 @@
 .btn--primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: #fff;
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 40%, transparent); /* glow follows the accent (blue under apple) */
 }
 
 .btn--primary:hover {
@@ -61,8 +61,8 @@
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--accent-2);
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   padding: 5px 12px;
   border-radius: 999px;
   margin-bottom: 22px;

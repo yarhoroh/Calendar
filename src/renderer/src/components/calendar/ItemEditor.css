@@ -163,7 +163,7 @@
 }
 
 .item-editor__btn.is-active {
-  background: #10b981;
+  background: var(--accent);
   color: #ffffff;
 }
 

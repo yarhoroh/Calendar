@@ -139,11 +139,11 @@
   color: var(--muted);
 }
 
-/* today — green text; weekends — red (like the main calendar) */
+/* today — accent text (green in classic, Apple-blue under apple skin); weekends — red */
 .agenda-day--today .agenda-day__num,
 .agenda-day--today .agenda-day__wd,
 .agenda-day--today .agenda-day__mo {
-  color: #10b981;
+  color: var(--today-1);
 }
 .agenda-day--weekend .agenda-day__num,
 .agenda-day--weekend .agenda-day__wd,

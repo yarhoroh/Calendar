@@ -78,9 +78,9 @@
   color: var(--weekend);
 }
 
-/* current day — green */
+/* current day — accent (green in classic, Apple-blue under the apple skin) */
 .day-col__head--today {
-  background: #10b981;
+  background: var(--today-1);
 }
 
 .day-col__head--today .day-col__num {

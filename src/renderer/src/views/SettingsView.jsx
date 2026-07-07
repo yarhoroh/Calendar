@@ -79,15 +79,6 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <GeneralUnsortedSetting />
               <CompactSetting compact={compact} onToggle={onToggleCompact} />
             </SettingsSection>
-            <SettingsSection title={t('settings.tools')}>
-              <AiEngineSetting onChange={setAi} />
-              {ai === 'claude' && <ClaudeSetting />}
-              {ai === 'codex' && <CodexSetting />}
-              {ai === 'agy' && <AntigravitySetting />}
-              {ai === 'gemini' && <GeminiSetting />}
-              {ai === 'anthropic' && <AnthropicSetting />}
-              <AiConfigSetting />
-            </SettingsSection>
             <SettingsSection title={t('settings.bots')}>
               <TelegramSetting />
             </SettingsSection>
@@ -106,6 +97,15 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
           </>
         ) : (
           <>
+            <SettingsSection title={t('settings.tools')}>
+              <AiEngineSetting onChange={setAi} />
+              {ai === 'claude' && <ClaudeSetting />}
+              {ai === 'codex' && <CodexSetting />}
+              {ai === 'agy' && <AntigravitySetting />}
+              {ai === 'gemini' && <GeminiSetting />}
+              {ai === 'anthropic' && <AnthropicSetting />}
+              <AiConfigSetting />
+            </SettingsSection>
             <SettingsSection title={t('settings.memory')}>
               <MemoryPanel />
             </SettingsSection>

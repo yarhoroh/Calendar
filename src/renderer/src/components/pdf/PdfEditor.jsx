@@ -733,6 +733,9 @@ export default function PdfEditor({ source, path, active = true }) {
         const r = await engineRef.current.save()
         const w = await api.pdf.write(out, new Uint8Array(r.bytes))
         if (!w?.ok) throw new Error(w?.error || 'write failed')
+        // re-open what we just wrote: the in-memory doc is dropped and the file is re-read from disk,
+        // so we edit EXACTLY the saved bytes. A Save-As (new name) switches the editor to the new file.
+        ui('openPdf', { path: out, reload: out === path })
       }
     } catch (err) { console.error('[pdf] save failed:', err) } finally { setSaving(false) }
   }

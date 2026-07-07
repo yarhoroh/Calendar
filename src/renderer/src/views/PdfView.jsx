@@ -47,6 +47,8 @@ export default function PdfView() {
   const [scan, setScan] = useState({}) // "path|mode" → { folders?, files }
   const [tabs, setTabs] = useState([]) // open PDFs — one per tab (paths)
   const [activePath, setActivePath] = useState(null) // the focused tab
+  const [reloadN, setReloadN] = useState({}) // per-path reload counter — bumping it re-mounts that
+  // tab's editor so it re-reads the file from disk (used after a save: drop the stale in-memory doc)
   const tabsRef = useRef(null) // the scrollable tab strip
   const [scroll, setScroll] = useState({ left: false, right: false }) // strip overflows → show ‹ ›
   const dragTab = useRef(null) // path being Ctrl-dragged to reorder
@@ -307,7 +309,7 @@ export default function PdfView() {
   // files, then linked folders scanned recursively) — so "сделай счёт из invoicePlugin.pdf" works
   // even when no tab is open. Registered while the Files view is mounted.
   const openForAiRef = useRef(null)
-  openForAiRef.current = async ({ path: p, name } = {}) => {
+  openForAiRef.current = async ({ path: p, name, reload } = {}) => {
     // collect the tree's real files first — so a missing path can report what DOES exist
     const files = [] // { name, path }
     const walk = async (nodes) => {
@@ -326,6 +328,7 @@ export default function PdfView() {
       // to open a broken tab while the AI thought it succeeded (returned ok, then pdfInfo saw empty)
       const st = await api.pdf?.stat?.(p)
       if (!st?.isPdf) return { ok: false, error: `file not found at ${p} (it may have been deleted/moved). Files that exist now: ${files.map((f) => f.name).join(', ') || '(none)'}` }
+      if (reload) setReloadN((m) => ({ ...m, [p]: (m[p] || 0) + 1 })) // force a fresh read (post-save)
       openTab(p)
       return { ok: true, path: p }
     }
@@ -790,7 +793,8 @@ export default function PdfView() {
               {/* one editor instance per open tab; only the active one is shown, so each PDF keeps its state */}
               {tabs.map((p) => (
                 <div key={p} className="pdf__tab-pane" style={{ display: p === activePath ? undefined : 'none' }}>
-                  <PdfEditorTab path={p} active={p === activePath} />
+                  {/* the reload counter in the key re-mounts the editor → fresh read from disk after a save */}
+                  <PdfEditorTab key={reloadN[p] || 0} path={p} active={p === activePath} />
                 </div>
               ))}
             </div>

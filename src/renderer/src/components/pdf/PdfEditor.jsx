@@ -1664,7 +1664,8 @@ export default function PdfEditor({ source, path, active = true }) {
       // a space only for REAL column gaps (> 0.75em): the sub-em gaps between pieces of one word
       // (leftovers of a mixed-font split) must join seamlessly — the injected space "came back"
       // every time the user deleted it
-      if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.75) raw = ' ' + raw }
+      let injSpace = false
+      if (i > 0) { const prev = l[i - 1]; if (o.bbox.x - (prev.bbox.x + prev.bbox.w) > (o.size || 10) * 0.75) { raw = ' ' + raw; injSpace = true } }
       const rid = origPieces.length
       origPieces.push({
         text: raw,
@@ -1676,6 +1677,7 @@ export default function PdfEditor({ source, path, active = true }) {
         ls: o.ls || 0,
         x: hPos(o).x, // horizontal position for the (un-rotated) editor overlay
         baseline: hPos(o).y,
+        injSpace, // the leading space is a VISUAL column separator (not in the cell) — commit strips it
         item: { type: 'text', bbox: o.bbox, x: o.x, y: o.y } // the ORIGINAL (rotated) stream anchor for a targeted blank
       })
       let t = esc(raw)
@@ -1863,8 +1865,36 @@ export default function PdfEditor({ source, path, active = true }) {
         else { setEditErr(`Шрифт «${s.fontName}» недоступен для встраивания — выберите другой.`); return } // no substitution: stop (finally resets busy), keep the editor open
       }
       console.log('[pdf][insert-text] fonts:', Object.keys(fonts).map((k) => `${k}${fonts[k].pdf ? ' (pdf)' : ' (file)'}`).join(', ') || 'NONE')
-      // every run carries its EXACT page coordinates measured from the editor's real DOM rects
-      const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls, alpha: (te.opacity ?? 100) / 100 }))) }
+      // COLUMN ANCHORING — keep multi-column rows (tables) aligned. Each edited piece keeps its
+      // original run id (rid); we shift the WHOLE rid-group back to its ORIGINAL x so a single cell
+      // edit doesn't collapse the columns to the editor's flow spacing. The intra-cell layout
+      // (relative x between a cell's own pieces) is preserved — only the cell's absolute offset is
+      // restored. Newly typed text (rid==null) stays where it was typed. Normal (single-column)
+      // paragraphs get shift≈0, so they're unaffected.
+      const ridShift = new Map()
+      const firstX = new Map() // rid → leftmost measured x among that cell's pieces
+      if (te?.origPieces) {
+        for (const l of lines) for (const s of l) {
+          if (s.rid == null) continue
+          const cur = firstX.get(s.rid)
+          if (cur == null || s.x < cur) firstX.set(s.rid, s.x)
+        }
+        for (const [rid, mx] of firstX) {
+          const op = te.origPieces[Number(rid)]
+          if (op) ridShift.set(rid, op.x - mx) // move the cell back onto its original column x
+        }
+      }
+      const anchorX = (s) => (s.rid != null && ridShift.has(s.rid) ? s.x + ridShift.get(s.rid) : s.x)
+      // the cell's LEFTMOST piece may carry the injected visual-separator space — strip it so the
+      // anchored column starts exactly on its x, not one space-width to the right
+      const cellText = (s) => {
+        if (s.rid == null || firstX.get(s.rid) !== s.x) return s.text
+        const op = te.origPieces?.[Number(s.rid)]
+        return op?.injSpace && s.text.startsWith(' ') ? s.text.slice(1) : s.text
+      }
+      // every run carries its EXACT page coordinates measured from the editor's real DOM rects,
+      // then column-anchored back to its original x (above)
+      const spec = { lines: lines.map((l) => l.map((s) => ({ text: cellText(s), size: s.size, color: s.color, fontKey: keyOf(s), x: anchorX(s), baseline: s.baseline, ls: s.ls, alpha: (te.opacity ?? 100) / 100 }))) }
       const before = new Set(allOf(model.find((p) => p.pageIndex === te.page) || { runs: [] }).map(sigOf))
       // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
       if (replaceItems) {

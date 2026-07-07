@@ -187,20 +187,36 @@ export function synthesize(args = {}) {
   return run
 }
 
+// Pick the reading language from the TEXT ITSELF, not the UI/caller. The script is the ground truth
+// for pronunciation: Cyrillic must never be read as English, whatever lang was passed (the UI can be
+// English while the content is Russian, and the AI's speak action may omit/misset lang). Ukrainian-
+// only letters → uk; any other Cyrillic → ru (the common case here); Latin/other → the passed lang.
+function detectLang(text, fallback) {
+  const t = text || ''
+  if (/[іїєґ]/i.test(t)) return 'uk' // і/ї/є/ґ are Ukrainian-only
+  if (/[А-Яа-яЁё]/.test(t)) return 'ru' // Russian Cyrillic present
+  return fallback || 'en' // Latin/other → trust the caller (English article, etc.)
+}
+
 async function doSynthesize({ text, lang } = {}) {
   const raw = (text || '').trim()
   if (!raw) return { ok: false, error: 'empty text' }
-  const t = numbersToWords(raw, lang || 'uk') // spell out digits for every engine
+  const L = detectLang(raw, lang) // read by the text's own script — robust to a wrong/missing lang
+  const t0 = numbersToWords(raw, L) // spell out digits for every engine
+  const t = accentuate(t0, L) // add ru/uk stress marks — NOW for EVERY engine (was supertonic-only)
+  const engine = resolveEngine?.() || 'piper'
+  // DIAGNOSTIC: show which language/dict was chosen and whether the stress dict actually changed the
+  // text — so a wrong reading can be traced to (a) wrong lang, (b) dict miss, or (c) the engine
+  // ignoring the marks. Remove once TTS stress is confirmed working.
+  console.log(`[tts] engine=${engine} passed-lang=${lang || '∅'} → used=${L} | dict ${t !== t0 ? 'APPLIED' : 'no-change'}\n      "${t0.slice(0, 90)}"\n   →  "${t.slice(0, 90)}"`)
   try {
-    const engine = resolveEngine?.() || 'piper'
     if (engine === 'supertonic') {
       // lazy import so onnxruntime-node loads only when this engine is actually used
       const { synthSupertonic } = await import('./supertonic/synth.js')
-      const marked = accentuate(t, lang || 'en') // add ru/uk stress marks for correct prosody
-      const wav = await synthSupertonic(marked, lang || 'en', resolveSupertonicVoice(), resolveSpeed('supertonic'))
+      const wav = await synthSupertonic(t, L, resolveSupertonicVoice(), resolveSpeed('supertonic'))
       return { ok: true, wav: wav.toString('base64') }
     }
-    const wav = engine === 'windows' ? await synthWindows(t, lang || 'uk') : await synth(t, lang || 'uk')
+    const wav = engine === 'windows' ? await synthWindows(t, L) : await synth(t, L)
     return { ok: true, wav: wav.toString('base64') }
   } catch (e) {
     return { ok: false, error: e.message }

@@ -13,6 +13,7 @@ import GoogleAccountsSetting from '../components/settings/GoogleAccountsSetting'
 import MailAccountsSetting from '../components/settings/MailAccountsSetting'
 import AiEngineSetting from '../components/settings/AiEngineSetting'
 import LanguageSetting from '../components/settings/LanguageSetting'
+import SkinSetting from '../components/settings/SkinSetting'
 import ReminderDurationSetting from '../components/settings/ReminderDurationSetting'
 import ReminderSoundSetting from '../components/settings/ReminderSoundSetting'
 import AutostartSetting from '../components/settings/AutostartSetting'
@@ -34,7 +35,7 @@ import VoiceInputSetting from '../components/settings/VoiceInputSetting'
 
 // Settings page — two tabs: general app settings, and the assistant's own data
 // (memory + scheduled tasks) so the user can see and control what the AI keeps.
-export default function SettingsView({ showChat, onToggleChat, compact, onToggleCompact }) {
+export default function SettingsView({ showChat, onToggleChat, compact, onToggleCompact, skin, onApplySkin }) {
   const { t } = useI18n()
   const [tab, setTab] = useState('general')
   const [ai, setAi] = useState(null) // active engine — only ITS settings row is shown (less clutter)
@@ -72,6 +73,7 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <AutostartSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.interface')}>
+              <SkinSetting skin={skin} onApply={onApplySkin} />
               <ShowChatSetting checked={showChat} onChange={onToggleChat} />
               <FocusBlurSetting />
               <GeneralUnsortedSetting />

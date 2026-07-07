@@ -19,6 +19,8 @@ const api = {
   // theme persistence
   getTheme: () => ipcRenderer.invoke('settings:get-theme'),
   setTheme: (theme) => ipcRenderer.send('settings:set-theme', theme),
+  getSkin: () => ipcRenderer.invoke('settings:get-skin'),
+  setSkin: (skin) => ipcRenderer.send('settings:set-skin', skin),
   onThemeChange: (cb) => {
     const h = (_e, theme) => cb(theme)
     ipcRenderer.on('theme:set', h)

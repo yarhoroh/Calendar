@@ -236,6 +236,12 @@ export const translations = {
         tabDay: 'by day', tabHour: 'by hour', tabModel: 'by model', tabChannel: 'by channel', tabLog: 'log',
         time: 'time', model: 'model', channel: 'channel', empty: 'empty'
       },
+      skin: {
+        title: 'Skin',
+        desc: 'Visual style, layered on top of the light/dark theme.',
+        classic: 'Classic',
+        apple: 'Apple'
+      },
       google: {
         title: 'Google Calendar',
         desc: 'Connect Google accounts (read-only) to import calendar events.',
@@ -548,6 +554,12 @@ export const translations = {
         refresh: 'оновити', clear: 'очистити', confirmClear: 'Очистити всю статистику API? Скасувати не можна.',
         tabDay: 'по днях', tabHour: 'по годинах', tabModel: 'по моделях', tabChannel: 'по каналах', tabLog: 'журнал',
         time: 'час', model: 'модель', channel: 'канал', empty: 'порожньо'
+      },
+      skin: {
+        title: 'Скін',
+        desc: 'Візуальний стиль, поверх світлої/темної теми.',
+        classic: 'Класичний',
+        apple: 'Apple'
       },
       google: {
         title: 'Google Календар',

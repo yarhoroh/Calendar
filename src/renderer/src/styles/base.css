@@ -41,6 +41,60 @@
   --head-active: #e9ebf1;
 }
 
+/* ============================ APPLE SKIN ============================
+   A "skin" is a SEPARATE dimension from the light/dark theme: it changes the
+   design LANGUAGE (system font, Apple-blue accent, Apple grays, softer radii)
+   and layers on top of whichever theme is active — apple+dark and apple+light
+   both work. It only redefines the SHARED variables; the classic skin (no
+   data-skin) is the default and stays untouched. */
+:root[data-skin='apple'] {
+  --font: -apple-system, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+  /* Apple dark palette (apple + default/dark theme) */
+  --bg: #1c1c1e;
+  --panel: #2c2c2e;
+  --border: rgba(255, 255, 255, 0.12);
+  --hover: rgba(255, 255, 255, 0.08);
+  --text: #f5f5f7;
+  --muted: #98989f;
+  --accent: #0a84ff; /* Apple system blue (dark) */
+  --accent-2: #0060df;
+  --active: rgba(10, 132, 255, 0.24);
+  --today-1: #0a84ff;
+  --today-2: #0060df;
+  --today-tint: rgba(10, 132, 255, 0.16);
+  --today-tint-active: rgba(10, 132, 255, 0.3);
+  --head-active: #3a3a3c;
+  --scrollbar: rgba(255, 255, 255, 0.18);
+  --divider: rgba(255, 255, 255, 0.06);
+  --radius: 12px; /* Apple's larger, continuous corners */
+}
+/* Apple LIGHT (apple + light theme) — bright macOS look */
+:root[data-skin='apple'][data-theme='light'] {
+  --bg: #f2f2f7; /* systemGroupedBackground */
+  --panel: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --hover: rgba(0, 0, 0, 0.05);
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --accent: #007aff; /* Apple system blue (light) */
+  --accent-2: #0060df;
+  --active: rgba(0, 122, 255, 0.14);
+  --today-1: #007aff;
+  --today-2: #0060df;
+  --today-tint: rgba(0, 122, 255, 0.12);
+  --today-tint-active: rgba(0, 122, 255, 0.24);
+  --head-active: #e5e5ea;
+  --scrollbar: rgba(0, 0, 0, 0.2);
+  --divider: rgba(0, 0, 0, 0.05);
+}
+/* Apple's rounded, soft controls — scoped to the skin so the classic skin is unaffected. */
+:root[data-skin='apple'] button,
+:root[data-skin='apple'] input,
+:root[data-skin='apple'] select,
+:root[data-skin='apple'] textarea {
+  border-radius: 9px;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

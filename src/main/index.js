@@ -324,6 +324,13 @@ ipcMain.on('settings:set-theme', (_e, theme) => {
   saveSettings(s)
   sendTheme(theme)
 })
+// visual SKIN (design language, separate dimension from theme): 'classic' | 'apple'
+ipcMain.handle('settings:get-skin', () => loadSettings().skin || 'classic')
+ipcMain.on('settings:set-skin', (_e, skin) => {
+  const s = loadSettings()
+  s.skin = skin
+  saveSettings(s)
+})
 
 ipcMain.handle('settings:get-calendar', () => loadSettings().calendar || {})
 ipcMain.on('settings:set-calendar', (_e, patch) => {

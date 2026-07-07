@@ -11,6 +11,7 @@ import SettingsView from './views/SettingsView'
 import ArticleReader from './components/mail/ArticleReader'
 import MailWebView from './components/mail/MailWebView'
 import { useTheme } from './hooks/useTheme'
+import { useSkin } from './hooks/useSkin'
 import { useWindowControls } from './hooks/useWindowControls'
 import { useTtsPlayer } from './hooks/useTtsPlayer'
 import { useAiTaskRunner } from './hooks/useAiTaskRunner'
@@ -41,6 +42,7 @@ export default function App() {
   const [showChat, setShowChat] = useState(false)
   const [compact, setCompact] = useState({})
   const { theme, toggleTheme, applyTheme } = useTheme()
+  const { skin, applySkin } = useSkin() // visual skin (classic | apple), applied to <html data-skin>
   const win = useWindowControls()
   useTtsPlayer()
 
@@ -260,6 +262,8 @@ export default function App() {
               onToggleChat={toggleChat}
               compact={compact}
               onToggleCompact={toggleCompact}
+              skin={skin}
+              onApplySkin={applySkin}
             />
           )}
         </ErrorBoundary>

@@ -443,7 +443,7 @@ export default function PdfEditor({ source, path, active = true }) {
   const varsWidthRef = useRef(varsWidth); varsWidthRef.current = varsWidth
   const varsRestoredRef = useRef(false) // guard: don't persist until we've loaded the stored vars
   const varsSaveRef = useRef(null) // debounce timer for persisting variables
-  const [selMode, setSelMode] = useState('block') // 'single' — pick one element; 'block' — whole text blocks
+  const [selMode, setSelMode] = useState('single') // default: pick ONE element (less confusing); 'block' — whole text blocks
   const rteRef = useRef(null)
   const engineRef = useRef(null)
   const urlsRef = useRef([])

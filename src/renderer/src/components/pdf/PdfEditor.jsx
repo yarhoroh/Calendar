@@ -1619,7 +1619,7 @@ export default function PdfEditor({ source, path, active = true }) {
   // originals are blanked by their own anchors — Escape cancels without touching anything) ----
   const startEditSelected = async (pageIndex, objs) => {
     if (busyRef.current || textEdit) return
-    const texts = (objs || []).filter((o) => o.type === 'text' && !o.rot) // rotated text editing: later
+    const texts = (objs || []).filter((o) => o.type === 'text')
     if (!texts.length) return
     const pg = model.find((p) => p.pageIndex === pageIndex)
     if (!pg) return
@@ -1637,6 +1637,16 @@ export default function PdfEditor({ source, path, active = true }) {
     for (const l of lines) l.sort((a, b) => a.x - b.x)
     const sorted = lines.flat()
     const master = sorted[0]
+    // ROTATED text: we edit it as if HORIZONTAL (the overlay can't be CSS-rotated — the DOM rect
+    // measurements the commit needs would be wrong). While editing, the rotated original hides under
+    // the cover and the editor sits UNrotated at the baseline anchor (pivot); on commit we re-rotate
+    // the inserted text back by the same angle around that pivot. hPos() un-rotates a piece's anchor
+    // onto the horizontal baseline so multi-piece lines keep their spacing.
+    const rot = master.rot || 0
+    const pivot = { x: master.x, y: master.y }
+    const rad = (-rot) * Math.PI / 180 // screen angle
+    const ux = Math.cos(rad), uy = Math.sin(rad)
+    const hPos = (o) => rot ? { x: pivot.x + (o.x - pivot.x) * ux + (o.y - pivot.y) * uy, y: pivot.y } : { x: o.x, y: o.y }
     const mf = pg.fonts?.[master.f] || {}
     // the toolbar mirrors the edited block's master style — INCLUDING LS: a sticky toolbar value
     // from an earlier selection used to leak into the container and re-space the whole block
@@ -1664,9 +1674,9 @@ export default function PdfEditor({ source, path, active = true }) {
         bold: !!f.bold,
         italic: !!f.italic,
         ls: o.ls || 0,
-        x: o.x,
-        baseline: o.y,
-        item: { type: 'text', bbox: o.bbox, x: o.x, y: o.y } // the stream anchor for a targeted blank
+        x: hPos(o).x, // horizontal position for the (un-rotated) editor overlay
+        baseline: hPos(o).y,
+        item: { type: 'text', bbox: o.bbox, x: o.x, y: o.y } // the ORIGINAL (rotated) stream anchor for a targeted blank
       })
       let t = esc(raw)
       if (f.bold) t = `<strong>${t}</strong>`
@@ -1698,10 +1708,11 @@ export default function PdfEditor({ source, path, active = true }) {
     onSelect(pageIndex, null)
     setInsertMode(false)
     setTextEdit({
-      page: pageIndex, x: minX, y: master.y - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
-      initialHTML: html, anchorLeft: minX, anchorBaseline: master.y, origPieces, lineSweeps,
+      page: pageIndex, x: rot ? pivot.x : minX, y: (rot ? pivot.y : master.y) - 0.8 * (master.size || 12), // rough spot; the editor self-aligns to the baseline
+      initialHTML: html, anchorLeft: rot ? pivot.x : minX, anchorBaseline: rot ? pivot.y : master.y, origPieces, lineSweeps,
       cover: { ...coverRect, color: coverColor },
-      replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y }))
+      replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y })),
+      rot, pivot // rotated text: re-rotate the committed result back by this angle around the pivot
     })
   }
 
@@ -1861,7 +1872,14 @@ export default function PdfEditor({ source, path, active = true }) {
       } else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts))
       // the editor (and the cover hiding the ORIGINAL text) stays up until the refreshed page
       // image lands — closing earlier flashed the OLD text before it jumped to the new one
-      const m = await refreshPage(te.page)
+      let m = await refreshPage(te.page)
+      // ROTATED text: the edited text went in HORIZONTAL — turn the fresh pieces back to the original
+      // angle around the pivot (same trick as the restyle re-rotate). Its own snapshot = a 2nd undo
+      // step, acceptable.
+      if (te.rot) {
+        const items = allOf(m).filter((o) => o.type === 'text' && !o.rot && !before.has(sigOf(o))).map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y }))
+        if (items.length) { await engineRef.current.rotateObjects(te.page, items, -te.rot, te.pivot.x, te.pivot.y); m = await refreshPage(te.page) }
+      }
       setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
       const added = allOf(m).filter((o) => !before.has(sigOf(o)))
       // the insertion is ONE text block now — select it WHOLE (every bN.lK line), same as a

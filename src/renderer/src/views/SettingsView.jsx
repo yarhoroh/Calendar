@@ -57,10 +57,16 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
         >
           {t('settings.tabAi')}
         </button>
+        <button
+          className={'settings-tabs__btn' + (tab === 'accounts' ? ' settings-tabs__btn--active' : '')}
+          onClick={() => setTab('accounts')}
+        >
+          {t('settings.tabAccounts')}
+        </button>
       </div>
 
       <div className="settings__list">
-        {tab === 'general' ? (
+        {tab === 'general' && (
           <>
             <SettingsSection>
               <LanguageSetting />
@@ -82,12 +88,6 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             <SettingsSection title={t('settings.bots')}>
               <TelegramSetting />
             </SettingsSection>
-            <SettingsSection title={t('settings.google.title')}>
-              <GoogleAccountsSetting />
-            </SettingsSection>
-            <SettingsSection title="Email (IMAP)">
-              <MailAccountsSetting />
-            </SettingsSection>
             <SettingsSection title={t('settings.statuses')}>
               <StatusesPanel />
             </SettingsSection>
@@ -95,7 +95,8 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <UpdateSetting />
             </SettingsSection>
           </>
-        ) : (
+        )}
+        {tab === 'ai' && (
           <>
             <SettingsSection title={t('settings.tools')}>
               <AiEngineSetting onChange={setAi} />
@@ -114,6 +115,16 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
             </SettingsSection>
             <SettingsSection title={t('settings.mailTasks')} footer={<MailTaskAdd />}>
               <MailTasksPanel />
+            </SettingsSection>
+          </>
+        )}
+        {tab === 'accounts' && (
+          <>
+            <SettingsSection title={t('settings.google.title')}>
+              <GoogleAccountsSetting />
+            </SettingsSection>
+            <SettingsSection title="Email (IMAP)">
+              <MailAccountsSetting />
             </SettingsSection>
           </>
         )}

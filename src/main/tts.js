@@ -205,10 +205,6 @@ async function doSynthesize({ text, lang } = {}) {
   const t0 = numbersToWords(raw, L) // spell out digits for every engine
   const t = accentuate(t0, L) // add ru/uk stress marks — NOW for EVERY engine (was supertonic-only)
   const engine = resolveEngine?.() || 'piper'
-  // DIAGNOSTIC: show which language/dict was chosen and whether the stress dict actually changed the
-  // text — so a wrong reading can be traced to (a) wrong lang, (b) dict miss, or (c) the engine
-  // ignoring the marks. Remove once TTS stress is confirmed working.
-  console.log(`[tts] engine=${engine} passed-lang=${lang || '∅'} → used=${L} | dict ${t !== t0 ? 'APPLIED' : 'no-change'}\n      "${t0.slice(0, 90)}"\n   →  "${t.slice(0, 90)}"`)
   try {
     if (engine === 'supertonic') {
       // lazy import so onnxruntime-node loads only when this engine is actually used

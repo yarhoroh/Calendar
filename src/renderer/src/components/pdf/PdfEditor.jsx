@@ -192,7 +192,7 @@ const AI_PDF_MANUAL = [
 
 // Colour swatch button + dropdown panel: the document's palette, Transparent, and a custom picker.
 // Used for vector stroke/fill (value may be 'none').
-function ColorDrop({ value, colors, onPick, title }) {
+function ColorDrop({ value, colors, onPick, title, opacity, onOpacity }) {
   const [open, setOpen] = useState(null)
   useEffect(() => {
     if (!open) return
@@ -233,6 +233,14 @@ function ColorDrop({ value, colors, onPick, title }) {
             Custom
             <input type="color" value={value === 'none' ? '#000000' : value} onChange={(e) => onPick(e.target.value)} />
           </label>
+          {onOpacity && (
+            // whole-object transparency (PDF ExtGState alpha) — 0% fully transparent, 100% solid
+            <label className="pdfed__custom pdfed__opacity" title="Opacity — 0% fully transparent, 100% solid">
+              Opacity
+              <input type="range" min="0" max="100" step="5" value={opacity ?? 100} onChange={(e) => onOpacity(+e.target.value)} />
+              <span className="pdfed__opval">{opacity ?? 100}%</span>
+            </label>
+          )}
         </div>
       )}
     </span>
@@ -2672,6 +2680,8 @@ export default function PdfEditor({ source, path, active = true }) {
                     colors={docColors}
                     onPick={(c) => recolorSelected(selObj1.line?.head === 'filled' ? { stroke: c, fill: c } : { stroke: c })}
                     title="Stroke colour (incl. Transparent)"
+                    opacity={selObj1.opacity ?? 100}
+                    onOpacity={(v) => deferMutation(() => opacitySelected(v ?? 100))}
                   />
                 </label>
                 {!selObj1.line && ( /* fill makes no sense for a line/arrow (a filled head follows Stroke) */
@@ -2682,6 +2692,8 @@ export default function PdfEditor({ source, path, active = true }) {
                       colors={docColors}
                       onPick={(c) => recolorSelected({ fill: c })}
                       title="Fill colour (incl. Transparent)"
+                      opacity={selObj1.opacity ?? 100}
+                      onOpacity={(v) => deferMutation(() => opacitySelected(v ?? 100))}
                     />
                   </label>
                 )}

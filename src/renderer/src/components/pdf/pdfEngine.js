@@ -54,6 +54,9 @@ export function createPdfEngine() {
     setLineGeo: (pageIndex, item, geo) => call('setLineGeo', { pageIndex, item, geo }), // move a line/arrow endpoint {x1,y1,x2,y2}
     writeVariables: (json) => call('writeVariables', { json }), // embed template-variable defs in the PDF catalog
     readVariables: () => call('readVariables', {}), // → { json } from the catalog (or null)
+    undo: () => call('undo', {}), // → { canUndo, canRedo } — revert the last mutation (mupdf journal)
+    redo: () => call('redo', {}), // → { canUndo, canRedo } — re-apply the last undone mutation
+    undoState: () => call('undoState', {}), // → { canUndo, canRedo } — for enabling the toolbar buttons
     save: () => call('save', {}), // → { bytes } — the edited document serialised to PDF
     dispose: () => { pending.clear(); worker.terminate() },
   }

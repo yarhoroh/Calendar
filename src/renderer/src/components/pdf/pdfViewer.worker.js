@@ -2191,13 +2191,27 @@ export const __test = {
 }
 
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function') self.postMessage({ ready: true })
+// content-mutating requests — each is wrapped in a mupdf journal operation so it can be undone. Read
+// requests (getModel/renderImage/save/…) and metadata (writeVariables) are NOT journalled.
+const MUTATING = new Set(['moveObjects', 'recolorVector', 'setVectorRadius', 'setStrokeWidth', 'setLineGeo', 'setDash', 'setOpacity', 'insertShape', 'resizeObject', 'rotateObjects', 'restackObjects', 'insertImage', 'insertText', 'copyObjects', 'deleteObjects', 'replaceText'])
 if (typeof self !== 'undefined') self.onmessage = (e) => {
   const { id, type, params } = e.data
+  const journaled = doc && MUTATING.has(type)
+  if (journaled) { try { doc.beginOperation(type) } catch { /* journal off */ } }
   try {
     if (type === 'open') {
       doc = mupdf.Document.openDocument(new Uint8Array(params.data), 'application/pdf')
       insFonts = {}; insFontSeq = 0; fontMetricsCache.clear()
+      try { doc.enableJournal() } catch { /* some doc types can't journal */ } // undo/redo support
       self.postMessage({ id, result: { pageCount: doc.countPages() } })
+    } else if (type === 'undo') {
+      if (doc && doc.canUndo()) doc.undo()
+      self.postMessage({ id, result: { canUndo: !!doc?.canUndo?.(), canRedo: !!doc?.canRedo?.() } })
+    } else if (type === 'redo') {
+      if (doc && doc.canRedo()) doc.redo()
+      self.postMessage({ id, result: { canUndo: !!doc?.canUndo?.(), canRedo: !!doc?.canRedo?.() } })
+    } else if (type === 'undoState') {
+      self.postMessage({ id, result: { canUndo: !!doc?.canUndo?.(), canRedo: !!doc?.canRedo?.() } })
     } else if (type === 'getModel') {
       if (!doc) throw new Error('no document open')
       self.postMessage({ id, result: getModel(params.pageIndex) })
@@ -2295,7 +2309,11 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       insertTextWithRecs(params.pageIndex, params.spec, recs)
       self.postMessage({ id, result: { ok: true } })
     } else throw new Error('unknown request: ' + type)
+    if (journaled) { try { doc.endOperation() } catch { /* ignore */ } } // commit the undo step
   } catch (err) {
+    // the mutation threw (e.g. font validation) → drop the half-open journal step so it can't be
+    // "undone" into a broken state
+    if (journaled) { try { doc.abandonOperation() } catch { try { doc.endOperation() } catch { /* ignore */ } } }
     self.postMessage({ id, error: err?.message || String(err) })
   }
 }

@@ -347,6 +347,17 @@ const AlignBottomIcon = () => (
   </svg>
 )
 
+// undo / redo — curved arrows (local: only the PDF toolbar)
+const UndoIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 7L4 12l5 5" /><path d="M4 12h11a5 5 0 0 1 0 10h-1" />
+  </svg>
+)
+const RedoIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 7l5 5-5 5" /><path d="M20 12H9a5 5 0 0 0 0 10h1" />
+  </svg>
+)
 // "insert shape" — a square with a plus (local: only the PDF toolbar uses it)
 const InsertShapeIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -394,6 +405,7 @@ export default function PdfEditor({ source, path, active = true }) {
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
   const [selected, setSelected] = useState(null) // { page, objs: [...] } — the resolved objects themselves (no re-filtering per action)
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false }) // mupdf journal state → undo/redo buttons
   const [saving, setSaving] = useState(false)
   const [nudge, setNudge] = useState(null) // accumulated arrow-key shift (pt), not yet committed
   const nudgeRef = useRef(null)
@@ -638,6 +650,8 @@ export default function PdfEditor({ source, path, active = true }) {
       // physical keys (e.code), so the shortcuts work in any keyboard layout (RU gives e.key='с'/'м')
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') { if (selected) { e.preventDefault(); copySelected() } return }
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') { if (clip) { e.preventDefault(); pasteClip() } return }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return } // undo / Shift = redo
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); doRedo(); return }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); deleteSelected(); return } // same as the trash button / context menu
       const K = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]
       if (!K || !selected || e.ctrlKey || e.metaKey) return
@@ -733,9 +747,9 @@ export default function PdfEditor({ source, path, active = true }) {
         const r = await engineRef.current.save()
         const w = await api.pdf.write(out, new Uint8Array(r.bytes))
         if (!w?.ok) throw new Error(w?.error || 'write failed')
-        // re-open what we just wrote: the in-memory doc is dropped and the file is re-read from disk,
-        // so we edit EXACTLY the saved bytes. A Save-As (new name) switches the editor to the new file.
-        ui('openPdf', { path: out, reload: out === path })
+        // Save-As (new name) → switch the editor to the NEW file (its undo history starts fresh).
+        // Same file → keep editing the current doc so the UNDO history survives (no re-open).
+        if (out !== path) ui('openPdf', { path: out })
       }
     } catch (err) { console.error('[pdf] save failed:', err) } finally { setSaving(false) }
   }
@@ -747,7 +761,23 @@ export default function PdfEditor({ source, path, active = true }) {
     urlsRef.current.push(url)
     setImgs((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, url, width: im.width, height: im.height } : p)))
     setModel((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, ...m } : p)))
+    engineRef.current.undoState().then(setUndoState).catch(() => {}) // keep the undo/redo buttons live
     return m
+  }
+  // re-render EVERY page — used after undo/redo, which can touch any page
+  const refreshAll = async () => { for (let i = 0; i < pageCount; i++) await refreshPage(i) }
+  // undo / redo the last document mutation (mupdf journal), then repaint and drop the (now stale) selection
+  const doUndo = async () => {
+    if (!engineRef.current || busyRef.current) return // worker no-ops if there's nothing to undo
+    busyRef.current = true
+    try { const st = await engineRef.current.undo(); onSelect(selected?.page ?? 0, null); await refreshAll(); setUndoState(st) }
+    catch (err) { console.error('[pdf] undo failed:', err) } finally { busyRef.current = false }
+  }
+  const doRedo = async () => {
+    if (!engineRef.current || busyRef.current) return
+    busyRef.current = true
+    try { const st = await engineRef.current.redo(); onSelect(selected?.page ?? 0, null); await refreshAll(); setUndoState(st) }
+    catch (err) { console.error('[pdf] redo failed:', err) } finally { busyRef.current = false }
   }
 
   // drag → shift the objects' coordinates inside the PDF stream, then re-render. The objects arrive
@@ -2471,6 +2501,10 @@ export default function PdfEditor({ source, path, active = true }) {
         <button className="pdfed__btn" onClick={copySelected} disabled={!selected} title="Copy (Ctrl+C)"><CopyIcon /></button>
         <button className="pdfed__btn" onClick={pasteClip} disabled={!clip} title="Paste (Ctrl+V)"><PasteIcon /></button>
         <button className="pdfed__btn" onClick={deleteSelected} disabled={!selected} title="Delete"><TrashIcon /></button>
+        <span className="pdfed__sep" />
+        <button className="pdfed__btn" onClick={doUndo} disabled={!undoState.canUndo} title="Undo (Ctrl+Z)"><UndoIcon /></button>
+        <button className="pdfed__btn" onClick={doRedo} disabled={!undoState.canRedo} title="Redo (Ctrl+Y)"><RedoIcon /></button>
+        <span className="pdfed__sep" />
         <button className="pdfed__btn pdfed__btn--txt pdfed__btn--save" onClick={handleSave} disabled={saving || !path} title="Save">{saving ? '…' : 'Save'}</button>
         <button className="pdfed__btn" onClick={() => setShowInfo(true)} title={t('pdfed.info')}><InfoIcon /></button>
         <span className="pdfed__spacer" />

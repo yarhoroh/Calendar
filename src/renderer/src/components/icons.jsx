@@ -100,6 +100,18 @@ export function PdfIcon({ color = '#EB5757' }) {
   )
 }
 
+// "New PDF" — a clean line-style document with a plus, monochrome (currentColor) so it matches the
+// neighbouring ＋ tab button instead of the cramped 🗎+ emoji.
+export function NewPdfIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z" />
+      <path d="M13 3v6h6" />
+      <path d="M12 12.5v5M9.5 15h5" />
+    </svg>
+  )
+}
+
 export function GoogleIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 48 48">

@@ -3,7 +3,7 @@ import api from '../lib/api'
 import { registerUi } from '../lib/uiBridge'
 import ContextMenu from '../components/ContextMenu'
 import PdfEditorTab from '../components/pdf/PdfEditorTab'
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, PdfIcon } from '../components/icons'
+import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, PdfIcon, NewPdfIcon } from '../components/icons'
 import { useI18n } from '../i18n/I18nContext'
 import './PdfView.css'
 
@@ -780,7 +780,7 @@ export default function PdfView() {
                   ＋
                 </button>
                 <button className="pdf-tab__add" title={t('pdf.newPdf')} onClick={newPdf}>
-                  🗎+
+                  <NewPdfIcon />
                 </button>
               </div>
               {scroll.right && (

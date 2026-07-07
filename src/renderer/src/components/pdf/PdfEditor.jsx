@@ -1712,7 +1712,8 @@ export default function PdfEditor({ source, path, active = true }) {
       initialHTML: html, anchorLeft: rot ? pivot.x : minX, anchorBaseline: rot ? pivot.y : master.y, origPieces, lineSweeps,
       cover: { ...coverRect, color: coverColor },
       replaceItems: texts.map((o) => ({ type: 'text', bbox: o.bbox, x: o.x, y: o.y })),
-      rot, pivot // rotated text: re-rotate the committed result back by this angle around the pivot
+      rot, pivot, // rotated text: re-rotate the committed result back by this angle around the pivot
+      opacity: master.opacity ?? 100 // preserve the block's transparency through the edit (rewrite drops it otherwise)
     })
   }
 
@@ -1863,7 +1864,7 @@ export default function PdfEditor({ source, path, active = true }) {
       }
       console.log('[pdf][insert-text] fonts:', Object.keys(fonts).map((k) => `${k}${fonts[k].pdf ? ' (pdf)' : ' (file)'}`).join(', ') || 'NONE')
       // every run carries its EXACT page coordinates measured from the editor's real DOM rects
-      const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls }))) }
+      const spec = { lines: lines.map((l) => l.map((s) => ({ text: s.text, size: s.size, color: s.color, fontKey: keyOf(s), x: s.x, baseline: s.baseline, ls: s.ls, alpha: (te.opacity ?? 100) / 100 }))) }
       const before = new Set(allOf(model.find((p) => p.pageIndex === te.page) || { runs: [] }).map(sigOf))
       // EDIT mode: atomically blank the original runs (their own anchors) and insert the edited text
       if (replaceItems) {

@@ -2277,6 +2277,21 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
     } else if (type === 'readVariables') {
       if (!doc) throw new Error('no document open')
       self.postMessage({ id, result: { json: readVariables() } })
+    } else if (type === 'snapStreams') {
+      // UNDO snapshot: capture ONLY the page CONTENT STREAMS (the PDF operators — kilobytes), NOT the
+      // whole document. Images/fonts/resources live in separate objects and are unchanged by an edit,
+      // so we never copy those megabytes. Restoring the streams reverts the visual edit; any objects
+      // an undone edit had added just become harmless orphans (dropped by GC on the final Save).
+      if (!doc) throw new Error('no document open')
+      const n = doc.countPages()
+      const streams = []
+      for (let i = 0; i < n; i++) { try { streams.push(readStream(doc.findPage(i), 0)) } catch { streams.push(null) } }
+      self.postMessage({ id, result: { streams } })
+    } else if (type === 'restoreStreams') {
+      if (!doc) throw new Error('no document open')
+      const streams = params.streams || []
+      for (let i = 0; i < streams.length; i++) { if (streams[i] != null) { try { writeStream(doc.findPage(i), 0, streams[i]) } catch { /* page gone */ } } }
+      self.postMessage({ id, result: { ok: true } })
     } else if (type === 'save') {
       // serialise the in-memory working copy (with all moves/deletes applied) back to PDF bytes
       if (!doc) throw new Error('no document open')

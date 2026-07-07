@@ -1890,7 +1890,10 @@ export default function PdfEditor({ source, path, active = true }) {
       console.log(`[pdf][insert-text] page ${te.page}, ${lines.length} line(s) → ${added.length} new, ${grouped.length} in block(s)`)
       setFontsNonce((n) => n + 1) // freshly embedded EF faces get their FontFaces for the next edit
       setEditErr(null)
-      onSelect(te.page, grouped.length ? grouped : added) // the inserted block comes out selected whole
+      // respect the SELECTION MODE: in single mode select ONLY the edited pieces — grouping by block id
+      // could pull in a neighbour text that landed in the same block (overlapping/adjacent). Block mode
+      // still selects the whole block.
+      onSelect(te.page, selMode === 'block' && grouped.length ? grouped : added)
     } catch (err) {
       // a font that can't render the text → keep the editor open and TELL the user which font/chars,
       // so they switch to a supported one (incapable fonts are already disabled in the dropdown)

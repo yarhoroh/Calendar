@@ -40,6 +40,35 @@ function sanitizeEmailHtml(raw) {
   return DOMPurify.sanitize(raw, { ADD_TAGS: ['style'], ADD_ATTR: ['data-osrc'] })
 }
 
+// Fold the quoted reply history behind a "···" toggle (Gmail-style). The iframe runs NO scripts, so
+// we use a native <details> (collapses/expands with no JS). Covers our own marker AND the standard
+// reply-quote wrappers other clients use (blockquote / .gmail_quote). Only the OUTERMOST quote is
+// folded — nested quotes ride inside it. Runs AFTER sanitize so <details> isn't stripped.
+// reply-HISTORY markers only (not every blockquote — bare <blockquote> is also legit quotation):
+// our own marker + Gmail's wrapper + Apple/Thunderbird's cite blockquote
+const QUOTE_SEL = '[data-cal-quote="1"], .gmail_quote, blockquote[type="cite"]'
+function collapseQuotes(html) {
+  if (!html) return html
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const roots = [...doc.querySelectorAll(QUOTE_SEL)].filter((el) => !el.parentElement?.closest(QUOTE_SEL))
+    if (!roots.length) return html
+    for (const q of roots) {
+      const details = doc.createElement('details')
+      details.className = 'cal-quote-fold'
+      const summary = doc.createElement('summary')
+      summary.className = 'cal-quote-sum'
+      summary.textContent = '···'
+      details.appendChild(summary)
+      q.replaceWith(details)
+      details.appendChild(q) // the original quote lives inside, hidden until expanded
+    }
+    return doc.body.innerHTML
+  } catch {
+    return html
+  }
+}
+
 const fmtDate = (ts) =>
   ts ? new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 
@@ -57,7 +86,9 @@ const SPIN =
 const HEAD =
   `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline' data:; font-src data:;">` +
   `<meta name="color-scheme" content="light only">` +
-  `<style>html{margin:0;padding:0}body{margin:0;padding:12px}img.imgld{background:url("${SPIN}") center / 22px no-repeat}</style>`
+  `<style>html{margin:0;padding:0}body{margin:0;padding:12px}img.imgld{background:url("${SPIN}") center / 22px no-repeat}` +
+  // quoted-history fold: a small gray "···" pill that expands/collapses the quote (native <details>)
+  `details.cal-quote-fold{margin:6px 0}summary.cal-quote-sum{cursor:pointer;display:inline-block;list-style:none;color:#5f6368;background:#f1f3f4;border-radius:12px;padding:0 10px;line-height:20px;font:700 15px/20px system-ui,-apple-system,sans-serif;letter-spacing:1px;user-select:none}summary.cal-quote-sum::-webkit-details-marker{display:none}summary.cal-quote-sum:hover{background:#e4e6e9}</style>`
 
 // One real message inside a conversation. Collapsed shows a preview; expanded shows
 // the body (HTML in a sandboxed iframe, else text), an expandable Details block and
@@ -70,8 +101,9 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
   const who = m.from || m.fromEmail || ''
   const preview = (m.text || '').split('\n').map((l) => l.trim()).find(Boolean) || ''
   const date = fmtDate(m.ts)
-  // sanitized body (scripts/handlers removed, external images deferred to data-osrc)
-  const html = sanitizeEmailHtml(m.html)
+  // sanitized body (scripts/handlers removed, external images deferred to data-osrc), then the
+  // quoted reply history folded behind a "···" toggle
+  const html = collapseQuotes(sanitizeEmailHtml(m.html))
 
   // ---- in-message translator (built-in AI; auto-detects the source language) ----
   const iframeRef = useRef(null)
@@ -154,16 +186,20 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
     const f = e.target
     const doc = f.contentDocument
     if (!doc) return
-    // exact content height (body margins can make body.scrollHeight too small);
-    // a couple px of slack avoids a sub-pixel scrollbar
+    // Measure by the BODY, not documentElement: documentElement.scrollHeight is floored at the
+    // iframe's current height (the viewport), so it never shrinks back when a quote is re-collapsed.
+    // body.scrollHeight is content-driven (grows AND shrinks); add the body's own margins (an email's
+    // <style> may set them) + a couple px slack against a sub-pixel scrollbar.
     const fit = () => {
-      const h = Math.min(Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, doc.body.offsetHeight) + 2, 12000)
+      const cs = doc.defaultView?.getComputedStyle(doc.body)
+      const my = cs ? (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0) : 0
+      const h = Math.min(doc.body.scrollHeight + my + 2, 12000)
       // only write when it actually changed → no ResizeObserver feedback loop
       if (Math.abs((parseInt(f.style.height, 10) || 0) - h) > 1) f.style.height = h + 'px'
     }
     fit()
-    // re-fit on ANY content reflow (images, fonts, late layout) so a scrollbar
-    // never appears inside the message
+    // re-fit on ANY content reflow — images, fonts, late layout, AND a quote fold/unfold (which
+    // changes body height but NOT documentElement, so we must observe the body)
     try {
       const RO = window.ResizeObserver
       if (RO) {
@@ -177,6 +213,7 @@ export default function MailThreadMessage({ m, defaultOpen, account, starred, on
           })
         }
         const ro = new RO(refit) // throttled to one fit per frame → no RO loop warning
+        ro.observe(doc.body)
         ro.observe(doc.documentElement)
       }
     } catch {

@@ -103,6 +103,7 @@ const api = {
   testAnthropic: () => ipcRenderer.invoke('anthropic:test'),
   setAnthropicPricing: (p) => ipcRenderer.invoke('anthropic:set-pricing', p),
   setApiLogText: (on) => ipcRenderer.invoke('anthropic:set-logtext', on),
+  setAnthropicCache: (mode) => ipcRenderer.invoke('anthropic:set-cache', mode),
   usageReport: (opts) => ipcRenderer.invoke('usage:report', opts),
   usageClear: () => ipcRenderer.invoke('usage:clear'),
   setTelegramToken: (tok) => ipcRenderer.invoke('telegram:set-token', tok),

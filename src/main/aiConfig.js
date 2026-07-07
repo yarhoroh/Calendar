@@ -28,6 +28,7 @@ const DEFAULTS = {
     'claude-haiku-4-5': { in: 1, out: 5 }
   },
   apiLogText: false, // also store the full request/response TEXT per call (off by default: privacy + DB size)
+  anthropicCache: '5m', // prompt cache TTL: 'off' | '5m' (1.25× write) | '1h' (2× write) — for cost A/B testing
   telegramToken: '', // bot token for the Telegram bridge ('' = off)
   // Google Calendar (read-only import). Create a "Desktop app" OAuth client in
   // Google Cloud, enable the Calendar API, set the consent screen to Testing and

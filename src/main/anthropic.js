@@ -99,8 +99,16 @@ async function callAnthropic(sys, msgs, channel) {
   const key = (cfg.anthropicApiKey || '').trim()
   const model = cfg.anthropicModel || 'claude-sonnet-4-6'
   if (!key) return { ok: false, text: '', error: 'no Anthropic API key — set it in Settings' }
+  const cacheMode = cfg.anthropicCache || '5m' // 'off' | '5m' | '1h'
   const body = { model, max_tokens: MAX_TOKENS, messages: msgs }
-  if (sys) body.system = [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }] // cache the preamble
+  if (sys) {
+    // cache the static preamble unless caching is off. 1h TTL costs 2× on write but survives an hour.
+    body.system = cacheMode === 'off'
+      ? sys
+      : [{ type: 'text', text: sys, cache_control: cacheMode === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' } }]
+  }
+  const beta = ['prompt-caching-2024-07-31']
+  if (cacheMode === '1h') beta.push('extended-cache-ttl-2025-04-11')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT)
   const t0 = Date.now()
@@ -108,7 +116,7 @@ async function callAnthropic(sys, msgs, channel) {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
       // prompt caching is GA, but keep the beta header so it activates regardless of the account/model
-      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': VERSION, 'anthropic-beta': 'prompt-caching-2024-07-31' },
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': VERSION, 'anthropic-beta': beta.join(',') },
       body: JSON.stringify(body),
       signal: ctrl.signal
     })

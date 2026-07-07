@@ -640,11 +640,12 @@ ipcMain.handle('anthropic:set-model', (_e, model) => {
 })
 ipcMain.handle('anthropic:status', () => {
   const cfg = loadAiConfig()
-  return { hasKey: !!(cfg.anthropicApiKey || '').trim(), model: cfg.anthropicModel || 'claude-sonnet-4-6', pricing: cfg.anthropicPricing || {}, logText: !!cfg.apiLogText }
+  return { hasKey: !!(cfg.anthropicApiKey || '').trim(), model: cfg.anthropicModel || 'claude-sonnet-4-6', pricing: cfg.anthropicPricing || {}, logText: !!cfg.apiLogText, cache: cfg.anthropicCache || '5m' }
 })
 ipcMain.handle('anthropic:test', () => pingAnthropic())
 ipcMain.handle('anthropic:set-pricing', (_e, pricing) => saveAiConfig({ anthropicPricing: pricing || {} }).anthropicPricing)
 ipcMain.handle('anthropic:set-logtext', (_e, on) => saveAiConfig({ apiLogText: !!on }).apiLogText)
+ipcMain.handle('anthropic:set-cache', (_e, mode) => saveAiConfig({ anthropicCache: ['off', '5m', '1h'].includes(mode) ? mode : '5m' }).anthropicCache)
 // ---- API usage / cost report --------------------------------------------
 ipcMain.handle('usage:report', (_e, opts) => usageReport(opts || {}))
 ipcMain.handle('usage:clear', () => { clearUsage(); return { ok: true } })

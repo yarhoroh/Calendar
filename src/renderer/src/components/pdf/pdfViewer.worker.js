@@ -331,7 +331,7 @@ function scanDevice(page, W, H) {
     strokePath: (path, stroke, ctm, cs, color) => { let b = null; try { b = path.getBounds(stroke, ctm) } catch (_) {} pushVector('stroke', b, color) },
     fillImage: (image, ctm) => pushImage(ctm),
     fillImageMask: (image, ctm) => pushImage(ctm),
-    fillText: (text, ctm, cs, color) => {
+    fillText: (text, ctm, cs, color, alpha) => {
       const zz = z++
       let b = null; try { b = text.getBounds(null, ctm) } catch (_) {}
       // exact anchor + exact font size from the FIRST glyph's matrix (stext JSON rounds size to an
@@ -344,7 +344,8 @@ function scanDevice(page, W, H) {
           asize = Math.hypot(trm[2], trm[3]) * Math.hypot(ctm[2], ctm[3]) // em-height through both matrices
         } } })
       } catch (_) {}
-      if (validRect(b) && b[2] > b[0] && b[3] > b[1]) texts.push({ z: zz, bbox: b, ax, ay, size: asize, color: colorHex(color) })
+      // alpha = the effective fill opacity (ExtGState ca folded in by mupdf) → text transparency
+      if (validRect(b) && b[2] > b[0] && b[3] > b[1]) texts.push({ z: zz, bbox: b, ax, ay, size: asize, color: colorHex(color), alpha: typeof alpha === 'number' ? alpha : 1 })
     },
     strokeText: () => { z++ }, clipPath: () => { z++ }, clipStrokePath: () => { z++ },
     clipText: () => { z++ }, clipImageMask: () => { z++ }, ignoreText: () => { z++ },
@@ -502,6 +503,7 @@ function getModel(pageIndex) {
           size: n2(t && t.size > 0 ? t.size : cur.size),
           c: t ? colorRef(t.color) : 0,
           z: t ? t.z : -1,
+          opacity: t && t.alpha < 1 ? Math.round(t.alpha * 100) : undefined, // transparent text (0..100)
           x: n2(sx),
           y: n2(cur.baseline),
           text: seg.map((ch) => ch.c).join(''),
@@ -1321,10 +1323,27 @@ function insertTextWithRecs(pageIndex, spec, recs) {
   // block-selection / future editing treats them as one object
   let body = ''
   let curX = null, curY = null
+  // text transparency: register an /EFGSn { ca, CA } ExtGState per distinct alpha and emit "/name gs"
+  // before a piece whose opacity differs from the current one (alpha 1 = fully opaque, 0 = invisible)
+  let curAlpha = 1
+  const gsCache = {}
+  const alphaGs = (a) => {
+    if (gsCache[a]) return gsCache[a]
+    const nm = 'EFGS' + insGsSeq++
+    let res = pageObj.getInheritable('Resources')
+    if (!res || res.isNull()) { res = doc.newDictionary(); pageObj.put('Resources', res) }
+    let eg = res.get('ExtGState')
+    if (eg.isNull()) { eg = doc.newDictionary(); res.put('ExtGState', eg) }
+    const gd = doc.newDictionary(); gd.put('CA', a); gd.put('ca', a); eg.put(nm, doc.addObject(gd))
+    return (gsCache[a] = nm)
+  }
   for (const line of spec.lines || []) {
     for (const s of line) {
       const rec = recs[s.fontKey]
       if (!rec || !s.text) continue
+      const alpha = s.alpha === undefined || s.alpha === null ? 1 : Math.max(0, Math.min(1, s.alpha))
+      const gsOp = alpha !== curAlpha ? `/${alphaGs(alpha)} gs ` : ''
+      curAlpha = alpha
       // ONE font for the whole piece (prepareInsFonts guaranteed it covers every char)
       let hex = '', nat = 0
       for (const ch of s.text) {
@@ -1341,7 +1360,7 @@ function insertTextWithRecs(pageIndex, spec, recs) {
       const tx = s.x, ty = H - s.baseline
       const pos = curX === null ? `1 0 0 1 ${n2(tx)} ${n2(ty)} Tm` : `${n2(tx - curX)} ${n2(ty - curY)} Td`
       curX = tx; curY = ty
-      body += `${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc ${pos} <${hex}> Tj\n`
+      body += `${gsOp}${hexRgbOps(s.color)} rg /${rec.name} ${n2(s.size || 12)} Tf ${n2(ls || 0)} Tc ${pos} <${hex}> Tj\n`
     }
   }
   const ops = body ? '\nq BT\n' + body + 'ET Q\n' : '\n'

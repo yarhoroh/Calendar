@@ -395,6 +395,7 @@ export default function PdfEditor({ source, path, active = true }) {
   const [sysFonts, setSysFonts] = useState([]) // system/bundled font families
   const [fontSel, setFontSel] = useState('')
   const [colorSel, setColorSel] = useState('#000000')
+  const [textOpacity, setTextOpacity] = useState(100) // selected text opacity 0..100 (transparency)
   const [colorOpen, setColorOpen] = useState(false)
   const [insertMode, setInsertMode] = useState(false) // false | 'text' | { image: {bytes,w,h} } — the next click places it
   const [textEdit, setTextEdit] = useState(null) // active rich-text editor: { page, x, y } (pt)
@@ -576,6 +577,7 @@ export default function PdfEditor({ source, path, active = true }) {
     if (rep.c !== undefined && selPg.colors?.[rep.c]) setColorSel(selPg.colors[rep.c])
     if (rep.size) setFontSize(rep.size)
     setLetterS(rep.ls || 0) // the run's ORIGINAL Tc from the stream (e.g. -1.1)
+    setTextOpacity(rep.opacity ?? 100) // its transparency, if any
     // …and the values STAY after deselection — a new text starts with the last clicked style
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -975,7 +977,8 @@ export default function PdfEditor({ source, path, active = true }) {
         x: o.x,
         baseline: o.y,
         ls: patch.text !== undefined ? (o.ls || 0) : undefined, // replaced text: natural width, own spacing
-        fitW: patch.text !== undefined ? undefined : baseW + wantLS * gaps
+        fitW: patch.text !== undefined ? undefined : baseW + wantLS * gaps,
+        alpha: (patch.opacity !== undefined ? patch.opacity : (o.opacity ?? 100)) / 100 // text transparency (keep the run's own unless changed)
       }])
     }
     // replaceText re-inserts each run UNROTATED at its baseline anchor — remember which runs were
@@ -1341,6 +1344,13 @@ export default function PdfEditor({ source, path, active = true }) {
     if (textEdit) rteRef.current?.exec('letterSpacing', ls)
     else if (selected) deferMutation(() => restyleSelected({ ls }))
   }
+  // text transparency: opacity 0..100 (0 = fully transparent/invisible). Restyle path writes it as an
+  // ExtGState alpha on the committed run — only when NOT in the text editor (the RTE has no opacity).
+  const pickTextOpacity = (v) => {
+    const op = Math.max(0, Math.min(100, Math.round(v)))
+    setTextOpacity(op)
+    if (!textEdit && selected) deferMutation(() => restyleSelected({ opacity: op }))
+  }
   // LH on a selection of SEVERAL text lines: respace their baselines (top line stays put,
   // every next baseline lands at prev + LH × its size) — plain per-item vertical moves
   const pickLH = (v) => {
@@ -1382,7 +1392,7 @@ export default function PdfEditor({ source, path, active = true }) {
     if (!f) return
     const color = pg.colors?.[o.c] || '#000000'
     const ls = o.ls || 0 // letter spacing (Tc) of the picked object — must travel with the style
-    setFontSel(f.name); setFontSize(o.size); setColorSel(color); setBoldSel(!!f.bold); setItalicSel(!!f.italic); setLetterS(ls)
+    setFontSel(f.name); setFontSize(o.size); setColorSel(color); setBoldSel(!!f.bold); setItalicSel(!!f.italic); setLetterS(ls); setTextOpacity(o.opacity ?? 100)
     console.log('[pdf][pipette]', f.name, o.size, color, f.bold ? 'bold' : '', f.italic ? 'italic' : '', 'ls=' + ls)
     if (textEdit) {
       rteRef.current?.exec('applyStyle', { family: cssFontFor(f.name), sizePx: o.size, color, bold: !!f.bold, italic: !!f.italic })
@@ -1581,7 +1591,7 @@ export default function PdfEditor({ source, path, active = true }) {
     // the toolbar mirrors the edited block's master style — INCLUDING LS: a sticky toolbar value
     // from an earlier selection used to leak into the container and re-space the whole block
     setFontSel(displayFontName(mf.name || 'Arial')); setFontSize(master.size || 12); setColorSel(pg.colors?.[master.c] || '#000000')
-    setBoldSel(!!mf.bold); setItalicSel(!!mf.italic); setLetterS(master.ls || 0)
+    setBoldSel(!!mf.bold); setItalicSel(!!mf.italic); setLetterS(master.ls || 0); setTextOpacity(master.opacity ?? 100)
     if (lines.length > 1) setLineH(+(((lines[1][0].y - lines[0][0].y) / (master.size || 10))).toFixed(2))
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // every piece carries data-rid through the session — the commit DIFFS by it and leaves
@@ -2616,6 +2626,13 @@ export default function PdfEditor({ source, path, active = true }) {
               <label className="pdfed__custom">
                 Custom
                 <input type="color" value={colorSel} onChange={(e) => pickColor(e.target.value)} />
+              </label>
+              {/* text transparency — 0 % = fully transparent (invisible), 100 % = solid. Disabled in the
+                  text editor (opacity applies to the committed run, not per-caret) */}
+              <label className="pdfed__custom pdfed__opacity" title="Text opacity — 0% fully transparent, 100% solid">
+                Opacity
+                <input type="range" min="0" max="100" step="5" value={textOpacity} disabled={textEdit} onChange={(e) => pickTextOpacity(+e.target.value)} />
+                <span className="pdfed__opval">{textOpacity}%</span>
               </label>
             </div>
           )}

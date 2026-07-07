@@ -273,6 +273,22 @@
   cursor: pointer;
   max-width: 46px;
 }
+.pdfed__opacity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pdfed__opacity input[type='range'] {
+  flex: 1;
+  cursor: pointer;
+}
+.pdfed__opval {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
 .pdfed__lsbtn:hover:not(:disabled) {
   background: var(--active, rgba(20, 115, 230, 0.15));
   color: var(--accent, #1473e6);

@@ -768,13 +768,13 @@ export default function PdfEditor({ source, path, active = true }) {
   const refreshAll = async () => { for (let i = 0; i < pageCount; i++) await refreshPage(i) }
   // undo / redo the last document mutation (mupdf journal), then repaint and drop the (now stale) selection
   const doUndo = async () => {
-    if (!engineRef.current || busyRef.current) return // worker no-ops if there's nothing to undo
+    if (!engineRef.current || busyRef.current || !undoState.canUndo) return // undo currently disabled (journal off)
     busyRef.current = true
     try { const st = await engineRef.current.undo(); onSelect(selected?.page ?? 0, null); await refreshAll(); setUndoState(st) }
     catch (err) { console.error('[pdf] undo failed:', err) } finally { busyRef.current = false }
   }
   const doRedo = async () => {
-    if (!engineRef.current || busyRef.current) return
+    if (!engineRef.current || busyRef.current || !undoState.canRedo) return
     busyRef.current = true
     try { const st = await engineRef.current.redo(); onSelect(selected?.page ?? 0, null); await refreshAll(); setUndoState(st) }
     catch (err) { console.error('[pdf] redo failed:', err) } finally { busyRef.current = false }

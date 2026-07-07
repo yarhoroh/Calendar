@@ -2233,12 +2233,8 @@ export default function PdfEditor({ source, path, active = true }) {
     try {
       const page = selected.page
       const pg = modelRef.current.find((p) => p.pageIndex === page)
-      // UNROTATED text is re-inserted as fresh, re-editable text (full embedded font). ROTATED text
-      // can't be reproduced by insertText (it places axis-aligned → the copy would lose its rotation
-      // and its frame would snap to the big axis-aligned box), so it goes through the stream-copy path
-      // like shapes/images — that preserves the rotation and the tight oriented frame.
-      const texts = selected.objs.filter((o) => o.type === 'text' && !o.rot)
-      const rest = selected.objs.filter((o) => o.type !== 'text' || o.rot)
+      const texts = selected.objs.filter((o) => o.type === 'text')
+      const rest = selected.objs.filter((o) => o.type !== 'text')
       const before = new Set(allOf(pg).map(sigOf))
       if (texts.length) {
         const first = [...texts].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))[0]

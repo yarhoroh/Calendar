@@ -100,6 +100,13 @@ function loadPty() {
 const TIMEOUT = 90000
 let convId = null
 let queue = Promise.resolve()
+let activeTerm = null // the pty of an in-flight request → killed on app quit so it can't linger
+
+// kill any in-flight Antigravity pty on shutdown (its native pty addon holds an install-dir handle)
+export function stopAgy() {
+  try { activeTerm?.kill() } catch { /* already gone */ }
+  activeTerm = null
+}
 
 // the Windows installer puts agy here and adds it to PATH; prefer the explicit
 // path (PATH may not be picked up), fall back to the bare command
@@ -184,6 +191,7 @@ function agySendOne(prompt, model) {
         cwd: workspaceDir(), // empty dedicated dir → nothing to scan if it still tries
         env: process.env
       })
+      activeTerm = term
     } catch (e) {
       resolve({ ok: false, text: '', error: e?.message || String(e) })
       return
@@ -200,6 +208,7 @@ function agySendOne(prompt, model) {
       } catch {
         // already gone
       }
+      if (activeTerm === term) activeTerm = null
       resolve(r)
     }
     // DIAGNOSTIC: if a call is still running at 20s, dump what agy has emitted so
@@ -234,6 +243,7 @@ export function agyAskRaw(prompt, model) {
     let term
     try {
       term = loadPty().spawn(agyExe(), args, { name: 'xterm-256color', cols: 120, rows: 40, cwd: workspaceDir(), env: process.env })
+      activeTerm = term
     } catch (e) {
       resolve({ ok: false, text: '', error: e?.message || String(e) })
       return
@@ -245,6 +255,7 @@ export function agyAskRaw(prompt, model) {
       done = true
       clearTimeout(timer)
       try { term.kill() } catch { /* gone */ }
+      if (activeTerm === term) activeTerm = null
       resolve(r)
     }
     const timer = setTimeout(() => finish({ ok: false, text: '', error: 'agy timed out' }), TIMEOUT)

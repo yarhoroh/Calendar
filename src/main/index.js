@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from '
 import { detectClaude, detectCodex, warmUp } from './ai'
 import { warmClaude, stopClaude, clearClaude, askClaude, askClaudeRaw } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
-import { askAgy, resetAgy, detectAgy, agyAskRaw } from './agy'
+import { askAgy, resetAgy, detectAgy, agyAskRaw, stopAgy } from './agy'
 import { askGemini, resetGemini, geminiAskRaw, pingGemini } from './gemini'
 import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
@@ -15,7 +15,7 @@ import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } 
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
 import { getPdfTree, setPdfTree, pickPdfFolder, pickPdfFile, savePdfDialog, createBlankPdf, createBlankPdfAt, scanFolder, scanFolderFlat, statPath, openPdfPath, revealPdfPath, readPdfBytes, writePdfBytes, watchPdfFolders } from './pdfTree'
-import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex, getVariables, setVariables } from './pdfIndex'
+import { initPdfIndex, syncIndex, verifyDb, reindexPath, indexStates, indexSummary, searchIndex, getVariables, setVariables, stopPdfIndex } from './pdfIndex'
 import { getGoogleFont, getGoogleFontTTF, googleCloneFor } from './googleFonts'
 import { listSystemFonts, resolveFonts, setExtraFontDirs, fontBytesFor, fontFileFor, bytesOf, normName, invalidateFontCache } from './systemFonts'
 import { startTtsServer, stopTtsServer } from './ttsServer'
@@ -1310,6 +1310,11 @@ function initAutoUpdate() {
     })
     if (response === 0) {
       isQuitting = true // updating must fully quit — bypass the close-to-tray / confirm-close prompt
+      // stop the heavy native services FIRST so the installer can overwrite their files (a lingering
+      // mupdf worker / pty was what left the app "stuck" and blocked the update on another machine)
+      try { stopPdfIndex() } catch {}
+      try { stopAgy() } catch {}
+      try { stopClaude() } catch {}
       autoUpdater.quitAndInstall()
     }
   })
@@ -1477,8 +1482,12 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    // FULLY shut down every parallel service so nothing lingers (a live worker_thread / native child
+    // keeps the app alive and holds install-dir handles → the auto-update overwrite would be blocked)
     stopClaude()
     stopTtsServer()
     stopTelegram()
+    stopPdfIndex()
+    stopAgy()
   })
 }

@@ -144,6 +144,10 @@ function removeDoc(key) {
   const i = queue.findIndex((j) => j.key === key) // drop it from the queue if it was waiting
   if (i >= 0) queue.splice(i, 1)
   queued.delete(key)
+  // if a worker is indexing THIS file right now (its folder was just unlinked/excluded), abort it —
+  // terminate the worker so it stops immediately instead of finishing wasted work; the pool respawns
+  const rec = pool.find((w) => w.busy && w.job && w.job.key === key)
+  if (rec) { clearTimeout(rec.timer); try { rec.worker.terminate() } catch {}; pool = pool.filter((w) => w !== rec) }
   db.prepare('DELETE FROM doc_fts WHERE key=?').run(key)
   db.prepare('DELETE FROM docs WHERE key=?').run(key)
 }
@@ -221,6 +225,7 @@ function spawnWorker() {
   const rec = { worker: null, ready: false, busy: false, job: null, timer: null }
   try {
     rec.worker = new Worker(WORKER_SRC, { eval: true, workerData: { mupdfPath: mupdfEntry() } })
+    rec.worker.unref() // a pending index job must NEVER keep the app alive (it would block quit/update)
   } catch {
     return null
   }
@@ -297,6 +302,18 @@ function maybeTeardown() {
       pool = []
     }
   }, 20000)
+}
+
+// Full shutdown on app quit: terminate EVERY index worker (their mupdf-wasm handle in the install dir
+// would otherwise block an auto-update overwrite, and a live worker_thread keeps the app from exiting)
+// and close the DB. Called from will-quit and right before quitAndInstall.
+export function stopPdfIndex() {
+  clearTimeout(teardownTimer)
+  queue.length = 0; queued.clear()
+  for (const w of pool) { try { w.worker.terminate() } catch {} }
+  pool = []
+  try { db?.close() } catch {}
+  db = null
 }
 
 function writeResult(key, path, result) {

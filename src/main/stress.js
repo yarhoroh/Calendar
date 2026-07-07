@@ -127,6 +127,12 @@ function applyCase(orig, repl) {
   return repl
 }
 
+// Russian ё is ALWAYS the stressed vowel, so it never needs a separate acute. Some sources (esp. the
+// big RUAccent dict) still stack one → "ё́" (ё + U+0301). After NFKD that becomes "е + diaeresis +
+// acute" — two diacritics on one vowel — which the neural model mis-reads (e.g. "звёзд" → "звезд").
+// Drop any acute from a word that contains ё/Ё; the ё keeps the stress.
+const fixYo = (s) => (/[ёЁ]/.test(s) ? s.replaceAll(ACUTE, '') : s)
+
 export function accentuate(text, lang) {
   if ((lang !== 'ru' && lang !== 'uk') || !text) return text
   const m = load(lang)
@@ -135,10 +141,10 @@ export function accentuate(text, lang) {
   return text.replace(/[А-Яа-яЁёІіЇїЄєҐґ'’]+/g, (w) => {
     const lw = w.toLowerCase()
     const e = m.get(lw) // curated dicts win
-    if (e) return e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over)
+    if (e) return fixYo(e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over))
     if (get) {
       const row = get.get(lw) // big dict fills the gap (indexed SQLite lookup)
-      if (row) return restoreCase(w, row.over)
+      if (row) return fixYo(restoreCase(w, row.over))
     }
     return w
   })

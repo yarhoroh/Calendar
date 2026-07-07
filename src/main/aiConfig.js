@@ -14,6 +14,20 @@ const DEFAULTS = {
   // Settings — NOT hardcoded. Free tier works on the Flash line (Pro's free quota is zero).
   geminiApiKey: '',
   geminiModel: 'gemini-2.5-flash',
+  // Anthropic API (paid, direct) — key from console.anthropic.com, pasted in Settings, NEVER
+  // hardcoded. Used to measure REAL token cost of running the assistant. Prompt caching is on:
+  // the big static system prompt is cached, dynamic work is not. Every call's token usage + cost
+  // is logged to api-usage.db for the Settings report.
+  anthropicApiKey: '',
+  anthropicModel: 'claude-sonnet-4-6',
+  // price per MILLION tokens, USD (input / output). Cache write = 1.25×input, cache read = 0.1×input
+  // (Anthropic's standard multipliers). Editable — update when prices change or add a model.
+  anthropicPricing: {
+    'claude-opus-4-8': { in: 15, out: 75 },
+    'claude-sonnet-4-6': { in: 3, out: 15 },
+    'claude-haiku-4-5': { in: 1, out: 5 }
+  },
+  apiLogText: false, // also store the full request/response TEXT per call (off by default: privacy + DB size)
   telegramToken: '', // bot token for the Telegram bridge ('' = off)
   // Google Calendar (read-only import). Create a "Desktop app" OAuth client in
   // Google Cloud, enable the Calendar API, set the consent screen to Testing and

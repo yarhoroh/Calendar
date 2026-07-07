@@ -7,7 +7,8 @@ const OPTIONS = [
   { v: 'agy', label: 'Antigravity' },
   { v: 'claude', label: 'Claude' },
   { v: 'codex', label: 'Codex' },
-  { v: 'gemini', label: 'Gemini API' }
+  { v: 'gemini', label: 'Gemini API' },
+  { v: 'anthropic', label: 'Anthropic API' }
 ]
 
 export default function AiEngineSetting() {

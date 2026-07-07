@@ -6,6 +6,8 @@ import { warmClaude, stopClaude, clearClaude, askClaude, askClaudeRaw } from './
 import { askCodex, resetCodex } from './codex'
 import { askAgy, resetAgy, detectAgy, agyAskRaw, stopAgy } from './agy'
 import { askGemini, resetGemini, geminiAskRaw, pingGemini } from './gemini'
+import { askAnthropic, resetAnthropic, anthropicAskRaw, pingAnthropic } from './anthropic'
+import { initApiUsage, usageReport, clearUsage } from './apiUsage'
 import { asrStatus, downloadAsrModel, transcribe as asrTranscribe } from './asr'
 import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiConfig'
 import { startTelegram, stopTelegram, sendTelegram, sendTelegramFile } from './telegram'
@@ -498,6 +500,7 @@ function activeModel(cli) {
   if (cli === 'claude') return cfg.claudeModel || 'default'
   if (cli === 'agy') return cfg.agyModel || 'default'
   if (cli === 'gemini') return cfg.geminiModel || 'gemini-2.5-flash'
+  if (cli === 'anthropic') return cfg.anthropicModel || 'claude-sonnet-4-6'
   return cfg.codexModel || 'default'
 }
 function broadcastAiStatus() {
@@ -514,6 +517,7 @@ function warmAi(cli) {
   resetCodex()
   resetAgy()
   resetGemini()
+  resetAnthropic()
   const cfg = loadAiConfig()
   // if a configured model turns out to be unavailable, the engine falls back to
   // the CLI default and calls back so we persist the fix (so it never re-breaks)
@@ -528,6 +532,8 @@ function warmAi(cli) {
   } else if (cli === 'gemini') {
     // no process to warm — it's an HTTP API; "ready" just means a key is configured
     warming = Promise.resolve(!!(cfg.geminiApiKey || '').trim())
+  } else if (cli === 'anthropic') {
+    warming = Promise.resolve(!!(cfg.anthropicApiKey || '').trim()) // HTTP API — ready = key set
   } else {
     warming = warmUp('codex')
   }
@@ -564,6 +570,7 @@ ipcMain.handle('ai:send', (_e, { messages }) => {
   const ctx = aiContext()
   if (cli === 'claude') return askClaude({ messages, ctx })
   if (cli === 'gemini') return askGemini({ messages, ctx })
+  if (cli === 'anthropic') return askAnthropic({ messages, ctx })
   if (cli === 'codex') {
     const cfg = loadAiConfig()
     return askCodex({ messages, ctx, model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -619,6 +626,28 @@ ipcMain.handle('gemini:status', () => {
   return { hasKey: !!(cfg.geminiApiKey || '').trim(), model: cfg.geminiModel || 'gemini-2.5-flash' }
 })
 ipcMain.handle('gemini:test', () => pingGemini())
+// ---- Anthropic API (paid, direct — for cost measurement) ----------------
+// Key from console.anthropic.com. Same shape as the Gemini handlers. Never logged.
+ipcMain.handle('anthropic:set-key', (_e, key) => {
+  saveAiConfig({ anthropicApiKey: (key || '').trim() })
+  if ((loadSettings().ai || 'agy') === 'anthropic') warmAi('anthropic')
+  return { hasKey: !!(loadAiConfig().anthropicApiKey || '').trim() }
+})
+ipcMain.handle('anthropic:set-model', (_e, model) => {
+  saveAiConfig({ anthropicModel: (model || 'claude-sonnet-4-6').trim() })
+  if ((loadSettings().ai || 'agy') === 'anthropic') broadcastAiStatus()
+  return loadAiConfig().anthropicModel
+})
+ipcMain.handle('anthropic:status', () => {
+  const cfg = loadAiConfig()
+  return { hasKey: !!(cfg.anthropicApiKey || '').trim(), model: cfg.anthropicModel || 'claude-sonnet-4-6', pricing: cfg.anthropicPricing || {}, logText: !!cfg.apiLogText }
+})
+ipcMain.handle('anthropic:test', () => pingAnthropic())
+ipcMain.handle('anthropic:set-pricing', (_e, pricing) => saveAiConfig({ anthropicPricing: pricing || {} }).anthropicPricing)
+ipcMain.handle('anthropic:set-logtext', (_e, on) => saveAiConfig({ apiLogText: !!on }).apiLogText)
+// ---- API usage / cost report --------------------------------------------
+ipcMain.handle('usage:report', (_e, opts) => usageReport(opts || {}))
+ipcMain.handle('usage:clear', () => { clearUsage(); return { ok: true } })
 // ---- Telegram bridge ----------------------------------------------------
 let telegramOk = false
 let lastTelegramChat = null // remember who last messaged the bot, for proactive sends
@@ -823,6 +852,7 @@ ipcMain.handle('mail:translate', async (_e, { segments, lang }) => {
   // (a shared session lets the chat persona bleed in and breaks the JSON output)
   if (cli === 'claude') res = await askClaudeRaw(prompt)
   else if (cli === 'gemini') res = await geminiAskRaw(prompt) // isolated one-shot, no chat history
+  else if (cli === 'anthropic') res = await anthropicAskRaw(prompt, 'mail')
   else if (cli === 'codex') {
     const cfg = loadAiConfig()
     res = await askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -847,6 +877,7 @@ async function askRawAI(prompt) {
   // prompt bleeds in and the summary ends with a stray ```calendar [...]``` block
   if (cli === 'claude') return askClaudeRaw(prompt)
   if (cli === 'gemini') return geminiAskRaw(prompt)
+  if (cli === 'anthropic') return anthropicAskRaw(prompt, 'task')
   if (cli === 'codex') {
     const cfg = loadAiConfig()
     return askCodex({ messages: [{ role: 'user', content: prompt }], ctx: '', model: cfg.codexModel, reasoning: cfg.codexReasoning })
@@ -1168,6 +1199,8 @@ ipcMain.handle('mail:file-icon', async (_e, ext) => {
 ipcMain.handle('ai:clear', () => {
   const cli = loadSettings().ai || 'agy'
   if (cli === 'claude') return clearClaude()
+  if (cli === 'gemini') { resetGemini(); return true }
+  if (cli === 'anthropic') { resetAnthropic(); return true }
   if (cli === 'codex') {
     resetCodex() // codex: next turn starts a fresh session
     return true
@@ -1396,6 +1429,7 @@ if (!gotLock) {
     // PDF full-text index: re-check every recorded file's mtime (catch edits made while closed),
     // then reconcile with the tree — all on the background worker pool
     initPdfIndex(() => mainWindow?.webContents?.send('pdf:index-changed'))
+    try { initApiUsage() } catch (e) { console.error('[api-usage] init failed:', e?.message) } // token/cost ledger
     setTimeout(() => { verifyDb(); syncIndex(getPdfTree) }, 2000)
     ensureAiConfig()
     migrateNotesJson()

@@ -5,6 +5,7 @@ import ClaudeSetting from '../components/settings/ClaudeSetting'
 import CodexSetting from '../components/settings/CodexSetting'
 import AntigravitySetting from '../components/settings/AntigravitySetting'
 import GeminiSetting from '../components/settings/GeminiSetting'
+import AnthropicSetting from '../components/settings/AnthropicSetting'
 import AiConfigSetting from '../components/settings/AiConfigSetting'
 import TelegramSetting from '../components/settings/TelegramSetting'
 import GoogleAccountsSetting from '../components/settings/GoogleAccountsSetting'
@@ -78,6 +79,7 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <CodexSetting />
               <AntigravitySetting />
               <GeminiSetting />
+              <AnthropicSetting />
               <AiConfigSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.bots')}>

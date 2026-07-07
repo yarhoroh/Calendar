@@ -759,6 +759,9 @@ export default function PdfEditor({ source, path, active = true }) {
     const [im, m] = await Promise.all([engineRef.current.renderImage(pageIndex, scale), engineRef.current.getModel(pageIndex)])
     const url = URL.createObjectURL(new Blob([im.png], { type: 'image/png' }))
     urlsRef.current.push(url)
+    // DECODE the new page image BEFORE swapping it in — otherwise the browser paints the still-decoding
+    // <img> a frame late, and on an edit-commit the OLD text flashes under the (now-removed) cover
+    try { const pre = new Image(); pre.src = url; await pre.decode() } catch { /* fall through — worst case a tiny flash */ }
     setImgs((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, url, width: im.width, height: im.height } : p)))
     setModel((prev) => prev.map((p) => (p.pageIndex === pageIndex ? { pageIndex, ...m } : p)))
     engineRef.current.undoState().then(setUndoState).catch(() => {}) // keep the undo/redo buttons live

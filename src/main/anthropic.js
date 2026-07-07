@@ -107,7 +107,8 @@ async function callAnthropic(sys, msgs, channel) {
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': VERSION },
+      // prompt caching is GA, but keep the beta header so it activates regardless of the account/model
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': VERSION, 'anthropic-beta': 'prompt-caching-2024-07-31' },
       body: JSON.stringify(body),
       signal: ctrl.signal
     })
@@ -130,7 +131,12 @@ async function callAnthropic(sys, msgs, channel) {
       resp: cfg.apiLogText ? text.slice(0, 200000) : null
     })
     const secs = ((Date.now() - t0) / 1000).toFixed(1)
-    console.log(`[anthropic] ← ${secs}s ${text.length} chars | in ${u.input_tokens || 0} out ${u.output_tokens || 0} cacheW ${u.cache_creation_input_tokens || 0} cacheR ${u.cache_read_input_tokens || 0} → $${cost.toFixed(4)} (${model})`)
+    // explicit cache status so it's obvious in the log whether caching is working:
+    // WRITE = the system prompt was just cached (first turn); HIT = it was read from cache (saved
+    // ~90% on those tokens); MISS = neither (caching off / prompt below the 1024-token minimum)
+    const cw = u.cache_creation_input_tokens || 0, cr = u.cache_read_input_tokens || 0
+    const cache = cr > 0 ? `CACHE HIT (read ${cr})` : cw > 0 ? `CACHE WRITE (${cw})` : 'CACHE MISS'
+    console.log(`[anthropic] ← ${secs}s ${text.length} chars | in ${u.input_tokens || 0} out ${u.output_tokens || 0} | ${cache} → $${cost.toFixed(4)} (${model})`)
     if (!text) return { ok: false, text: '', error: j?.stop_reason || 'empty response' }
     return { ok: true, text }
   } catch (e) {

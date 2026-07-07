@@ -2179,6 +2179,7 @@ export const __test = {
   setDash: (...a) => setDash(...a),
   setLineGeo: (...a) => setLineGeo(...a),
   readStreamOf: (pageObj, n) => readStream(pageObj, n),
+  writeStreamOf: (pageObj, n, cs) => writeStream(pageObj, n, cs),
   textOnlyPixmap: (...a) => textOnlyPixmap(...a),
   matchUnit,
   replaceTextImpl: (pageIndex, items, spec, fonts, fallback, textOnly) => {

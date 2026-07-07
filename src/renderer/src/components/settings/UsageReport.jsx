@@ -31,29 +31,31 @@ export default function UsageReport() {
   const keyName = { day: 'day', hour: 'hour', model: 'model', channel: 'channel' }[tab]
 
   return (
-    <SettingRow title="Расход API (Anthropic)" description="Токены и деньги по каждому вызову. Cache-read (кэш) считается по 0.1× — это экономия от кэширования.">
-      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* grand totals */}
-        <div className="tool-status" style={{ flexWrap: 'wrap', gap: 12 }}>
-          <b style={{ fontSize: 15 }}>{fmt$(t?.cost)}</b>
-          <span>· {fmtN(t?.calls)} вызовов</span>
-          <span>· вход {fmtN(t?.in_tok)}</span>
-          <span>· выход {fmtN(t?.out_tok)}</span>
-          <span>· кэш-запись {fmtN(t?.cw_tok)}</span>
-          <span>· кэш-чтение {fmtN(t?.cr_tok)}</span>
-          <button className="btn btn--ghost" onClick={load} disabled={loading} style={{ marginLeft: 'auto' }}>{loading ? '…' : 'обновить'}</button>
-          <button className="btn" onClick={clear}>очистить</button>
+    <SettingRow stacked title="Расход API (Anthropic)" description="Токены и деньги по каждому вызову. Cache-read (кэш) считается по 0.1× — это экономия от кэширования.">
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* grand totals — one line */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 14, fontSize: 13 }}>
+          <b style={{ fontSize: 17 }}>{fmt$(t?.cost)}</b>
+          <span>{fmtN(t?.calls)} вызовов</span>
+          <span>вход <b>{fmtN(t?.in_tok)}</b></span>
+          <span>выход <b>{fmtN(t?.out_tok)}</b></span>
+          <span>кэш-запись <b>{fmtN(t?.cw_tok)}</b></span>
+          <span>кэш-чтение <b>{fmtN(t?.cr_tok)}</b></span>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button className="btn btn--ghost" onClick={load} disabled={loading}>{loading ? '…' : 'обновить'}</button>
+            <button className="btn" onClick={clear}>очистить</button>
+          </span>
         </div>
 
-        {/* tab switch */}
-        <div className="lang-switch">
+        {/* tab switch — second line */}
+        <div className="lang-switch" style={{ alignSelf: 'flex-start' }}>
           {TABS.map(([v, lbl]) => (
             <button key={v} className={'lang-switch__btn' + (tab === v ? ' lang-switch__btn--active' : '')} onClick={() => setTab(v)}>{lbl}</button>
           ))}
         </div>
 
-        {/* table */}
-        <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--border, rgba(0,0,0,0.12))', borderRadius: 8 }}>
+        {/* table — full-width third line */}
+        <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--border, rgba(0,0,0,0.12))', borderRadius: 8 }}>
           {tab === 'log' ? (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr style={{ position: 'sticky', top: 0, background: 'var(--panel,#fff)' }}>

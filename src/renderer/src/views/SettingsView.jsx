@@ -36,6 +36,7 @@ import VoiceInputSetting from '../components/settings/VoiceInputSetting'
 export default function SettingsView({ showChat, onToggleChat, compact, onToggleCompact }) {
   const { t } = useI18n()
   const [tab, setTab] = useState('general')
+  const [ai, setAi] = useState(null) // active engine — only ITS settings row is shown (less clutter)
 
   return (
     <div className="settings">
@@ -74,12 +75,12 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
               <CompactSetting compact={compact} onToggle={onToggleCompact} />
             </SettingsSection>
             <SettingsSection title={t('settings.tools')}>
-              <AiEngineSetting />
-              <ClaudeSetting />
-              <CodexSetting />
-              <AntigravitySetting />
-              <GeminiSetting />
-              <AnthropicSetting />
+              <AiEngineSetting onChange={setAi} />
+              {ai === 'claude' && <ClaudeSetting />}
+              {ai === 'codex' && <CodexSetting />}
+              {ai === 'agy' && <AntigravitySetting />}
+              {ai === 'gemini' && <GeminiSetting />}
+              {ai === 'anthropic' && <AnthropicSetting />}
               <AiConfigSetting />
             </SettingsSection>
             <SettingsSection title={t('settings.bots')}>

@@ -224,6 +224,18 @@ export const translations = {
         testOk: 'Works',
         testFail: 'Failed'
       },
+      anthropic: {
+        desc: 'Direct Anthropic API to measure real token cost. Key from console.anthropic.com. Every call logs tokens + price to the report below.',
+        hasKey: 'Key set', noKey: 'No key', add: 'Add', remove: 'Remove key', test: 'Test key', testing: 'Testing…', ok: 'OK', fail: 'Error',
+        cache: 'Prompt cache:', cacheOff: 'off', cache5m: '5 min', cache1h: '1 hour', logText: 'store text'
+      },
+      usage: {
+        title: 'API usage (Anthropic)', desc: 'Tokens and money per call. Cache-read is billed at 0.1× — the caching saving.',
+        calls: 'calls', input: 'input', output: 'output', cacheWrite: 'cache-write', cacheRead: 'cache-read', tokens: 'tokens',
+        refresh: 'refresh', clear: 'clear', confirmClear: 'Clear all API stats? Cannot be undone.',
+        tabDay: 'by day', tabHour: 'by hour', tabModel: 'by model', tabChannel: 'by channel', tabLog: 'log',
+        time: 'time', model: 'model', channel: 'channel', empty: 'empty'
+      },
       google: {
         title: 'Google Calendar',
         desc: 'Connect Google accounts (read-only) to import calendar events.',
@@ -524,6 +536,18 @@ export const translations = {
         testing: 'Перевірка…',
         testOk: 'Працює',
         testFail: 'Помилка'
+      },
+      anthropic: {
+        desc: 'Прямий Anthropic API для вимірювання реальної вартості токенів. Ключ — console.anthropic.com. Кожен виклик пише токени + ціну у звіт нижче.',
+        hasKey: 'Ключ є', noKey: 'Немає ключа', add: 'Додати', remove: 'Прибрати ключ', test: 'Перевірити', testing: 'Перевірка…', ok: 'ОК', fail: 'Помилка',
+        cache: 'Кеш промпту:', cacheOff: 'вимк', cache5m: '5 хв', cache1h: '1 год', logText: 'зберігати текст'
+      },
+      usage: {
+        title: 'Витрати API (Anthropic)', desc: 'Токени та гроші за кожен виклик. Cache-read рахується за 0.1× — економія від кешування.',
+        calls: 'викликів', input: 'вхід', output: 'вихід', cacheWrite: 'кеш-запис', cacheRead: 'кеш-читання', tokens: 'токенів',
+        refresh: 'оновити', clear: 'очистити', confirmClear: 'Очистити всю статистику API? Скасувати не можна.',
+        tabDay: 'по днях', tabHour: 'по годинах', tabModel: 'по моделях', tabChannel: 'по каналах', tabLog: 'журнал',
+        time: 'час', model: 'модель', channel: 'канал', empty: 'порожньо'
       },
       google: {
         title: 'Google Календар',

@@ -11,17 +11,18 @@ const OPTIONS = [
   { v: 'anthropic', label: 'Anthropic API' }
 ]
 
-export default function AiEngineSetting() {
+export default function AiEngineSetting({ onChange }) {
   const { t } = useI18n()
   const [ai, setAiState] = useState('agy')
 
   useEffect(() => {
-    Promise.resolve(api.getAi?.()).then((v) => setAiState(v || 'agy'))
+    Promise.resolve(api.getAi?.()).then((v) => { setAiState(v || 'agy'); onChange?.(v || 'agy') })
   }, [])
 
   const pick = (v) => {
     setAiState(v)
     api.setAi?.(v)
+    onChange?.(v)
   }
 
   return (

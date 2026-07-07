@@ -991,17 +991,17 @@ export default function PdfEditor({ source, path, active = true }) {
       fonts,
       await getFallbacksFor(fonts)
     )
-    let m = await refreshPage(page)
-    // restore rotation: rotate each rotated run's fresh (unrotated) copy back around its baseline
-    // anchor by the original angle — the anchor is the fixed point shared by the un/rotated run, so
-    // this lands it exactly where it was, now carrying the new LS/colour/size
+    // restore rotation BEFORE the first on-screen paint: locate each rotated run's fresh (unrotated)
+    // copy via getModel ONLY (no render) and rotate it back around its baseline anchor by the original
+    // angle. A refreshPage here would briefly paint the text horizontal, then rotate it — the "jumps
+    // to vertical, then returns" flicker. Only the single refreshPage below repaints, straight to the
+    // rotated result.
     for (const r of rotated) {
-      const fresh = allOf(m).find((o) => o.type === 'text' && !o.rot && Math.abs(o.x - r.x) < 1.5 && Math.abs(o.y - r.y) < 1.5)
-      if (fresh) {
-        await engineRef.current.rotateObjects(page, [{ type: fresh.type, bbox: fresh.bbox, x: fresh.x, y: fresh.y }], -r.rot, fresh.x, fresh.y)
-        m = await refreshPage(page)
-      }
+      const mm = await engineRef.current.getModel(page)
+      const fresh = allOf(mm).find((o) => o.type === 'text' && !o.rot && Math.abs(o.x - r.x) < 1.5 && Math.abs(o.y - r.y) < 1.5)
+      if (fresh) await engineRef.current.rotateObjects(page, [{ type: fresh.type, bbox: fresh.bbox, x: fresh.x, y: fresh.y }], -r.rot, fresh.x, fresh.y)
     }
+    const m = await refreshPage(page) // ONE visible repaint — the final rotated, restyled state
     setFontsNonce((n) => n + 1) // the restyled text may embed a NEW font — refresh the dropdown list
     return allOf(m).filter((o) => !before.has(sigOf(o)))
   }

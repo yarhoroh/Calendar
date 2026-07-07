@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import api from '../lib/api'
 import { useI18n } from '../i18n/I18nContext'
 import SettingsSection from '../components/settings/SettingsSection'
 import ClaudeSetting from '../components/settings/ClaudeSetting'
@@ -37,6 +38,8 @@ export default function SettingsView({ showChat, onToggleChat, compact, onToggle
   const { t } = useI18n()
   const [tab, setTab] = useState('general')
   const [ai, setAi] = useState(null) // active engine — only ITS settings row is shown (less clutter)
+  // read the engine ourselves too (authoritative) — don't depend solely on the child's callback timing
+  useEffect(() => { Promise.resolve(api.getAi?.()).then((v) => setAi(v || 'agy')) }, [])
 
   return (
     <div className="settings">

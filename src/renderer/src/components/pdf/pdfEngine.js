@@ -49,7 +49,7 @@ export function createPdfEngine() {
     recolorVector: (pageIndex, item, colors) => call('recolorVector', { pageIndex, item, colors }), // { stroke?, fill? } hex or 'none'
     setVectorRadius: (pageIndex, item, radius) => call('setVectorRadius', { pageIndex, item, radius }), // rebuild the path as a rounded rect
     setStrokeWidth: (pageIndex, item, w) => call('setStrokeWidth', { pageIndex, item, w }), // stroke width, pt
-    setOpacity: (pageIndex, item, alpha) => call('setOpacity', { pageIndex, item, alpha }), // 0..1, vectors and images
+    setOpacity: (pageIndex, item, ca, CA) => call('setOpacity', { pageIndex, item, ca, CA }), // ca=fill, CA=stroke alpha 0..1
     setDash: (pageIndex, item, dash) => call('setDash', { pageIndex, item, dash }), // solid|dashed|dotted|dashdot
     setLineGeo: (pageIndex, item, geo) => call('setLineGeo', { pageIndex, item, geo }), // move a line/arrow endpoint {x1,y1,x2,y2}
     writeVariables: (json) => call('writeVariables', { json }), // embed template-variable defs in the PDF catalog

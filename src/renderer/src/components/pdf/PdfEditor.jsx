@@ -178,7 +178,7 @@ const AI_PDF_MANUAL = [
   '- {"action":"pdfSetVariable","name":"invoice_no","value":"INV-2026-002"} — change a variable\'s value: every place it occurs is rewritten in the PDF at once.',
   '- {"action":"pdfSave","as":"invoice-002.pdf"} — save a COPY next to the original (the reply gives the new file\'s full path — use it for attachFile / telegramFile / composeMail attachments). A plain pdfSave OVERWRITES the open file and is REFUSED on the user\'s own documents — only when the user explicitly asked to overwrite, retry with {"overwrite":true}. Files you created yourself (copies, new invoices) can be saved in place freely.',
   '- {"action":"pdfWorkOnCopy","as":"name-copy.pdf"} — save the current state as a copy next to the original AND switch editing to it (the copy opens as the active tab; every later action hits the copy; the original stays untouched). USE THIS FIRST whenever the user asks for serious changes to an existing document and did not say to change the original itself.',
-  '- {"action":"pdfStyleShape","page":0,"ids":["v1"],"fill":"#f2f2f2","stroke":"#cccccc","strokeW":1,"radius":4,"opacity":1} — restyle an EXISTING shape/box IN PLACE: "fill" = its BACKGROUND colour, "stroke" = its BORDER colour, "strokeW" = border width (pt), "radius" = rounded corners, "opacity" 0..1 ("none" clears a fill or border). To CHANGE a box\'s colour/size/border, use THIS or pdfDelete + a fresh pdfShape — do NOT draw another box on top of the old one. To REMOVE a box, pdfDelete it by its v-id. Every shape in pdfInfo shows its current fill= and border= so you know what you are changing. A shape has TWO colours: fill (background) and stroke (the outline); "stroke":"none" = filled-only (a solid band), "fill":"none" = outline-only (an empty frame).',
+  '- {"action":"pdfStyleShape","page":0,"ids":["v1"],"fill":"#f2f2f2","stroke":"#cccccc","strokeW":1,"radius":4,"opacity":1} — restyle an EXISTING shape/box IN PLACE: "fill" = its BACKGROUND colour, "stroke" = its BORDER colour, "strokeW" = border width (pt), "radius" = rounded corners, "opacity" 0..1 (whole shape) or separate "fillOpacity"/"strokeOpacity" 0..1 (fill and border transparency are INDEPENDENT in PDF), "none" clears a fill or border. To CHANGE a box\'s colour/size/border, use THIS or pdfDelete + a fresh pdfShape — do NOT draw another box on top of the old one. To REMOVE a box, pdfDelete it by its v-id. Every shape in pdfInfo shows its current fill= and border= so you know what you are changing. A shape has TWO colours: fill (background) and stroke (the outline); "stroke":"none" = filled-only (a solid band), "fill":"none" = outline-only (an empty frame).',
   '- {"action":"pdfReorder","page":0,"ids":["v1"],"mode":"back"} — change Z-ORDER (stacking). mode: "back" (behind everything — for a background band/fill), "front" (on top), "backward"/"forward" (one step). Paint order = stack order: whatever has the HIGHER z sits on top. If a background/fill covers text (its z is higher), send it "back". Draw backgrounds/bands FIRST so text drawn later is on top; if you added a fill after the text, reorder it back.',
   '- {"action":"pdfNew","name":"invoice.pdf"} — create a BLANK A4 PDF from scratch, open it and link it into Files (lands in a linked folder, else Documents/Calendar PDFs). Creating a document FROM NOTHING is fully supported — use this, then pdfInfo, then build it.',
   'WORKFLOW — building a document (invoice / contract) from scratch on a blank page: 1) lay out with pdfShape (header band, table rules) and pdfInsert (texts — put a LABEL and its VALUE in SEPARATE inserts so values can become variables; align columns by giving rows the same x and stepping baseline by ~1.3×size); 2) createVariable for every changeable field (number, dates, client, quantities, unit prices, totals — recompute totals yourself when quantities change); 3) pdfSave. For a date editable by parts, insert day / month / year as separate pieces and variable each. For a two-language document, lay the second language as its own column or line pairs.',
@@ -1435,7 +1435,13 @@ export default function PdfEditor({ source, path, active = true }) {
   const recolorSelected = (colors) => mutateObject((p, it) => engineRef.current.recolorVector(p, it, colors))
   const radiusSelected = (r) => mutateObject((p, it) => engineRef.current.setVectorRadius(p, it, r))
   const strokeWidthSelected = (w) => mutateObject((p, it) => engineRef.current.setStrokeWidth(p, it, w))
-  const opacitySelected = (pct) => mutateObject((p, it) => engineRef.current.setOpacity(p, it, Math.max(0, Math.min(100, pct)) / 100), ['vector', 'image'])
+  // fillPct = fill (ca) opacity, strokePct = stroke (CA) opacity, both 0..100 and INDEPENDENT (PDF
+  // ExtGState). strokePct omitted → same as fill (images / whole-object).
+  const opacitySelected = (fillPct, strokePct) => {
+    const f = Math.max(0, Math.min(100, fillPct))
+    const s = Math.max(0, Math.min(100, strokePct ?? fillPct))
+    return mutateObject((p, it) => engineRef.current.setOpacity(p, it, f / 100, s / 100), ['vector', 'image'])
+  }
   const dashSelected = (d) => mutateObject((p, it) => engineRef.current.setDash(p, it, d))
   const lineGeoSelected = (pageIndex, obj, geo) =>
     mutateObject((p, it) => engineRef.current.setLineGeo(p, it, geo), ['vector'], { x: (geo.x1 + geo.x2) / 2, y: (geo.y1 + geo.y2) / 2 })
@@ -2096,7 +2102,11 @@ export default function PdfEditor({ source, path, active = true }) {
               await engineRef.current.recolorVector(page, it, { fill: a.fill, stroke: a.stroke ?? a.color })
             if (a.strokeW !== undefined) await engineRef.current.setStrokeWidth(page, it, Number(a.strokeW))
             if (a.radius !== undefined) await engineRef.current.setVectorRadius(page, it, Number(a.radius))
-            if (a.opacity !== undefined) await engineRef.current.setOpacity(page, it, Math.max(0, Math.min(1, Number(a.opacity))))
+            if (a.opacity !== undefined || a.fillOpacity !== undefined || a.strokeOpacity !== undefined) {
+              const ca = Math.max(0, Math.min(1, Number(a.fillOpacity ?? a.opacity ?? 1)))
+              const CA = Math.max(0, Math.min(1, Number(a.strokeOpacity ?? a.opacity ?? 1)))
+              await engineRef.current.setOpacity(page, it, ca, CA)
+            }
           }
           await refreshPage(page)
           return { ok: true, result: { info: `restyled ${objs.length} shape(s)` } }
@@ -2667,25 +2677,29 @@ export default function PdfEditor({ source, path, active = true }) {
              radius land here next */
           <>
             <span className="pdfed__sblabel">{selKind === 'image' ? 'Image' : 'Vector'}</span>
-            <label className="pdfed__mini" title="Opacity, % — vectors and images (PDF ExtGState alpha)">
-              Op
-              <ComboNum value={selObj1.opacity ?? 100} onPick={(v) => deferMutation(() => opacitySelected(v ?? 100))} opts={[10, 25, 50, 75, 100]} step={5} min={0} max={100} width={60} />
-            </label>
+            {/* images have no colour picker → keep a plain opacity box here; vectors set opacity INSIDE
+                the Stroke/Fill colour pickers, independently per channel */}
+            {selKind === 'image' && (
+              <label className="pdfed__mini" title="Opacity, % (PDF ExtGState alpha)">
+                Op
+                <ComboNum value={selObj1.opacity ?? 100} onPick={(v) => deferMutation(() => opacitySelected(v ?? 100))} opts={[10, 25, 50, 75, 100]} step={5} min={0} max={100} width={60} />
+              </label>
+            )}
             {selKind === 'vector' && (
               <>
-                <label className="pdfed__mini" title="Stroke colour">
+                <label className="pdfed__mini" title="Stroke colour + its opacity">
                   Stroke
                   <ColorDrop
                     value={selObj1.kind === 'stroke' ? selPg?.colors?.[selObj1.c] || '#000000' : '#000000'}
                     colors={docColors}
                     onPick={(c) => recolorSelected(selObj1.line?.head === 'filled' ? { stroke: c, fill: c } : { stroke: c })}
                     title="Stroke colour (incl. Transparent)"
-                    opacity={selObj1.opacity ?? 100}
-                    onOpacity={(v) => deferMutation(() => opacitySelected(v ?? 100))}
+                    opacity={selObj1.strokeOpacity ?? 100}
+                    onOpacity={(v) => deferMutation(() => opacitySelected(selObj1.opacity ?? 100, v ?? 100))}
                   />
                 </label>
                 {!selObj1.line && ( /* fill makes no sense for a line/arrow (a filled head follows Stroke) */
-                  <label className="pdfed__mini" title="Fill colour">
+                  <label className="pdfed__mini" title="Fill colour + its opacity">
                     Fill
                     <ColorDrop
                       value={selObj1.kind === 'fill' ? selPg?.colors?.[selObj1.c] || '#000000' : selObj1.fc !== undefined ? selPg?.colors?.[selObj1.fc] || '#ffffff' : '#ffffff'}
@@ -2693,7 +2707,7 @@ export default function PdfEditor({ source, path, active = true }) {
                       onPick={(c) => recolorSelected({ fill: c })}
                       title="Fill colour (incl. Transparent)"
                       opacity={selObj1.opacity ?? 100}
-                      onOpacity={(v) => deferMutation(() => opacitySelected(v ?? 100))}
+                      onOpacity={(v) => deferMutation(() => opacitySelected(v ?? 100, selObj1.strokeOpacity ?? 100))}
                     />
                   </label>
                 )}

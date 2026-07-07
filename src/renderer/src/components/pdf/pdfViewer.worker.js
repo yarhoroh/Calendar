@@ -599,11 +599,17 @@ function getModel(pageIndex) {
       }
       // vectors/images: read back %EFR (corner radius), stroke width and /EFGS opacity from their units
       const gsCa = (nm) => {
+        // read BOTH alphas: ca = fill (non-stroking), CA = stroke (stroking) — independent in PDF
+        const out = {}
         try {
-          const v = doc.findPage(pageIndex).getInheritable('Resources')?.get('ExtGState')?.get(nm)?.get('ca')
-          const n = v && v.isNumber && v.isNumber() ? v.asNumber() : NaN
-          return isNaN(n) ? undefined : n
-        } catch { return undefined }
+          const gs = doc.findPage(pageIndex).getInheritable('Resources')?.get('ExtGState')?.get(nm)
+          for (const key of ['ca', 'CA']) {
+            const v = gs?.get(key)
+            const n = v && v.isNumber && v.isNumber() ? v.asNumber() : NaN
+            if (!isNaN(n)) out[key] = n
+          }
+        } catch {}
+        return out
       }
       // rotation angle of a unit's ctm (PDF space, like run.rot): the page flip gives 0, our
       // rotation wrap shows up as ± the wrapped angle
@@ -641,7 +647,7 @@ function getModel(pageIndex) {
             }
             if (u.efr !== undefined) v.radius = u.efr
             if (u.strw !== undefined) v.strokeW = n2(u.strw * Math.abs(u.sa || 1)) // device pt
-            if (u.gs) { const a = gsCa(u.gs); if (a !== undefined) v.opacity = Math.round(a * 100) }
+            if (u.gs) { const a = gsCa(u.gs); if (a.ca !== undefined) v.opacity = Math.round(a.ca * 100); if (a.CA !== undefined) v.strokeOpacity = Math.round(a.CA * 100) }
             if (u.dashArr !== undefined) {
               const parts = u.dashArr.trim().split(/\s+/).filter(Boolean).map(Number)
               v.dash = !parts.length ? 'solid' : parts.length >= 4 ? 'dashdot' : parts[0] <= 0.5 ? 'dotted' : 'dashed'
@@ -1714,22 +1720,26 @@ function recolorVector(pageIndex, item, colors) {
 // Set an object's opacity (0..1): an ExtGState with CA/ca is registered on the page and applied
 // inside a q..Q wrap around the unit (so the alpha can't leak into the following content).
 let insGsSeq = 0
-function setOpacity(pageIndex, item, alpha) {
+function setOpacity(pageIndex, item, ca, CA) {
+  // ca = fill (non-stroking) alpha, CA = stroke (stroking) alpha — independent (0..1). When only one
+  // is given, the other defaults to fully opaque. The UI passes BOTH (current + the changed channel).
+  const fa = ca === undefined || ca === null ? 1 : Math.max(0, Math.min(1, ca))
+  const sa = CA === undefined || CA === null ? fa : Math.max(0, Math.min(1, CA))
   const lp = doc.loadPage(pageIndex)
   const H = lp.getBounds()[3]; lp.destroy()
   const pageObj = doc.findPage(pageIndex)
   const units = collectUnits(pageObj, H)
   const u = matchUnit(units, item)
   if (!u) throw new Error('cannot locate the object in the stream')
-  // register /EFGSn { CA, ca } in the page resources
+  // register /EFGSn { CA (stroke), ca (fill) } in the page resources
   const name = 'EFGS' + insGsSeq++
   let res = pageObj.getInheritable('Resources')
   if (!res || res.isNull()) { res = doc.newDictionary(); pageObj.put('Resources', res) }
   let eg = res.get('ExtGState')
   if (eg.isNull()) { eg = doc.newDictionary(); res.put('ExtGState', eg) }
   const d = doc.newDictionary()
-  d.put('CA', alpha)
-  d.put('ca', alpha)
+  d.put('CA', sa)
+  d.put('ca', fa)
   eg.put(name, doc.addObject(d))
   const cs = readStream(pageObj, u.stream)
   const segEnd = extendOverTrailingQs(cs, u.start, u.end)
@@ -2225,7 +2235,7 @@ if (typeof self !== 'undefined') self.onmessage = (e) => {
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'setOpacity') {
       if (!doc) throw new Error('no document open')
-      setOpacity(params.pageIndex, params.item, params.alpha)
+      setOpacity(params.pageIndex, params.item, params.ca, params.CA)
       self.postMessage({ id, result: { ok: true } })
     } else if (type === 'insertShape') {
       if (!doc) throw new Error('no document open')

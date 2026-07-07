@@ -57,7 +57,7 @@ const SPIN =
 const HEAD =
   `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline' data:; font-src data:;">` +
   `<meta name="color-scheme" content="light only">` +
-  `<style>html,body{margin:0;padding:0}img.imgld{background:url("${SPIN}") center / 22px no-repeat}</style>`
+  `<style>html{margin:0;padding:0}body{margin:0;padding:12px}img.imgld{background:url("${SPIN}") center / 22px no-repeat}</style>`
 
 // One real message inside a conversation. Collapsed shows a preview; expanded shows
 // the body (HTML in a sandboxed iframe, else text), an expandable Details block and

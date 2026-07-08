@@ -117,9 +117,9 @@ function buildUnits(cs, streamNum, H) {
       operandStart = null
       if (!tPos) tPos = d; else { x0 = Math.min(x0, d[0]); x1 = Math.max(x1, d[0]) }
     }
-    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; units.push({ type: 'text', stream: streamNum, start, end, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }) } shows = []; start = end; reset() }
-    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], lb: [lx0, ly0, lx1, ly1], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
-    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, cpm: cmPre?.m, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
+    else if (t === 'ET') { if (tPos) { const h = (fontSize * Math.abs(ctm[0])) || 10; const efid = (cs.slice(start, end).match(/%EFID (\d+)/) || [])[1]; if (efid) for (const sh of shows) sh.efid = efid; units.push({ type: 'text', stream: streamNum, start, end, efid, px: tPos[0], py: tPos[1], shows, bbox: [Math.min(x0, tPos[0]), tPos[1] - h * 0.82, Math.max(x1, tPos[0]) + h * 0.6, tPos[1] + h * 0.22], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice() }) } shows = []; start = end; reset() }
+    else if (VIS.has(t)) { if (hasP) { const raw = cs.slice(start, end); const mEid = raw.match(/%EFID (\d+)/); const mEfr = raw.match(/%EFR ([\d.]+)/); const mW = raw.match(/(-?[\d.]+)\s+w\b/); const mG = raw.match(/\/(EFGS\d+)\s+gs\b/); const mD = raw.match(/\[([^\]]*)\]\s*[-\d.]+\s+d\b/); const mL = raw.match(/%EFL (\w+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/); units.push({ type: 'path', stream: streamNum, start, end, bbox: [x0, H - y1, x1, H - y0], lb: [lx0, ly0, lx1, ly1], sa: ctm[0] || 1, sd: ctm[3] || 1, ctm: ctm.slice(), ctmStart: startCtm.slice(), efid: mEid ? mEid[1] : undefined, efr: mEfr ? +mEfr[1] : undefined, strw: mW ? +mW[1] : undefined, gs: mG ? mG[1] : undefined, dashArr: mD ? mD[1] : undefined, efl: mL ? { head: mL[1], x1: +mL[2], y1: +mL[3], x2: +mL[4], y2: +mL[5] } : undefined }) } start = end; reset() }
+    else if (t === 'Do') { const cx = ctm[4], cy = ctm[5]; units.push({ type: 'image', stream: streamNum, start, end, efid: (cs.slice(start, end).match(/%EFID (\d+)/) || [])[1], bbox: [Math.min(cx, cx + ctm[0] + ctm[2]), H - Math.max(cy, cy + ctm[1] + ctm[3]), Math.max(cx, cx + ctm[0] + ctm[2]), H - Math.min(cy, cy + ctm[1] + ctm[3])], sa: ctm[0] || 1, sd: ctm[3] || 1, csa: cmPre?.sa, csd: cmPre?.sd, cpm: cmPre?.m, ctm: ctm.slice(), ctmStart: startCtm.slice(), name: pend, gs: (cs.slice(start, end).match(/\/(EFGS\d+)\s+gs\b/) || [])[1] }); start = end; reset() }
     num.length = 0
   }
   return units
@@ -270,6 +270,29 @@ function collectUnits(pageObj, H) {
   return all
 }
 
+// STABLE element identity: stamp each drawing unit with an %EFID <n> comment in the content stream.
+// Comments are gassed to spaces by the tokenizer (see buildUnits) so rendering is untouched, but the
+// mark travels with the element's BYTES — surviving a re-parse / stext reshuffle (unlike the b.l id
+// which is stext order). Injected at each unit's start (an operator boundary). Idempotent.
+let efidSeq = 0
+function stampIds(pageIndex) {
+  try {
+    const pageObj = doc.findPage(pageIndex)
+    const p = doc.loadPage(pageIndex); const bb = p.getBounds(); const H = n2(bb[3] - bb[1]); try { p.destroy() } catch (_) {}
+    const byStream = new Map()
+    for (const u of collectUnits(pageObj, H)) { if (!byStream.has(u.stream)) byStream.set(u.stream, []); byStream.get(u.stream).push(u) }
+    for (const [num, us] of byStream) {
+      let cs = readStream(pageObj, num)
+      const inserts = []
+      for (const u of us) { if (!/%EFID /.test(cs.slice(u.start, u.end))) inserts.push({ at: u.start, id: ++efidSeq }) }
+      if (!inserts.length) continue
+      inserts.sort((a, b) => b.at - a.at) // reverse so earlier inserts don't shift later offsets
+      for (const ins of inserts) cs = cs.slice(0, ins.at) + `%EFID ${ins.id}\n` + cs.slice(ins.at)
+      writeStream(pageObj, num, cs)
+    }
+  } catch (e) { console.warn('[pdf worker] stampIds failed:', e?.message) }
+}
+
 // raster image at the given scale — the exact visual
 function renderImage(pageIndex, scale) {
   const page = doc.loadPage(pageIndex)
@@ -407,6 +430,7 @@ function renderObjects(pageIndex, zs, bb, scale) {
 
 // The model: palettes + indexed objects. Every object carries bbox (pt, top-left) and z (paint order).
 function getModel(pageIndex) {
+  stampIds(pageIndex) // give every element a STABLE %EFID mark (once; idempotent) before we read it
   // Scan in a PADDED page box so text dragged OFF the page isn't clipped out: mupdf drops glyphs that
   // fall FULLY outside the crop box, so a title moved past the edge read back truncated ("СЧЁТ-"
   // instead of "СЧЁТ-ФАКТУРА"). Coords come out shifted by +PAD → we subtract it back, then run the
@@ -603,6 +627,7 @@ function getModel(pageIndex) {
         }
         if (best) read++
         r.ls = best && best.tc ? n2(best.tc) : 0
+        if (best && best.efid) r.eid = best.efid // STABLE identity from the content-stream mark (survives reshuffle); split pieces of one Tj share it
         if (best && best.rot) r.rot = n2(best.rot) // rotation angle (deg, PDF space)
         // our own run → decode the true text from the stream (gid→char via the font's own map)
         const rec = best && best.font ? efByName[best.font] : null
@@ -645,8 +670,9 @@ function getModel(pageIndex) {
         const cx = (v.bbox.x + v.bbox.w / 2), cy = (v.bbox.y + v.bbox.h / 2)
         const want = v.type === 'vector' ? 'path' : 'image'
         for (const u of units) {
-          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl && !unitRot(u))) continue
+          if (u.type !== want || (u.efr === undefined && u.strw === undefined && !u.gs && u.dashArr === undefined && !u.efl && !unitRot(u) && !u.efid)) continue
           if (Math.hypot((u.bbox[0] + u.bbox[2]) / 2 - cx, (u.bbox[1] + u.bbox[3]) / 2 - cy) < 5) {
+            if (u.efid) v.eid = u.efid // stable identity mark
             const ur = unitRot(u)
             if (ur) {
               v.rot = n2(ur)
@@ -2192,6 +2218,7 @@ function deleteObjectsImpl(pageIndex, items, textOnly = false) {
 export const __test = {
   setDoc: (d) => { doc = d; insFonts = {}; insFontSeq = 0 },
   getModel: (...a) => getModel(...a),
+  stampIds: (...a) => stampIds(...a),
   collectUnits,
   moveObjectsImpl: (...a) => moveObjectsImpl(...a),
   rotateObjectsImpl: (...a) => rotateObjectsImpl(...a),

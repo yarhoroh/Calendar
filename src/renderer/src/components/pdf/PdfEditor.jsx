@@ -875,13 +875,14 @@ export default function PdfEditor({ source, path, active = true }) {
       const m = await refreshPage(pageIndex)
       const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
       // the before/after diff also flags NEIGHBOURS whose raster bbox shifted when the rotated text
-      // landed over them. Keep ONLY what we rotated — by its block.line id PREFIX ("b24.l0"), which
-      // survives the rotation splitting one run into pieces ("b24.l0.s0" + "b24.l0.s1" = the same
-      // word), and by exact text as a fallback. Neighbours (other block.line) are dropped.
+      // landed over them. Keep ONLY what we rotated — by its STABLE content-stream mark (eid), which
+      // every split piece of one Tj shares (so a word broken into pieces stays one selection) and
+      // which no neighbour carries. Falls back to the block.line id / exact text if a run has no eid.
       const blOf = (o) => String(o.id).split('.').slice(0, 2).join('.')
+      const wantEid = new Set(objs.map((o) => o.eid).filter(Boolean))
       const wantBL = new Set(objs.map(blOf))
       const wantTx = new Set(objs.filter((o) => o.type === 'text').map((o) => o.text))
-      const kept = changed.filter((o) => wantBL.has(blOf(o)) || (o.type === 'text' && wantTx.has(o.text)))
+      const kept = changed.filter((o) => (o.eid && wantEid.has(o.eid)) || wantBL.has(blOf(o)) || (o.type === 'text' && wantTx.has(o.text)))
       console.log(`[pdf][rotate] ${objs.length} obj(s) by ${angle.toFixed(1)}° around (${cx.toFixed(0)},${cy.toFixed(0)}) → ${kept.length}/${changed.length} kept`)
       onSelect(pageIndex, kept.length ? kept : changed.length ? changed : [])
     } catch (err) { console.error('[pdf] rotate failed:', err) } finally { busyRef.current = false }

@@ -61,6 +61,22 @@ const rotFrameOf = (o) => {
   }
   return null
 }
+// AXIS-ALIGNED extent of an object's REAL frame: for a rotated object that's the min/max of the
+// oriented box's four corners (its true left/right/top/bottom), not the loose stext bbox. Used by the
+// alignment guides + snapping so a rotated box aligns by its actual extreme edges.
+const extentOf = (o) => {
+  const fr = rotFrameOf(o)
+  if (!fr) return o.bbox
+  const cx = [fr.x, fr.x + fr.w * fr.u.x, fr.x + fr.w * fr.u.x + fr.h * fr.d.x, fr.x + fr.h * fr.d.x]
+  const cy = [fr.y, fr.y + fr.w * fr.u.y, fr.y + fr.w * fr.u.y + fr.h * fr.d.y, fr.y + fr.h * fr.d.y]
+  const x0 = Math.min(...cx), x1 = Math.max(...cx), y0 = Math.min(...cy), y1 = Math.max(...cy)
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+const extentUnion = (objs) => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const o of objs) { const b = extentOf(o); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h) }
+  return objs.length ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null
+}
 // point-in-oriented-box: the SAME projection everywhere (click hit + selection grab)
 const pointInOriented = (o, x, y, pad = 2) => {
   const fr = rotFrameOf(o)
@@ -132,6 +148,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   // the selection carries the resolved objects themselves — nothing is re-filtered from the model
   const selObjs = selected && selected.page === pageIndex ? selected.objs : []
   const union = unionOf(selObjs)
+  const uext = extentUnion(selObjs) || union // true extreme edges (rotated corners) — for guides/z-bar
 
   const dropSprite = () => setSprite((s) => { if (s) URL.revokeObjectURL(s.url); return null })
 
@@ -260,7 +277,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
   const startMoveDrag = (el, sx, sy, objs) => {
     // ask for a clean sprite of ONLY the dragged objects (until it lands, per-object raster windows serve)
     onSprite?.(pageIndex, objs).then((s) => { if (s) setSprite((old) => { if (old) URL.revokeObjectURL(old.url); return s }) })
-    const u0 = unionOf(objs)
+    const u0 = extentUnion(objs) // rotated objects snap by their true extreme edges, not the loose bbox
     // snap candidates: the left/centre/right and top/middle/bottom lines of every OTHER object
     // (computed once at drag start). With Shift held, the union magnetically sticks to a line within
     // ~3 screen px and releases when pulled away.
@@ -268,7 +285,7 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
     const candX = [], candY = []
     for (const o of objects) {
       if (selIds.has(o.id)) continue
-      const b = o.bbox
+      const b = extentOf(o)
       candX.push({ v: b.x, a: b.y, z: b.y + b.h }, { v: b.x + b.w, a: b.y, z: b.y + b.h }) // left, right edges
       candY.push({ v: b.y, a: b.x, z: b.x + b.w }, { v: b.y + b.h, a: b.x, z: b.x + b.w }) // top, bottom edges
       // text: also its BASELINE — the exact, non-raster coordinate. Aligning two texts by baseline
@@ -617,12 +634,19 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
             grip). Works for EVERY object kind (text / image / vector / line — it hangs on the shared
             union frame). Buttons: send-to-back / backward / forward / bring-to-front. */}
         {union && onRestack && !ghost && !resizeBox && !rotResize && !rotDrag && !parked && !textEdit && !insertMode && !lineDrag && (() => {
-          const bx = union.x + union.w / 2, by = union.y // top-centre of the axis frame
           const btn = (mode, glyph, title) => (
             <div className="pdfed__zbtn" title={title} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }} onClick={(e) => { e.stopPropagation(); onRestack(mode) }}>{glyph}</div>
           )
+          // ONE rotated object → sit the bar ON its oriented TOP edge (centre) and rotate WITH it;
+          // otherwise it's the top-centre of the axis frame as before.
+          const fr = selObjs.length === 1 ? rotFrameOf(selObjs[0]) : null
+          const bar = (fr && Math.abs(fr.ang) > 0.5)
+            // top-edge centre, lifted 12px PERPENDICULAR to the edge (along −d, the up-normal), then
+            // rotated with the frame — so the gap stays above the edge at any angle
+            ? { left: (fr.x + (fr.w / 2) * fr.u.x) * scale - 12 * fr.d.x, top: (fr.y + (fr.w / 2) * fr.u.y) * scale - 12 * fr.d.y, transform: `translate(-50%, -100%) rotate(${fr.ang}deg)`, transformOrigin: '50% 100%' }
+            : { left: (union.x + union.w / 2) * scale, top: union.y * scale - 12 } // CSS supplies translate(-50%,-100%)
           return (
-            <div className="pdfed__zbar" style={{ left: bx * scale, top: by * scale - 3 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="pdfed__zbar" style={bar} onMouseDown={(e) => e.stopPropagation()}>
               {btn('back', '⤓', 'Send to back (behind everything)')}
               {btn('backward', '▽', 'Send backward (one step)')}
               {btn('forward', '△', 'Bring forward (one step)')}
@@ -738,10 +762,10 @@ export default function PdfPage({ page, image, scale, selected, selMode, showAll
                 across the whole page, to line the selection up with other content */}
             {!ghost.pending && (
               <>
-                <div className="pdfed__guide is-h" style={{ top: (union.y + ghost.dy) * scale }} />
-                <div className="pdfed__guide is-h" style={{ top: (union.y + union.h + ghost.dy) * scale }} />
-                <div className="pdfed__guide is-v" style={{ left: (union.x + ghost.dx) * scale }} />
-                <div className="pdfed__guide is-v" style={{ left: (union.x + union.w + ghost.dx) * scale }} />
+                <div className="pdfed__guide is-h" style={{ top: (uext.y + ghost.dy) * scale }} />
+                <div className="pdfed__guide is-h" style={{ top: (uext.y + uext.h + ghost.dy) * scale }} />
+                <div className="pdfed__guide is-v" style={{ left: (uext.x + ghost.dx) * scale }} />
+                <div className="pdfed__guide is-v" style={{ left: (uext.x + uext.w + ghost.dx) * scale }} />
               </>
             )}
             {/* magnetic snap guides (Shift): a bright line at every aligned edge, spanning from the

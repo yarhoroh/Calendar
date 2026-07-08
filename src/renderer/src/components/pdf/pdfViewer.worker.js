@@ -407,10 +407,20 @@ function renderObjects(pageIndex, zs, bb, scale) {
 
 // The model: palettes + indexed objects. Every object carries bbox (pt, top-left) and z (paint order).
 function getModel(pageIndex) {
-  const page = doc.loadPage(pageIndex)
+  // Scan in a PADDED page box so text dragged OFF the page isn't clipped out: mupdf drops glyphs that
+  // fall FULLY outside the crop box, so a title moved past the edge read back truncated ("СЧЁТ-"
+  // instead of "СЧЁТ-ФАКТУРА"). Coords come out shifted by +PAD → we subtract it back, then run the
+  // raster tighten on the ORIGINAL box (a padded pixmap would be enormous).
+  const PAD = 1000
+  const p0 = doc.loadPage(pageIndex)
+  const ob = p0.getBounds()
+  try { p0.destroy() } catch (_) {}
+  const W = n2(ob[2] - ob[0]), H = n2(ob[3] - ob[1])
+  const pageObj = doc.findPage(pageIndex)
+  const restoreBox = () => { try { const r = doc.newArray(); for (const v of ob) r.push(v); pageObj.put('MediaBox', r); try { pageObj.delete('CropBox') } catch (_) {} } catch (_) {} }
+  try { const mb = doc.newArray(); for (const v of [ob[0] - PAD, ob[1] - PAD, ob[2] + PAD, ob[3] + PAD]) mb.push(v); pageObj.put('MediaBox', mb); try { pageObj.delete('CropBox') } catch (_) {} } catch (_) {}
+  const page = doc.loadPage(pageIndex) // padded page for the text scan
   try {
-    const bounds = page.getBounds()
-    const W = n2(bounds[2] - bounds[0]), H = n2(bounds[3] - bounds[1])
 
     // palettes — objects reference them by index (f = font, c = color)
     const fonts = [], fontIdx = new Map()
@@ -553,6 +563,14 @@ function getModel(pageIndex) {
       }
     }
 
+    // Back to ORIGINAL page space BEFORE unit-matching + raster tighten: the units below are parsed
+    // from the content stream (normal coords) and matched to runs BY POSITION, and the tighten renders
+    // the real page — so the padded-scan +PAD shift must come off the runs/vectors/images NOW (else a
+    // rotated run wouldn't match its unit → lost angle; the frame ignored rotation).
+    const dePad = (o) => { if (o.bbox) { o.bbox.x = n2(o.bbox.x - PAD); o.bbox.y = n2(o.bbox.y - PAD) } if (o.x != null) o.x = n2(o.x - PAD); if (o.y != null) o.y = n2(o.y - PAD); if (o.sy0 != null) o.sy0 -= PAD; if (o.sy1 != null) o.sy1 -= PAD }
+    runs.forEach(dePad); vectors.forEach(dePad); images.forEach(dePad)
+    restoreBox()
+
     // Per-run stream metadata: the ORIGINAL letter spacing (Tc), and — for OUR inserted runs — the
     // TRUE text decoded straight from the hex show operand. stext synthesizes spaces into spaced-out
     // text ("L e o n…"), and re-inserting that on the next restyle made runs grow WIDER every cycle.
@@ -667,9 +685,10 @@ function getModel(pageIndex) {
 
     // per-font em metrics (hhea) — the metric frame experiment reads them; missing → ink fallback
     for (const f of fonts) { const mm = fontMetricsFor(f.name); if (mm) { f.asc = mm.asc; f.desc = mm.desc } }
-    tightenBboxes(page, runs, fonts) // frame the text: metric em-box (or ink-scan fallback)
+    const tpage = doc.loadPage(pageIndex) // box already restored above → tighten renders the REAL page
+    try { tightenBboxes(tpage, runs, fonts) } finally { try { tpage.destroy() } catch (_) {} } // frame text: em-box or ink-scan
     return { width: W, height: H, fonts, colors, runs, images, vectors }
-  } finally { page.destroy() }
+  } finally { try { page.destroy() } catch (_) {} restoreBox() }
 }
 
 // Grow each run's bbox to the real ink from a 2x grayscale raster, but stop at a blank gap and cap

@@ -388,7 +388,7 @@ const InsertTextIcon = () => (
 // Clicking a run selects it and frames it on the image (Stage 1); later stages add area selection,
 // rich-text editing of the selected runs, and export back into the PDF stream.
 // Ctrl+wheel zooms (anchored on the cursor); hold Space to pan.
-export default function PdfEditor({ source, path, active = true }) {
+export default function PdfEditor({ source, path, active = true, onDirty }) {
   const { t } = useI18n()
   const [model, setModel] = useState([]) // [{ pageIndex, width, height, runs }]
   const modelRef = useRef(model); modelRef.current = model // fresh model for the AI dispatch (post-await safety)
@@ -405,6 +405,12 @@ export default function PdfEditor({ source, path, active = true }) {
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
   const [selected, setSelected] = useState(null) // { page, objs: [...] } — the resolved objects themselves (no re-filtering per action)
+  const selectedRef = useRef(null) // live selection for async mutations (the state closure goes stale)
+  // unsaved-changes flag: any mutation marks the tab dirty (★ in the tab), a Save clears it, and the
+  // parent asks to save before closing. Ref-gated so onDirty fires only on transitions.
+  const dirtyRef = useRef(false)
+  const markDirty = () => { if (!dirtyRef.current) { dirtyRef.current = true; onDirty?.(path, true) } }
+  const clearDirty = () => { if (dirtyRef.current) { dirtyRef.current = false; onDirty?.(path, false) } }
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false }) // mupdf journal state → undo/redo buttons
   const [saving, setSaving] = useState(false)
   const [nudge, setNudge] = useState(null) // accumulated arrow-key shift (pt), not yet committed
@@ -719,7 +725,9 @@ export default function PdfEditor({ source, path, active = true }) {
     // against a selection that no longer exists
     if (nudgeRef.current) { clearTimeout(nudgeRef.current.timer); nudgeRef.current = null; setNudge(null) }
     console.log(`[pdf][select] ${path?.split(/[\\/]/).pop() || '?'} page ${pageIndex}, ${objs?.length || 0} objs:\n` + (objs || []).map(dbg).join('\n'))
-    setSelected(objs && objs.length ? { page: pageIndex, objs } : null)
+    const sel = objs && objs.length ? { page: pageIndex, objs } : null
+    selectedRef.current = sel
+    setSelected(sel)
   }
   const imgOf = (i) => imgs.find((im) => im.pageIndex === i)
 
@@ -747,6 +755,7 @@ export default function PdfEditor({ source, path, active = true }) {
         const r = await engineRef.current.save()
         const w = await api.pdf.write(out, new Uint8Array(r.bytes))
         if (!w?.ok) throw new Error(w?.error || 'write failed')
+        clearDirty() // saved → tab is clean again
         // Save-As (new name) → switch the editor to the NEW file (its undo history starts fresh).
         // Same file → keep editing the current doc so the UNDO history survives (no re-open).
         if (out !== path) ui('openPdf', { path: out })
@@ -756,6 +765,7 @@ export default function PdfEditor({ source, path, active = true }) {
 
   // re-render one page's image + model after a mutation; returns the fresh model
   const refreshPage = async (pageIndex) => {
+    markDirty() // refreshPage runs ONLY after a real mutation (the initial load reads getModel directly)
     const [im, m] = await Promise.all([engineRef.current.renderImage(pageIndex, scale), engineRef.current.getModel(pageIndex)])
     const url = URL.createObjectURL(new Blob([im.png], { type: 'image/png' }))
     urlsRef.current.push(url)
@@ -1097,8 +1107,12 @@ export default function PdfEditor({ source, path, active = true }) {
     varsRestoredRef.current = true
     ;(async () => {
       try {
-        let json = path ? await api.pdf?.varsGet?.(path) : null
-        if (!json) { const r = await engineRef.current.readVariables(); json = r?.json || null }
+        // VARIABLES BELONG TO THE SAVED PDF — read ONLY what the file actually carries. A variable
+        // added but never re-saved leaves NO trace in the reopened file, so it must NOT resurrect from
+        // a stale DB mirror (that dangling link WAS the desync bug). Wipe any leftover DB row too.
+        const rv = await engineRef.current.readVariables()
+        const json = rv?.json || null
+        if (path) { try { await api.pdf?.varsSet?.(path, '', 0) } catch {} } // drop stale mirror — PDF is the source of truth
         const list = json ? JSON.parse(json) : null
         if (Array.isArray(list) && list.length) {
           // find the runs currently sitting at an occurrence's anchors (styles/chainBox may be
@@ -1115,11 +1129,12 @@ export default function PdfEditor({ source, path, active = true }) {
             const occurrences = v.occurrences.map((occ) => {
               const runs = liveRuns(occ)
               if (!runs) return occ
-              // refresh only chainBox (positions may lack it if saved before the fix) — KEEP the
-              // stored style: reading it from live runs would inherit a previously-corrupted font
+              // refresh chainBox (positions may lack it if saved before the fix) + re-read opacity/rot
+              // from the live run (safe — unlike font, which could inherit a previously-corrupted face);
+              // this also heals variables saved before transparency/rotation were tracked
               const x0 = Math.min(...runs.map((r) => r.bbox.x)), x1 = Math.max(...runs.map((r) => r.bbox.x + r.bbox.w))
               const y0 = Math.min(...runs.map((r) => r.bbox.y)), y1 = Math.max(...runs.map((r) => r.bbox.y + r.bbox.h))
-              return { ...occ, chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } }
+              return { ...occ, chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, opacity: runs[0].opacity, rot: runs[0].rot, eids: runs.map((r) => r.eid).filter(Boolean) }
             })
             // the input reflects what's ACTUALLY in the PDF now, not the last-saved value
             const runs0 = liveRuns(v.occurrences[0])
@@ -1132,15 +1147,15 @@ export default function PdfEditor({ source, path, active = true }) {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model])
-  // persist on change (debounced): mirror to the DB (by path) AND embed in the in-memory PDF
-  // catalog so the next Save bakes them into the file
+  // persist on change (debounced): embed in the IN-MEMORY PDF catalog ONLY, so the next Save bakes
+  // them into the file. No separate DB mirror — it survived across reopens independently of the file
+  // and left variables pointing at marks the unsaved file never got (the desync we're killing).
   useEffect(() => {
     if (!varsRestoredRef.current) return
     clearTimeout(varsSaveRef.current)
     varsSaveRef.current = setTimeout(() => {
       const json = variables.length ? JSON.stringify(variables) : ''
       try { engineRef.current?.writeVariables(json) } catch {}
-      if (path) api.pdf?.varsSet?.(path, json, variables.length)
     }, 500)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variables])
@@ -1180,6 +1195,8 @@ export default function PdfEditor({ source, path, active = true }) {
       chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
       family: f.name || 'Arial', bold: !!f.bold, italic: !!f.italic, size: first.size,
       color: pg?.colors?.[first.c] || '#000000', ls: first.ls || 0,
+      opacity: first.opacity, rot: first.rot, // keep the run's transparency + rotation through a value change
+      eids: s.map((r) => r.eid).filter(Boolean), // STABLE marks → follow the text if it's MOVED (no stale-anchor duplicate)
       parts: s.map((r) => ({ x: r.x, baseline: r.y })),
       enabled: true
     }
@@ -1242,17 +1259,36 @@ export default function PdfEditor({ source, path, active = true }) {
     })
     setVarDraft(null)
     setVarsCollapsed(false)
+    markDirty() // a new variable is an unsaved change (baked into the PDF only on Save)
+  }
+  // find an occurrence's CURRENT position by its stable eids — the text may have been MOVED since the
+  // variable was created; without this a value change blanks the OLD spot and re-inserts there, leaving
+  // the moved text untouched → a duplicate at the original place
+  const resolveOcc = (o, pm) => {
+    if (!o.eids?.length || !pm) return o
+    const cur = (pm.runs || []).filter((r) => r.eid && o.eids.includes(r.eid))
+    if (!cur.length) return o // marks gone (deleted) → fall back to the stored anchor
+    const s = [...cur].sort((a, b) => (Math.abs(a.y - b.y) > 3 ? a.y - b.y : a.x - b.x))
+    const first = s[0], f = pm.fonts?.[first.f] || {}
+    const x0 = Math.min(...s.map((r) => r.bbox.x)), x1 = Math.max(...s.map((r) => r.bbox.x + r.bbox.w))
+    const y0 = Math.min(...s.map((r) => r.bbox.y)), y1 = Math.max(...s.map((r) => r.bbox.y + r.bbox.h))
+    // the LIVE run is the source of truth — refresh the WHOLE style from it (not just position) so a
+    // stale/older stored occurrence can't reinsert with wrong colour/opacity/rotation/font
+    return { ...o, x: first.x, baseline: first.y, bbox: first.bbox, chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, rot: first.rot, opacity: first.opacity, color: pm.colors?.[first.c] || o.color, family: f.name || o.family, bold: !!f.bold, italic: !!f.italic, size: first.size || o.size, ls: first.ls || 0, parts: s.map((r) => ({ x: r.x, baseline: r.y })) }
   }
   // apply a new value to every ENABLED occurrence — blank the whole chain (chainBox x-range catches
   // every piece), insert the value as clean line(s) in the occurrence's own font at the first anchor
-  const applyVariable = async (occurrences, value) => {
+  const applyVariable = async (occurrences, value, varId) => {
     if (busyRef.current) return
     busyRef.current = true
     try {
+      const reframe = new Map() // ORIGINAL occurrence → refreshed { position, frame, eids } from new text
       const byPage = {}
       for (const o of occurrences) { if (o.enabled === false) continue; (byPage[o.page] = byPage[o.page] || []).push(o) }
       for (const pageIndex of Object.keys(byPage).map(Number)) {
-        const occs = byPage[pageIndex]
+        // resolve each place to where its text ACTUALLY is now (by eid) before touching it
+        const pm = await engineRef.current.getModel(pageIndex)
+        const occs = byPage[pageIndex].map((orig) => ({ orig, ...resolveOcc(orig, pm) }))
         const fonts = {}
         const items = []
         const specLines = []
@@ -1265,22 +1301,57 @@ export default function PdfEditor({ source, path, active = true }) {
           const lh = (o.size || 10) * 1.25
           String(value).split('\n').forEach((line, li) => {
             if (line === '') return
-            specLines.push([{ text: line, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline + li * lh, ls: o.ls || 0 }])
+            specLines.push([{ text: line, size: o.size, color: o.color, fontKey: k, x: o.x, baseline: o.baseline + li * lh, ls: o.ls || 0, alpha: (o.opacity ?? 100) / 100 }]) // keep transparency
           })
         }
+        const before = new Set(allOf(pm).map(sigOf))
         await engineRef.current.replaceText(pageIndex, items, { lines: specLines }, fonts, await getFallbacksFor(fonts), true) // textOnly: don't redact already-blanked pieces
-        await refreshPage(pageIndex)
+        // ROTATED occurrences: the value went in HORIZONTAL — turn each fresh piece back to its own
+        // angle around its baseline anchor, but fetch the model ONLY (no repaint) between turns and
+        // repaint ONCE at the end — else the text visibly flashes upright before snapping back
+        const rotOccs = occs.filter((x) => x.rot)
+        if (rotOccs.length) {
+          let mm = await engineRef.current.getModel(pageIndex)
+          for (const o of rotOccs) {
+            const fresh = allOf(mm).filter((it) => it.type === 'text' && !it.rot && !before.has(sigOf(it)) && Math.hypot(it.x - o.x, it.y - o.baseline) < (o.size || 10))
+            if (fresh.length) { await engineRef.current.rotateObjects(pageIndex, fresh.map((it) => ({ type: it.type, bbox: it.bbox, x: it.x, y: it.y })), -o.rot, o.x, o.baseline); mm = await engineRef.current.getModel(pageIndex) }
+          }
+        }
+        const finalM = await refreshPage(pageIndex)
+        // recompute each occurrence's frame from the freshly-inserted text — otherwise its stored
+        // chainBox stays the OLD (often narrower) extent, and the next value change blanks too little
+        // (leftovers) while the selection box shows a stale size. "пересчитать рамки сразу"
+        for (const o of occs) {
+          // ONLY the freshly-inserted text (not in `before`) near the anchor — else a neighbour the
+          // text now overlaps (it was moved) gets grabbed too, and the selection becomes a mixed pair
+          // whose frame degrades to one big axis-aligned square instead of the oriented box
+          const hit = (finalM.runs || []).filter((r) => !before.has(sigOf(r)) && Math.hypot(r.x - o.x, r.y - o.baseline) < (o.size || 10))
+          if (!hit.length) continue
+          const x0 = Math.min(...hit.map((r) => r.bbox.x)), x1 = Math.max(...hit.map((r) => r.bbox.x + r.bbox.w))
+          const y0 = Math.min(...hit.map((r) => r.bbox.y)), y1 = Math.max(...hit.map((r) => r.bbox.y + r.bbox.h))
+          // key by the ORIGINAL occurrence; store the new position + FRESH eids (this re-insert gave the
+          // text brand-new marks) so the next change still finds it — even if it's moved again
+          reframe.set(o.orig, { x: hit[0].x, baseline: hit[0].y, bbox: hit[0].bbox, chainBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, parts: hit.map((r) => ({ x: r.x, baseline: r.y })), eids: hit.map((r) => r.eid).filter(Boolean), runs: hit })
+        }
+        // if the changed text is CURRENTLY selected (blue frame), re-select the FRESH runs so the box
+        // is redrawn to the new text instead of hanging on the old extent
+        const sel = selectedRef.current
+        if (sel && sel.page === pageIndex) {
+          const selOcc = occs.find((o) => reframe.get(o.orig)?.runs && occMatches(o, sel.page, sel.objs))
+          if (selOcc) onSelect(pageIndex, reframe.get(selOcc.orig).runs)
+        }
       }
+      if (varId && reframe.size) setVariables((vs) => vs.map((v) => (v.id !== varId ? v : { ...v, occurrences: v.occurrences.map((o) => { const rf = reframe.get(o); return rf ? { ...o, x: rf.x, baseline: rf.baseline, bbox: rf.bbox, chainBox: rf.chainBox, parts: rf.parts, eids: rf.eids } : o }) })))
     } catch (e) { console.error('[pdf][variable] apply failed:', e) } finally { busyRef.current = false }
   }
   const changeVarValue = (id, val) => {
     setVariables((vs) => vs.map((v) => (v.id === id ? { ...v, value: val } : v)))
     const v = variablesRef.current.find((x) => x.id === id)
-    if (v) deferMutation(() => applyVariable(v.occurrences, val))
+    if (v) deferMutation(() => applyVariable(v.occurrences, val, id))
   }
   const toggleOcc = (id, i) =>
     setVariables((vs) => vs.map((v) => (v.id !== id ? v : { ...v, occurrences: v.occurrences.map((o, k) => (k === i ? { ...o, enabled: o.enabled === false } : o)) })))
-  const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); setExpandedVars((s) => { const n = new Set(s); n.delete(id); return n }) }
+  const removeVariable = (id) => { setVariables((vs) => vs.filter((v) => v.id !== id)); setExpandedVars((s) => { const n = new Set(s); n.delete(id); return n }); markDirty() }
   // does an occurrence (any piece of its chain) sit at a selected text object's anchor?
   const occMatches = (o, page, objs) => o.page === page && occParts(o).some((p) => objs.some((t) => t.type === 'text' && Math.abs(t.x - p.x) < 1.5 && Math.abs(t.y - p.baseline) < 1.5))
   // right-click "Remove from variable": drop the selected place(s) from every variable holding them
@@ -1912,13 +1983,14 @@ export default function PdfEditor({ source, path, active = true }) {
       } else await engineRef.current.insertText(te.page, spec, fonts, await getFallbacksFor(fonts))
       // the editor (and the cover hiding the ORIGINAL text) stays up until the refreshed page
       // image lands — closing earlier flashed the OLD text before it jumped to the new one
-      let m = await refreshPage(te.page)
       // ROTATED text: the edited text went in HORIZONTAL — turn the fresh pieces back to the original
-      // angle around the pivot (same trick as the restyle re-rotate). Its own snapshot = a 2nd undo
-      // step, acceptable.
+      // angle around the pivot. Fetch the model ONLY (no repaint) to find them, rotate, then repaint
+      // ONCE — else the text visibly flashes upright before snapping back to its angle.
+      let m = te.rot ? await engineRef.current.getModel(te.page) : await refreshPage(te.page)
       if (te.rot) {
         const items = allOf(m).filter((o) => o.type === 'text' && !o.rot && !before.has(sigOf(o))).map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y }))
-        if (items.length) { await engineRef.current.rotateObjects(te.page, items, -te.rot, te.pivot.x, te.pivot.y); m = await refreshPage(te.page) }
+        if (items.length) await engineRef.current.rotateObjects(te.page, items, -te.rot, te.pivot.x, te.pivot.y)
+        m = await refreshPage(te.page)
       }
       setTextEdit(null) // close ONLY after a successful insert — a font failure keeps the editor (and the text) alive
       const added = allOf(m).filter((o) => !before.has(sigOf(o)))
@@ -2269,7 +2341,7 @@ export default function PdfEditor({ source, path, active = true }) {
           if (!v) return { ok: false, error: `no variable "${a.name}" — existing: ${variablesRef.current.map((x) => x.name).join(', ') || '(none)'}` }
           const val = String(a.value ?? '')
           setVariables((vs) => vs.map((x) => (x.id === v.id ? { ...x, value: val } : x)))
-          await applyVariable(v.occurrences, val)
+          await applyVariable(v.occurrences, val, v.id)
           return { ok: true }
         }
         case 'pdfSave': {

@@ -23,7 +23,7 @@ export const translations = {
     nav: { calendar: 'Calendar', appointments: 'Appointments', mail: 'Mail', pdf: 'Files', settings: 'Settings' },
     pdf: {
       newFolder: 'New folder', linkFolder: 'Link folder', linkFile: 'Link file', open: 'Open', reveal: 'Show in folder',
-      close: 'Close', addTab: 'Open a PDF', scrollLeft: 'Scroll left', scrollRight: 'Scroll right', findInTree: 'Find in tree',
+      close: 'Close', unsaved: 'Unsaved changes', confirmClose: 'has unsaved changes. Close without saving?', addTab: 'Open a PDF', scrollLeft: 'Scroll left', scrollRight: 'Scroll right', findInTree: 'Find in tree',
       closeUnsaved: 'This tab has unsaved changes. Close it anyway?',
       rename: 'Rename', remove: 'Remove', modeFlat: 'Show all PDFs (flat)', modeTree: 'Show real folders',
       flat: 'flat', tree: 'tree', empty: 'Empty. Add a folder, or link a real folder / PDF.',
@@ -343,7 +343,7 @@ export const translations = {
     nav: { calendar: 'Календар', appointments: 'Зустрічі', mail: 'Пошта', pdf: 'Файли', settings: 'Налаштування' },
     pdf: {
       newFolder: 'Нова папка', linkFolder: 'Підключити папку', linkFile: 'Підключити файл', open: 'Відкрити', reveal: 'Показати в папці',
-      close: 'Закрити', addTab: 'Відкрити PDF', scrollLeft: 'Прокрутити вліво', scrollRight: 'Прокрутити вправо', findInTree: 'Знайти в дереві',
+      close: 'Закрити', unsaved: 'Незбережені зміни', confirmClose: 'має незбережені зміни. Закрити без збереження?', addTab: 'Відкрити PDF', scrollLeft: 'Прокрутити вліво', scrollRight: 'Прокрутити вправо', findInTree: 'Знайти в дереві',
       closeUnsaved: 'У цій вкладці є незбережені зміни. Все одно закрити?',
       rename: 'Перейменувати', remove: 'Прибрати', modeFlat: 'Усі PDF (списком)', modeTree: 'Реальні папки',
       flat: 'плоско', tree: 'дерево', empty: 'Порожньо. Додай папку або підключи реальну папку / PDF.',

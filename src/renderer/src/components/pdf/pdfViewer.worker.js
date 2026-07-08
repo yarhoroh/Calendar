@@ -274,17 +274,22 @@ function collectUnits(pageObj, H) {
 // Comments are gassed to spaces by the tokenizer (see buildUnits) so rendering is untouched, but the
 // mark travels with the element's BYTES — surviving a re-parse / stext reshuffle (unlike the b.l id
 // which is stext order). Injected at each unit's start (an operator boundary). Idempotent.
-let efidSeq = 0
+// Numbering is DETERMINISTIC: the counter is seeded from the page's already-present max mark (not a
+// global counter), so re-stamping the SAME page — e.g. a reopen whose file never saved the marks —
+// hands out the SAME ids in content-stream order. A global counter drifted each session, so a variable
+// (which remembers a mark) desynced from the file after a reopen-without-save.
 function stampIds(pageIndex) {
   try {
     const pageObj = doc.findPage(pageIndex)
     const p = doc.loadPage(pageIndex); const bb = p.getBounds(); const H = n2(bb[3] - bb[1]); try { p.destroy() } catch (_) {}
     const byStream = new Map()
     for (const u of collectUnits(pageObj, H)) { if (!byStream.has(u.stream)) byStream.set(u.stream, []); byStream.get(u.stream).push(u) }
+    let seq = 0
+    for (const [, us] of byStream) for (const u of us) if (u.efid) seq = Math.max(seq, +u.efid) // continue past existing marks
     for (const [num, us] of byStream) {
       let cs = readStream(pageObj, num)
       const inserts = []
-      for (const u of us) { if (!/%EFID /.test(cs.slice(u.start, u.end))) inserts.push({ at: u.start, id: ++efidSeq }) }
+      for (const u of us) { if (!/%EFID /.test(cs.slice(u.start, u.end))) inserts.push({ at: u.start, id: ++seq }) }
       if (!inserts.length) continue
       inserts.sort((a, b) => b.at - a.at) // reverse so earlier inserts don't shift later offsets
       for (const ins of inserts) cs = cs.slice(0, ins.at) + `%EFID ${ins.id}\n` + cs.slice(ins.at)

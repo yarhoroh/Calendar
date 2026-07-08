@@ -4,7 +4,7 @@ import api from '../../lib/api'
 
 // Reads the tab's PDF bytes from disk and feeds them to the viewer. `active` = this tab is the
 // visible one (only the active editor answers the AI's pdfInfo/pdf* calls).
-export default function PdfEditorTab({ path, active = true }) {
+export default function PdfEditorTab({ path, active = true, onDirty }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
 
@@ -24,5 +24,5 @@ export default function PdfEditorTab({ path, active = true }) {
 
   if (error) return <div className="pdf-editor__msg">{error}</div>
   if (!data) return <div className="pdf-editor__msg">…</div>
-  return <PdfEditor source={data} path={path} active={active} />
+  return <PdfEditor source={data} path={path} active={active} onDirty={onDirty} />
 }

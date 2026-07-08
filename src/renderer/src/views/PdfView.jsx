@@ -49,6 +49,8 @@ export default function PdfView() {
   const [activePath, setActivePath] = useState(null) // the focused tab
   const [reloadN, setReloadN] = useState({}) // per-path reload counter — bumping it re-mounts that
   // tab's editor so it re-reads the file from disk (used after a save: drop the stale in-memory doc)
+  const [dirtyPaths, setDirtyPaths] = useState(() => new Set()) // tabs with unsaved edits → ★ + ask on close
+  const onEditorDirty = (p, d) => setDirtyPaths((s) => { const n = new Set(s); d ? n.add(p) : n.delete(p); return n })
   const tabsRef = useRef(null) // the scrollable tab strip
   const [scroll, setScroll] = useState({ left: false, right: false }) // strip overflows → show ‹ ›
   const dragTab = useRef(null) // path being Ctrl-dragged to reorder
@@ -293,6 +295,9 @@ export default function PdfView() {
     loadInfo(path)
   }
   const closeTab = (path) => {
+    // unsaved edits → ask before discarding (Cancel keeps the tab so the user can Save first)
+    if (dirtyPaths.has(path) && !window.confirm(`${baseName(path)} — ${t('pdf.confirmClose')}`)) return
+    setDirtyPaths((s) => { if (!s.has(path)) return s; const n = new Set(s); n.delete(path); return n })
     const i = tabs.indexOf(path)
     const next = tabs.filter((p) => p !== path)
     setTabs(next)
@@ -763,7 +768,7 @@ export default function PdfView() {
                       setMenu({ x: e.clientX, y: e.clientY, tabPath: p })
                     }}
                   >
-                    <span className="pdf-tab__name">{baseName(p)}</span>
+                    <span className="pdf-tab__name">{baseName(p)}{dirtyPaths.has(p) && <span className="pdf-tab__dirty" title={t('pdf.unsaved')}> ★</span>}</span>
                     <button
                       className="pdf-tab__close"
                       title={t('pdf.close')}
@@ -794,7 +799,7 @@ export default function PdfView() {
               {tabs.map((p) => (
                 <div key={p} className="pdf__tab-pane" style={{ display: p === activePath ? undefined : 'none' }}>
                   {/* the reload counter in the key re-mounts the editor → fresh read from disk after a save */}
-                  <PdfEditorTab key={reloadN[p] || 0} path={p} active={p === activePath} />
+                  <PdfEditorTab key={reloadN[p] || 0} path={p} active={p === activePath} onDirty={onEditorDirty} />
                 </div>
               ))}
             </div>

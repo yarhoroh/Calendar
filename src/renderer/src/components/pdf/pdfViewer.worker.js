@@ -489,6 +489,10 @@ function getModel(pageIndex) {
           } catch (_) {}
         }
         const padAdv = Math.max(lastAdv, cur.size * 0.35)
+        // WIDTH from the font's own advances — the real typographic width of THIS run's glyphs,
+        // independent of the raster (which grabs an overlapping neighbour) and of the page edge.
+        let advW = 0
+        if (fo) { for (const ch of seg) { try { advW += fo.advanceGlyph(fo.encodeCharacter(ch.c.codePointAt(0)) & 0xffff, 0) } catch (_) {} } advW *= cur.size }
         let bx0 = rev ? xsMin - padAdv : xsMin // the trailing advance extends on the LOGICAL end side
         let ex = rev ? xsMax : xsMax + padAdv
         // the device span carries the exact INK right edge; the advance edge (above) is the
@@ -506,6 +510,7 @@ function getModel(pageIndex) {
           opacity: t && t.alpha < 1 ? Math.round(t.alpha * 100) : undefined, // transparent text (0..100)
           x: n2(sx),
           y: n2(cur.baseline),
+          advW: advW > 0 ? n2(advW) : undefined, // real along-baseline width from glyph advances
           text: seg.map((ch) => ch.c).join(''),
           // the span's exact vertical metrics: hard bounds for the raster tighten (art painted
           // UNDER the text must not feed the ink growth) — consumed and dropped there
@@ -824,12 +829,19 @@ function tightenBboxes(page, runs, fonts = []) {
       g = 0
       for (let v = step; v <= size * 0.35; v += step) { if (rowInk(v)) { vBot = v; g = 0 } else if ((g += step) > gapMax) break }
     }
-    const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkRaw(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
     let t0 = 0, t1 = 0
-    g = 0
-    const wordGap = size * 0.7 // spaces poke holes wider than letter gaps — keep growing across them
-    for (let t = 0; t >= -size; t -= step) { if (colInk(t)) t0 = t; else break }
-    for (let t = 0; t <= wEst; t += step) { if (colInk(t)) { t1 = t + step; g = 0 } else if ((g += step) > wordGap) break }
+    if (r.advW > 0) {
+      // WIDTH from the font's own glyph advances — real number, independent of the raster (no
+      // neighbour grab when the text sits over other text) and of the page edge (no clip).
+      t1 = r.advW
+    } else {
+      // fallback for fonts with no usable advances: the raster ink scan
+      const colInk = (t) => { for (let v = vTop; v <= vBot + step; v += step) if (inkRaw(r.x + cA * t - sA * v, r.y + sA * t + cA * v)) return true; return false }
+      g = 0
+      const wordGap = size * 0.7
+      for (let t = 0; t >= -size; t -= step) { if (colInk(t)) t0 = t; else break }
+      for (let t = 0; t <= wEst; t += step) { if (colInk(t)) { t1 = t + step; g = 0 } else if ((g += step) > wordGap) break }
+    }
     if (vBot >= vTop && t1 > t0) {
       r.obw = n2(t1 - t0); r.obh = n2(vBot - vTop + step)
       r.ox = n2(r.x + cA * t0 - sA * vTop); r.oy = n2(r.y + sA * t0 + cA * vTop)

@@ -823,7 +823,7 @@ export default function PdfEditor({ source, path, active = true }) {
     await engineRef.current.replaceText(
       pageIndex,
       [{ type: 'text', bbox: o.bbox, x: o.x, y: o.y }], // blank ONLY this run's show
-      { lines: [[{ text: o.text, size: o.size, color: pg.colors?.[o.c] || '#000000', fontKey: k, x: o.x + dx, baseline: o.y + dy, ls: undefined, fitW: o.bbox.w }]] },
+      { lines: [[{ text: o.text, size: o.size, color: pg.colors?.[o.c] || '#000000', fontKey: k, x: o.x + dx, baseline: o.y + dy, ls: undefined, fitW: o.bbox.w, alpha: (o.opacity ?? 100) / 100 }]] }, // keep the run's transparency
       fonts,
       await getFallbacksFor(fonts),
       true // textOnly: blank the show, don't redact
@@ -834,7 +834,7 @@ export default function PdfEditor({ source, path, active = true }) {
   const moveSelected = async (pageIndex, objs, dx, dy) => {
     if (!objs?.length || busyRef.current) return
     // a single text object sitting on a shared line → detach it instead of moving the whole line
-    if (objs.length === 1 && objs[0].type === 'text' && sharesLine(pageIndex, objs[0])) {
+    if (objs.length === 1 && objs[0].type === 'text' && !objs[0].rot && sharesLine(pageIndex, objs[0])) {
       busyRef.current = true
       try {
         const o = objs[0]
@@ -874,8 +874,16 @@ export default function PdfEditor({ source, path, active = true }) {
       await engineRef.current.rotateObjects(pageIndex, objs.map((o) => ({ type: o.type, bbox: o.bbox, x: o.x, y: o.y })), angle, cx, cy)
       const m = await refreshPage(pageIndex)
       const changed = allOf(m).filter((o) => !before.has(sigOf(o)))
-      console.log(`[pdf][rotate] ${objs.length} obj(s) by ${angle.toFixed(1)}° around (${cx.toFixed(0)},${cy.toFixed(0)})`)
-      onSelect(pageIndex, changed.length ? changed : [])
+      // the before/after diff also flags NEIGHBOURS whose raster bbox shifted when the rotated text
+      // landed over them. Keep ONLY what we rotated — by its block.line id PREFIX ("b24.l0"), which
+      // survives the rotation splitting one run into pieces ("b24.l0.s0" + "b24.l0.s1" = the same
+      // word), and by exact text as a fallback. Neighbours (other block.line) are dropped.
+      const blOf = (o) => String(o.id).split('.').slice(0, 2).join('.')
+      const wantBL = new Set(objs.map(blOf))
+      const wantTx = new Set(objs.filter((o) => o.type === 'text').map((o) => o.text))
+      const kept = changed.filter((o) => wantBL.has(blOf(o)) || (o.type === 'text' && wantTx.has(o.text)))
+      console.log(`[pdf][rotate] ${objs.length} obj(s) by ${angle.toFixed(1)}° around (${cx.toFixed(0)},${cy.toFixed(0)}) → ${kept.length}/${changed.length} kept`)
+      onSelect(pageIndex, kept.length ? kept : changed.length ? changed : [])
     } catch (err) { console.error('[pdf] rotate failed:', err) } finally { busyRef.current = false }
   }
 

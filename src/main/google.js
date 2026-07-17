@@ -29,7 +29,7 @@ const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g
 
 // ---- secret storage (refresh tokens) -----------------------------------
 const ENC = 'enc:v1:'
-function encryptSecret(s) {
+export function encryptSecret(s) {
   try {
     if (safeStorage.isEncryptionAvailable()) return ENC + safeStorage.encryptString(String(s)).toString('base64')
   } catch {
@@ -37,7 +37,7 @@ function encryptSecret(s) {
   }
   return String(s)
 }
-function decryptSecret(s) {
+export function decryptSecret(s) {
   if (typeof s !== 'string') return ''
   if (!s.startsWith(ENC)) return s // plaintext / legacy
   try {

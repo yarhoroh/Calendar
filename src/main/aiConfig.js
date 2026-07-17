@@ -30,6 +30,19 @@ const DEFAULTS = {
   apiLogText: false, // also store the full request/response TEXT per call (off by default: privacy + DB size)
   anthropicCache: '5m', // prompt cache TTL: 'off' | '5m' (1.25× write) | '1h' (2× write) — for cost A/B testing
   telegramToken: '', // bot token for the Telegram bridge ('' = off)
+  // chat_id that owns this bot — the only sender the AI will ever act on. Empty means
+  // "awaiting local approval": a message from an unrecognized chat is held and the app
+  // asks the user to approve it (see telegram:pairing-request) before the AI sees it.
+  // Migrated from an existing telegramChat on upgrade so a prior legitimate user isn't
+  // asked to re-approve themselves. Cleared when the token changes (re-pair with approval).
+  telegramOwnerChat: '',
+  // extra layer on top of the owner-chat lock: once a session expires, even the
+  // owner must type the password (as a normal Telegram message) before the AI
+  // acts again. Password is encrypted at rest (safeStorage, same as Google
+  // refresh tokens) — see encryptSecret/decryptSecret in google.js.
+  telegramAuthEnabled: false,
+  telegramAuthPasswordEnc: '',
+  telegramAuthSessionMinutes: 60,
   // Google Calendar (read-only import). Create a "Desktop app" OAuth client in
   // Google Cloud, enable the Calendar API, set the consent screen to Testing and
   // add your accounts as test users, then paste the client id/secret here.

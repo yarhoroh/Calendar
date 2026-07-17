@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from './lib/api'
 import TitleBar from './components/TitleBar'
 import CloseDialog from './components/CloseDialog'
+import TelegramPairingDialog from './components/TelegramPairingDialog'
 import ErrorBoundary from './components/ErrorBoundary'
 import CalendarView from './views/CalendarView'
 import AppointmentsView from './views/AppointmentsView'
@@ -18,6 +19,7 @@ import { useAiTaskRunner } from './hooks/useAiTaskRunner'
 import { useReminderSpeakRunner } from './hooks/useReminderSpeakRunner'
 import { useMailTaskRunner } from './hooks/useMailTaskRunner'
 import { useTelegramBridge } from './hooks/useTelegramBridge'
+import { useTelegramPairing } from './hooks/useTelegramPairing'
 import { useChat } from './hooks/useChat'
 import ChatPanel from './components/ChatPanel'
 import PromptBar from './components/PromptBar'
@@ -111,6 +113,7 @@ export default function App() {
   useReminderSpeakRunner({ onCommand: runCommand })
   useMailTaskRunner({ onCommand: runCommand })
   useTelegramBridge({ onCommand: runCommand })
+  const telegramPairing = useTelegramPairing()
 
   // Google → local auto-sync: driven by the main-process timer tick (interval is
   // set in Settings; 0 = off). Also sync once at startup, but only if enabled.
@@ -271,6 +274,14 @@ export default function App() {
 
       {win.confirmClose && (
         <CloseDialog onTray={win.hideToTray} onQuit={win.quit} onCancel={win.cancelClose} />
+      )}
+
+      {telegramPairing.pending && (
+        <TelegramPairingDialog
+          request={telegramPairing.pending}
+          onApprove={telegramPairing.approve}
+          onReject={telegramPairing.reject}
+        />
       )}
 
       <AskPopup />

@@ -118,6 +118,15 @@ const api = {
     ipcRenderer.on('telegram:message', h)
     return () => ipcRenderer.removeListener('telegram:message', h)
   },
+  onTelegramPairingRequest: (cb) => {
+    const h = (_e, m) => cb(m)
+    ipcRenderer.on('telegram:pairing-request', h)
+    return () => ipcRenderer.removeListener('telegram:pairing-request', h)
+  },
+  approveTelegramPairing: () => ipcRenderer.invoke('telegram:approve-pairing'),
+  rejectTelegramPairing: () => ipcRenderer.invoke('telegram:reject-pairing'),
+  getTelegramAuth: () => ipcRenderer.invoke('telegram:get-auth'),
+  setTelegramAuth: (opts) => ipcRenderer.invoke('telegram:set-auth', opts),
   getAiConfigPath: () => ipcRenderer.invoke('aiConfig:path'),
   openAiConfig: () => ipcRenderer.invoke('aiConfig:open'),
   revealAiConfig: () => ipcRenderer.invoke('aiConfig:reveal'),

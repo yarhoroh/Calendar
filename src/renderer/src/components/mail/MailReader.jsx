@@ -126,7 +126,7 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
     const raw = bodyHtml(m)
     return (await api.mail?.inlineHtml?.({ html: raw }))?.html || raw
   }
-  const doReply = async (all) => {
+  const doReply = async (all, noQuote = false) => {
     const m = src()
     const me = (msg.account || '').toLowerCase()
     // the message's `from` field is the DISPLAY NAME only (the address was dropped on parse) — the
@@ -142,8 +142,9 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
       to: recips.join(', '),
       subject: 'Re: ' + stripRe(m.subject || msg.subject),
       html: '', // the editor is for the user's NEW text; the original goes below as a quote
-      quoteHtml: await inlinedQuote(m),
-      quoteHeader: `${fmtDate(m.ts)}, ${esc(m.from || '')} ${t('mail.wrote')}:`
+      // "reply without history": same recipient + subject, but NO quoted original at all
+      quoteHtml: noQuote ? '' : await inlinedQuote(m),
+      quoteHeader: noQuote ? '' : `${fmtDate(m.ts)}, ${esc(m.from || '')} ${t('mail.wrote')}:`
     })
   }
   const doForward = async () => {
@@ -248,6 +249,7 @@ export default function MailReader({ msg, split, onBack, onMarkUnread, onDelete,
         <div className="mail-reader__replybar">
           <button className="btn btn--ghost" disabled={!replyReady} onClick={() => doReply(false)}><ReplyIcon /> {t('mail.reply')}</button>
           <button className="btn btn--ghost" disabled={!replyReady} onClick={() => doReply(true)}><ReplyAllIcon /> {t('mail.replyAll')}</button>
+          <button className="btn btn--ghost" disabled={!replyReady} onClick={() => doReply(false, true)} title={t('mail.replyNoQuoteHint')}><ReplyIcon /> {t('mail.replyNoQuote')}</button>
           <button className="btn btn--ghost" disabled={!replyReady} onClick={doForward}><ForwardIcon /> {t('mail.forward')}</button>
         </div>
       </div>

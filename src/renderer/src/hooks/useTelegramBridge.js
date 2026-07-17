@@ -3,12 +3,33 @@ import api from '../lib/api'
 import { extractActions, runActions, BAD_JSON_HINT } from '../lib/aiActions'
 import { pushChat } from '../lib/chatBridge'
 
+// Module-level (not component state) so it survives this effect re-subscribing
+// (dep array below re-runs it whenever onCommand changes, and dev HMR can
+// briefly leave two listeners alive) — the same Telegram update must never
+// reach the AI/get a reply twice, whichever listener sees it first.
+const seenUpdateIds = new Set()
+function alreadyHandled(updateId) {
+  if (updateId == null) return false // no id (shouldn't happen) → never block
+  if (seenUpdateIds.has(updateId)) return true
+  seenUpdateIds.add(updateId)
+  if (seenUpdateIds.size > 200) {
+    // trim oldest half — Set preserves insertion order
+    let drop = seenUpdateIds.size - 100
+    for (const id of seenUpdateIds) {
+      if (drop-- <= 0) break
+      seenUpdateIds.delete(id)
+    }
+  }
+  return false
+}
+
 // Routes incoming Telegram messages through the same AI pipeline as the chat:
 // run the message, execute any calendar actions, and send the reply back to
 // Telegram. Reuses the live AI session (same assistant the app uses).
 export function useTelegramBridge({ onCommand }) {
   useEffect(() => {
-    const off = api.onTelegramMessage?.(async ({ chatId, text, from, images, files }) => {
+    const off = api.onTelegramMessage?.(async ({ chatId, text, from, images, files, updateId }) => {
+      if (alreadyHandled(updateId)) return
       if (!text && !images?.length && !files?.length) return
       const body = text || (images?.length ? '(sent an image)' : files?.length ? '(sent a file)' : '')
       // an incoming file is already saved on disk — tell the AI its exact path so it can attach it

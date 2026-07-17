@@ -79,7 +79,9 @@ import {
   eventExists as googleEventExists,
   eventWritable as googleEventWritable,
   writableCalendars as googleWritableCalendars,
-  accountsSummary as googleAccountsSummary
+  accountsSummary as googleAccountsSummary,
+  encryptSecret,
+  decryptSecret
 } from './google'
 import { getMailAccounts, addMailAccount, removeMailAccount, testInbox, listFolders as mailFolders, cachedMessages, loadMessages, recentMessages, mailFolderStats, mailCategoryStats, setMailImportant, getMailThread, setMailSeen, inlineMailImages, inlineHtmlImages, openMailAttachment, deleteMail, markFolderRead, emptyFolder, deleteReadInFolder, searchMessages, bulkDeleteMail, bulkSeenMail, sendMail, saveDraft, mailContacts } from './mail'
 import { initAiTasks, scheduleAllAiTasks, scheduleAiTask, cancelAiTask } from './aiTasks'
@@ -659,9 +661,49 @@ ipcMain.handle('usage:clear', () => { clearUsage(); return { ok: true } })
 // ---- Telegram bridge ----------------------------------------------------
 let telegramOk = false
 let lastTelegramChat = null // remember who last messaged the bot, for proactive sends
+let pendingPairing = null // full msg held from an unrecognized chat, awaiting local approval
+let telegramAuthedUntil = 0 // epoch ms; password session expiry (0 = not authorized) — never persisted, resets on restart
+function grantTelegramAuthSession(cfg) {
+  telegramAuthedUntil = Date.now() + (Number(cfg.telegramAuthSessionMinutes) || 60) * 60000
+}
 function syncTelegram() {
-  const tok = loadAiConfig().telegramToken
-  return startTelegram(tok, (msg) => {
+  const cfg = loadAiConfig()
+  // bootstrap: a telegramChat saved from before this owner-lock existed is who has
+  // actually been using the bridge — adopt it as owner immediately (don't ask them
+  // to re-approve themselves).
+  if (!cfg.telegramOwnerChat && cfg.telegramChat) {
+    saveAiConfig({ telegramOwnerChat: cfg.telegramChat })
+  }
+  return startTelegram(cfg.telegramToken, (msg) => {
+    const owner = loadAiConfig().telegramOwnerChat
+    if (!owner) {
+      // unpaired bot: hold the message locally and ask the user to approve it in the
+      // app — the AI never sees it (and the sender gets no reply) until they do
+      pendingPairing = msg
+      mainWindow?.webContents?.send('telegram:pairing-request', msg)
+      return
+    }
+    if (String(msg.chatId) !== String(owner)) {
+      console.warn(`[telegram] ignored message from non-owner chat ${msg.chatId} (${msg.from || 'unknown'})`)
+      return // never reaches the AI pipeline
+    }
+    // second layer, on top of the owner lock: even the owner's session can expire,
+    // so a stolen/hijacked Telegram account alone isn't enough — the next message
+    // after expiry is treated as a password attempt, right or wrong, and never
+    // reaches the AI itself
+    const authCfg = loadAiConfig()
+    if (authCfg.telegramAuthEnabled && authCfg.telegramAuthPasswordEnc) {
+      if (Date.now() > telegramAuthedUntil) {
+        const real = decryptSecret(authCfg.telegramAuthPasswordEnc)
+        if (real && (msg.text || '').trim() === real) {
+          grantTelegramAuthSession(authCfg)
+          sendTelegram(msg.chatId, '✅ Пароль верный, можно писать.')
+        } else {
+          sendTelegram(msg.chatId, '🔒 Введите пароль:')
+        }
+        return
+      }
+    }
     console.log(`[telegram] in from ${msg.from || msg.chatId}: ${msg.text}`)
     if (msg.chatId && msg.chatId !== lastTelegramChat) {
       lastTelegramChat = msg.chatId
@@ -674,8 +716,52 @@ function syncTelegram() {
     return ok
   })
 }
+ipcMain.handle('telegram:approve-pairing', () => {
+  if (!pendingPairing) return { ok: false }
+  const msg = pendingPairing
+  pendingPairing = null
+  lastTelegramChat = msg.chatId
+  saveAiConfig({ telegramOwnerChat: msg.chatId, telegramChat: msg.chatId })
+  // approving in-app IS the strongest possible proof of identity — also grant a
+  // fresh password session so they aren't immediately asked again on their very
+  // next message
+  const authCfg = loadAiConfig()
+  if (authCfg.telegramAuthEnabled) grantTelegramAuthSession(authCfg)
+  // replay the held message now that it's trusted, so the sender doesn't repeat themselves
+  mainWindow?.webContents?.send('telegram:message', msg)
+  return { ok: true }
+})
+ipcMain.handle('telegram:get-auth', () => {
+  const cfg = loadAiConfig()
+  return {
+    enabled: !!cfg.telegramAuthEnabled,
+    hasPassword: !!cfg.telegramAuthPasswordEnc,
+    sessionMinutes: Number(cfg.telegramAuthSessionMinutes) || 60
+  }
+})
+ipcMain.handle('telegram:set-auth', (_e, { enabled, password, sessionMinutes } = {}) => {
+  const cfg = loadAiConfig()
+  const patch = {
+    telegramAuthSessionMinutes: Math.max(1, Number(sessionMinutes) || cfg.telegramAuthSessionMinutes || 60)
+  }
+  if (typeof password === 'string' && password.trim()) {
+    patch.telegramAuthPasswordEnc = encryptSecret(password.trim())
+  }
+  const hasPassword = !!(patch.telegramAuthPasswordEnc || cfg.telegramAuthPasswordEnc)
+  // never enable with no password set — that would either lock everyone out or,
+  // worse, silently gate on an empty string
+  patch.telegramAuthEnabled = !!enabled && hasPassword
+  if (!patch.telegramAuthEnabled) telegramAuthedUntil = 0 // turning it off/failing to enable clears any live session
+  saveAiConfig(patch)
+  return { ok: true, enabled: patch.telegramAuthEnabled, hasPassword }
+})
+ipcMain.handle('telegram:reject-pairing', () => {
+  pendingPairing = null
+  return { ok: true }
+})
 ipcMain.handle('telegram:set-token', (_e, tok) => {
-  saveAiConfig({ telegramToken: (tok || '').trim() })
+  pendingPairing = null
+  saveAiConfig({ telegramToken: (tok || '').trim(), telegramOwnerChat: '' }) // new/changed bot → re-pair with approval
   return syncTelegram() // true if the token is valid
 })
 ipcMain.handle('telegram:status', () => ({ on: telegramOk, hasToken: !!loadAiConfig().telegramToken }))

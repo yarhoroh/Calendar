@@ -94,7 +94,7 @@ async function poll() {
             // a real file (any type) → save to disk; the AI can attach it to a note by path
             const d = await fetchFile(m.document.file_id).catch(() => null)
             const files = d ? [{ name: safeName(m.document.file_name || d.path.split('/').pop()), path: saveIncoming(d.buf, m.document.file_name || d.path.split('/').pop()) }] : []
-            onMessage({ chatId: m.chat.id, from, text: m.caption || '', files })
+            onMessage({ chatId: m.chat.id, from, text: m.caption || '', files, updateId: u.update_id })
           } else if (m.photo?.length) {
             // a photo → download once; give the AI BOTH the base64 (so it can SEE it) and a saved
             // file path (so it can attach it to a note, same as a document)
@@ -102,9 +102,9 @@ async function poll() {
             const d = await fetchFile(ph?.file_id).catch(() => null)
             const images = d ? [{ media_type: mediaTypeOf(d.path), data: d.buf.toString('base64') }] : []
             const files = d ? [{ name: safeName(`photo-${ph?.file_unique_id || fileSeq}.jpg`), path: saveIncoming(d.buf, `photo-${ph?.file_unique_id || fileSeq}.jpg`) }] : []
-            onMessage({ chatId: m.chat.id, from, text: m.caption || '', images, files })
+            onMessage({ chatId: m.chat.id, from, text: m.caption || '', images, files, updateId: u.update_id })
           } else if (m.text) {
-            onMessage({ chatId: m.chat.id, text: m.text, from })
+            onMessage({ chatId: m.chat.id, text: m.text, from, updateId: u.update_id })
           }
         }
       } else if (r && r.ok === false) {

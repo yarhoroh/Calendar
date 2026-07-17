@@ -68,7 +68,7 @@ export const translations = {
       filter: { all: 'All', unread: 'Unread', starred: 'Starred', attachments: 'Has attachment' },
       newer: 'Newer', older: 'Older', paneRight: 'Reading pane: right of the list', paneFull: 'Reading pane: full (replaces the list)',
       selectToRead: 'Select a message to read', back: 'Back', close: 'Close', star: 'Star', important: 'Important', notImportant: 'Not important', loadingImages: 'Loading images…',
-      reply: 'Reply', replyAll: 'Reply all', forward: 'Forward', wrote: 'wrote', forwarded: 'Forwarded message', archive: 'Archive', delete: 'Delete', markUnread: 'Mark unread',
+      reply: 'Reply', replyAll: 'Reply all', replyNoQuote: 'Reply, no history', replyNoQuoteHint: 'Reply to the sender with the same subject, without quoting the original', forward: 'Forward', wrote: 'wrote', forwarded: 'Forwarded message', archive: 'Archive', delete: 'Delete', markUnread: 'Mark unread',
       details: 'Details', from: 'From', to: 'to', cc: 'cc', date: 'Date', replyTo: 'Reply-to', subject: 'Subject', mailedBy: 'Mailed-by', signedBy: 'Signed-by', translate: 'Translate', showOriginal: 'Show original', replyPlaceholder: 'Write a reply…', send: 'Send',
       openInternal: 'Open in app', openExternal: 'Open in browser', backToEmail: 'Back to email', navBack: 'Back', navForward: 'Forward',
       apply: 'Apply', viewPage: 'Page', viewReader: 'Reader', shorten: 'Shorten…', articleFailed: 'Could not process the article',
@@ -116,6 +116,12 @@ export const translations = {
       cancel: 'Cancel',
       quit: 'Close',
       tray: 'Minimize to tray'
+    },
+    telegramPairing: {
+      title: 'New Telegram contact',
+      from: 'From',
+      reject: 'Ignore',
+      approve: 'Allow'
     },
     prompt: {
       placeholder: 'Task for the calendar…',
@@ -211,7 +217,11 @@ export const translations = {
         on: 'Connected',
         off: 'Off',
         bad: 'Bad token',
-        disconnect: 'Disconnect'
+        disconnect: 'Disconnect',
+        authEnable: 'Require password after session expires',
+        authSet: 'Set password',
+        authChange: 'Change password',
+        authSessionMinutes: 'session, min'
       },
       gemini: {
         desc: 'Free Google Gemini API. Paste a key (aistudio.google.com/apikey) and select "Gemini API" as the engine.',
@@ -388,7 +398,7 @@ export const translations = {
       filter: { all: 'Усі', unread: 'Непрочитані', starred: 'Із зірочкою', attachments: 'З вкладенням' },
       newer: 'Новіші', older: 'Старіші', paneRight: 'Панель читання: праворуч від списку', paneFull: 'Панель читання: на весь екран (замість списку)',
       selectToRead: 'Виберіть лист для перегляду', back: 'Назад', close: 'Закрити', star: 'Зірочка', important: 'Важливе', notImportant: 'Неважливе', loadingImages: 'Завантаження зображень…',
-      reply: 'Відповісти', replyAll: 'Відповісти всім', forward: 'Переслати', wrote: 'написав(ла)', forwarded: 'Пересланий лист', archive: 'Архівувати', delete: 'Видалити', markUnread: 'Позначити непрочитаним',
+      reply: 'Відповісти', replyAll: 'Відповісти всім', replyNoQuote: 'Відповісти без історії', replyNoQuoteHint: 'Відповісти відправнику з тією ж темою, без цитування оригіналу', forward: 'Переслати', wrote: 'написав(ла)', forwarded: 'Пересланий лист', archive: 'Архівувати', delete: 'Видалити', markUnread: 'Позначити непрочитаним',
       details: 'Деталі', from: 'Від', to: 'кому', cc: 'копія', date: 'Дата', replyTo: 'Відповісти', subject: 'Тема', mailedBy: 'Надіслано через', signedBy: 'Підписано', translate: 'Перекласти', showOriginal: 'Оригінал', replyPlaceholder: 'Напишіть відповідь…', send: 'Надіслати',
       openInternal: 'Відкрити в застосунку', openExternal: 'Відкрити в браузері', backToEmail: 'Назад до листа', navBack: 'Назад', navForward: 'Вперед',
       apply: 'Застосувати', viewPage: 'Сторінка', viewReader: 'Читалка', shorten: 'Скоротити…', articleFailed: 'Не вдалося обробити статтю',
@@ -436,6 +446,12 @@ export const translations = {
       cancel: 'Скасувати',
       quit: 'Закрити',
       tray: 'Згорнути в трей'
+    },
+    telegramPairing: {
+      title: 'Новий контакт у Telegram',
+      from: 'Від',
+      reject: 'Ігнорувати',
+      approve: 'Дозволити'
     },
     prompt: {
       placeholder: 'Завдання календарю…',
@@ -531,7 +547,11 @@ export const translations = {
         on: 'Підключено',
         off: 'Вимкнено',
         bad: 'Невірний токен',
-        disconnect: 'Відключити'
+        disconnect: 'Відключити',
+        authEnable: 'Вимагати пароль після завершення сесії',
+        authSet: 'Встановити пароль',
+        authChange: 'Змінити пароль',
+        authSessionMinutes: 'сесія, хв'
       },
       gemini: {
         desc: 'Безкоштовний Google Gemini API. Встав ключ (aistudio.google.com/apikey) і обери «Gemini API» як рушій.',

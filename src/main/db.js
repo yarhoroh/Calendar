@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { join, basename } from 'path'
 import { app } from 'electron'
 import { randomUUID } from 'crypto'
+import { pickSupersededId } from './memorySupersede.js'
 
 // Local SQLite store for notes. Reads only the requested day (indexed), so it
 // scales regardless of how much history accumulates. The renderer is unaware —
@@ -53,7 +54,8 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS ai_memory (
       id TEXT PRIMARY KEY,
       text TEXT NOT NULL,
-      created TEXT
+      created TEXT,
+      superseded_by TEXT
     );
 
     CREATE TABLE IF NOT EXISTS ai_tasks (
@@ -245,6 +247,13 @@ export function initDb() {
     db.exec("ALTER TABLE mail_tombstones ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
   } catch {
     // column already exists (fresh DBs create it inline)
+  }
+  try {
+    // set when a newer memory supersedes this one (topic overlap) — superseded rows
+    // stay in the table for history but drop out of allMemory()'s result
+    db.exec('ALTER TABLE ai_memory ADD COLUMN superseded_by TEXT')
+  } catch {
+    // column already exists
   }
   // one-time migration: existing plain-text notes get an html body so html is
   // the single source of truth for content going forward (idempotent — only
@@ -443,12 +452,22 @@ export function importMap(map) {
 }
 
 // ---- AI memory: small persistent facts/preferences the AI keeps -----------
+// Only CURRENT facts (not superseded by a later, topically-overlapping one) are
+// returned — this is what both the AI's prompt and MemoryPanel see.
 export function allMemory() {
-  return db.prepare('SELECT id, text, created FROM ai_memory ORDER BY created').all()
+  return db.prepare('SELECT id, text, created FROM ai_memory WHERE superseded_by IS NULL ORDER BY created').all()
 }
 export function addMemory(text) {
   const row = { id: randomUUID(), text: String(text || '').trim(), created: new Date().toISOString() }
   if (!row.text) return null
+  // if this fact is clearly about the same topic as an existing current one, the
+  // old one is superseded (kept in the table, dropped from allMemory()) instead of
+  // sitting next to the new value forever — e.g. "aisle seats" -> "window seats"
+  const current = db.prepare('SELECT id, text FROM ai_memory WHERE superseded_by IS NULL').all()
+  const supersededId = pickSupersededId(row.text, current)
+  if (supersededId) {
+    db.prepare('UPDATE ai_memory SET superseded_by = ? WHERE id = ?').run(row.id, supersededId)
+  }
   db.prepare('INSERT INTO ai_memory (id, text, created) VALUES (@id, @text, @created)').run(row)
   return row
 }

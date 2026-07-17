@@ -1107,12 +1107,12 @@ export default function PdfEditor({ source, path, active = true, onDirty }) {
     varsRestoredRef.current = true
     ;(async () => {
       try {
-        // VARIABLES BELONG TO THE SAVED PDF — read ONLY what the file actually carries. A variable
-        // added but never re-saved leaves NO trace in the reopened file, so it must NOT resurrect from
-        // a stale DB mirror (that dangling link WAS the desync bug). Wipe any leftover DB row too.
-        const rv = await engineRef.current.readVariables()
-        const json = rv?.json || null
-        if (path) { try { await api.pdf?.varsSet?.(path, '', 0) } catch {} } // drop stale mirror — PDF is the source of truth
+        // restore from the DB mirror (by path) so variables survive an app reload WITHOUT needing a
+        // PDF save; fall back to the definitions baked into the PDF catalog. The desync that broke the
+        // eid link on reopen is handled by DETERMINISTIC marks (same file → same eids) + the live re-read
+        // below — so we can keep the mirror instead of nuking in-progress work.
+        let json = path ? await api.pdf?.varsGet?.(path) : null
+        if (!json) { const r = await engineRef.current.readVariables(); json = r?.json || null }
         const list = json ? JSON.parse(json) : null
         if (Array.isArray(list) && list.length) {
           // find the runs currently sitting at an occurrence's anchors (styles/chainBox may be
@@ -1147,15 +1147,15 @@ export default function PdfEditor({ source, path, active = true, onDirty }) {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model])
-  // persist on change (debounced): embed in the IN-MEMORY PDF catalog ONLY, so the next Save bakes
-  // them into the file. No separate DB mirror — it survived across reopens independently of the file
-  // and left variables pointing at marks the unsaved file never got (the desync we're killing).
+  // persist on change (debounced): mirror to the DB (by path) so edits survive an app reload without a
+  // PDF save, AND embed in the in-memory PDF catalog so the next Save bakes them into the file
   useEffect(() => {
     if (!varsRestoredRef.current) return
     clearTimeout(varsSaveRef.current)
     varsSaveRef.current = setTimeout(() => {
       const json = variables.length ? JSON.stringify(variables) : ''
       try { engineRef.current?.writeVariables(json) } catch {}
+      if (path) api.pdf?.varsSet?.(path, json, variables.length)
     }, 500)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variables])

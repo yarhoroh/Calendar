@@ -22,6 +22,10 @@ export default function VoiceSetting() {
   const [voice, setVoice] = useState('F1') // Supertonic voice preset
   const [piperVoice, setPiperVoice] = useState(2) // piper uk speaker (default tetiana)
   const [speed, setSpeed] = useState(1) // speech speed for the selected engine
+  const [volume, setVolume] = useState(1) // base playback volume (0..1)
+  const [duck, setDuck] = useState(false) // mute other apps while speaking
+  const [devices, setDevices] = useState([]) // audio output devices
+  const [sink, setSink] = useState('') // chosen output device id ('' = default)
   // Supertonic download state — survives leaving/returning to settings (it lives in main)
   const [sup, setSup] = useState({ status: 'absent', progress: 0, error: '' })
 
@@ -29,9 +33,26 @@ export default function VoiceSetting() {
     Promise.resolve(api.getTtsEngine?.()).then((e) => e && setEngine(e))
     Promise.resolve(api.getSupertonicVoice?.()).then((v) => v && setVoice(v))
     Promise.resolve(api.getPiperVoice?.()).then((v) => v != null && setPiperVoice(v))
+    Promise.resolve(api.getTtsConfig?.()).then((c) => {
+      if (!c) return
+      if (c.volume != null) setVolume(c.volume)
+      setSink(c.sinkId || '')
+    })
+    Promise.resolve(api.getTtsDuck?.()).then((d) => setDuck(!!d))
     Promise.resolve(api.supertonicStatus?.()).then((s) => s && setSup(s))
     const off = api.onSupertonicProgress?.((s) => setSup(s)) // live progress in the background
-    return () => off?.()
+    // enumerate output devices; refresh when one is plugged/unplugged
+    const loadDevices = () =>
+      navigator.mediaDevices
+        ?.enumerateDevices?.()
+        .then((list) => setDevices(list.filter((d) => d.kind === 'audiooutput')))
+        .catch(() => {})
+    loadDevices()
+    navigator.mediaDevices?.addEventListener?.('devicechange', loadDevices)
+    return () => {
+      off?.()
+      navigator.mediaDevices?.removeEventListener?.('devicechange', loadDevices)
+    }
   }, [])
 
   // speed is per-engine → reload it whenever the selected engine changes
@@ -56,6 +77,18 @@ export default function VoiceSetting() {
   const pickSpeed = (v) => {
     setSpeed(v)
     api.setTtsSpeed?.(engine, v)
+  }
+  const pickVolume = (v) => {
+    setVolume(v)
+    api.setTtsVolume?.(v)
+  }
+  const pickSink = (id) => {
+    setSink(id)
+    api.setTtsSink?.(id)
+  }
+  const toggleDuck = (on) => {
+    setDuck(on)
+    api.setTtsDuck?.(on)
   }
   const test = () => api.ttsSpeak?.({ text: TEST_PHRASE[lang] || TEST_PHRASE.uk, lang })
 
@@ -125,6 +158,45 @@ export default function VoiceSetting() {
           style={{ width: '100%', maxWidth: 320, display: 'block', accentColor: 'var(--accent)' }}
         />
       </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 6 }}>
+          {t('settings.voiceVolume')} · {Math.round(volume * 100)}%
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={volume}
+          onChange={(e) => pickVolume(Number(e.target.value))}
+          style={{ width: '100%', maxWidth: 320, display: 'block', accentColor: 'var(--accent)' }}
+        />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 6 }}>{t('settings.voiceOutput')}</div>
+        <select
+          className="ai-add__input"
+          style={{ maxWidth: 320, display: 'block' }}
+          value={sink}
+          onChange={(e) => pickSink(e.target.value)}
+        >
+          <option value="">{t('settings.voiceOutputDefault')}</option>
+          {devices
+            .filter((d) => d.deviceId && d.deviceId !== 'default')
+            .map((d, i) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `${t('settings.voiceOutput')} ${i + 1}`}
+              </option>
+            ))}
+        </select>
+      </div>
+
+      <label style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+        <input type="checkbox" checked={duck} onChange={(e) => toggleDuck(e.target.checked)} />
+        {t('settings.voiceDuck')}
+      </label>
 
       {engine === 'supertonic' && sup.status === 'downloading' && (
         <div style={{ marginTop: 8 }}>

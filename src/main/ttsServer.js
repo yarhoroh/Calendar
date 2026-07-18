@@ -35,7 +35,7 @@ export function startTtsServer() {
       } catch {
         return json(400, { ok: false, error: 'bad json' })
       }
-      const result = await speak({ text: payload.text, lang: payload.lang })
+      const result = await speak({ text: payload.text, lang: payload.lang, volume: payload.volume })
       return json(result.ok ? 200 : 400, result)
     }
     json(404, { ok: false, error: 'not found' })

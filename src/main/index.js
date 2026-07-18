@@ -13,6 +13,7 @@ import { aiConfigPath, loadAiConfig, ensureAiConfig, saveAiConfig } from './aiCo
 import { startTelegram, stopTelegram, sendTelegram, sendTelegramFile } from './telegram'
 import electronUpdater from 'electron-updater'
 import { initTts, speak, synthesize, setTtsEngine, setSupertonicVoice, setPiperVoice, setSpeedResolver } from './tts'
+import { duck as audioDuck, unduck as audioUnduck, stopAudioDuck } from './audioDuck'
 import { getSupertonicStatus, startSupertonicDownload, initSupertonicDownload } from './supertonic/download'
 import { setBigDict } from './stress'
 import { BIG_LANGS, getBigStatus, startBigDownload, removeBig, initStressBigDownload } from './stressBig'
@@ -204,6 +205,11 @@ function createWindow() {
   // allow microphone capture (voice input in the chat); deny everything else
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, cb) =>
     cb(permission === 'media' || permission === 'audioCapture')
+  )
+  // synchronous check that gates enumerateDevices labels + AudioContext.setSinkId — needed
+  // so the TTS output-device picker shows real device names and can switch the sink
+  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) =>
+    permission === 'media' || permission === 'audioCapture' || permission === 'speaker-selection'
   )
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
@@ -1340,6 +1346,45 @@ ipcMain.on('settings:set-tts-speed', (_e, { engine, value }) => {
   s[engine + 'Speed'] = Math.max(0.5, Math.min(2, Number(value) || 1))
   saveSettings(s)
 })
+// playback volume + output device + background-ducking — the player reads these once at
+// startup (tts:get-config) and live via the tts:config broadcast on every change.
+function broadcastTtsConfig() {
+  const s = loadSettings()
+  mainWindow?.webContents?.send('tts:config', {
+    volume: s.ttsVolume == null ? 1 : s.ttsVolume,
+    sinkId: s.ttsSinkId || ''
+  })
+}
+ipcMain.handle('tts:get-config', () => {
+  const s = loadSettings()
+  return { volume: s.ttsVolume == null ? 1 : s.ttsVolume, sinkId: s.ttsSinkId || '' }
+})
+ipcMain.on('settings:set-tts-volume', (_e, value) => {
+  const s = loadSettings()
+  s.ttsVolume = Math.max(0, Math.min(1, Number(value)))
+  if (!isFinite(s.ttsVolume)) s.ttsVolume = 1
+  saveSettings(s)
+  broadcastTtsConfig()
+})
+ipcMain.on('settings:set-tts-sink', (_e, deviceId) => {
+  const s = loadSettings()
+  s.ttsSinkId = typeof deviceId === 'string' ? deviceId : ''
+  saveSettings(s)
+  broadcastTtsConfig()
+})
+ipcMain.handle('settings:get-tts-duck', () => loadSettings().ttsDuck === true)
+ipcMain.on('settings:set-tts-duck', (_e, on) => {
+  const s = loadSettings()
+  s.ttsDuck = !!on
+  saveSettings(s)
+  if (!s.ttsDuck) audioUnduck() // turning it off mid-speech restores the background now
+})
+// the renderer player calls these at the queue's playing/idle edges; we honour the
+// setting here so the player never has to know about it
+ipcMain.on('tts:duck', () => {
+  if (loadSettings().ttsDuck === true) audioDuck()
+})
+ipcMain.on('tts:unduck', () => audioUnduck())
 // ---- big pronunciation dictionaries (downloaded on demand, per language) ----
 ipcMain.handle('stressBig:langs', () => BIG_LANGS)
 ipcMain.handle('stressBig:status', (_e, lang) => getBigStatus(lang))
@@ -1614,6 +1659,7 @@ if (!gotLock) {
     // keeps the app alive and holds install-dir handles → the auto-update overwrite would be blocked)
     stopClaude()
     stopTtsServer()
+    stopAudioDuck()
     stopTelegram()
     stopPdfIndex()
     stopAgy()

@@ -219,11 +219,23 @@ async function doSynthesize({ text, lang } = {}) {
   }
 }
 
+// Normalize an incoming volume to 0..1, or undefined if none/invalid. Accepts both
+// 0..1 and a 0..100 percentage (so /speak callers can pass either). undefined means
+// "use the user's saved base volume" — decided in the renderer per clip.
+function normVolume(v) {
+  if (v == null || v === '') return undefined
+  let n = Number(v)
+  if (!isFinite(n)) return undefined
+  if (n > 1) n = n / 100
+  return Math.max(0, Math.min(1, n))
+}
+
 // Speak text aloud. Returns { ok, error }. New speech interrupts the previous
-// one (the renderer stops the current clip when a new one arrives).
-export async function speak({ text, lang } = {}) {
+// one (the renderer stops the current clip when a new one arrives). An optional
+// `volume` (0..1 or 0..100) overrides the saved base volume for THIS phrase only.
+export async function speak({ text, lang, volume } = {}) {
   const r = await synthesize({ text, lang })
   if (!r.ok) return r
-  getMain()?.webContents?.send('tts:play', { id: ++seq, wav: r.wav })
+  getMain()?.webContents?.send('tts:play', { id: ++seq, wav: r.wav, volume: normVolume(volume) })
   return { ok: true }
 }

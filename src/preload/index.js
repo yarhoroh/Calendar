@@ -143,6 +143,19 @@ const api = {
   setPiperVoice: (voice) => ipcRenderer.send('settings:set-piper-voice', voice),
   getTtsSpeed: (engine) => ipcRenderer.invoke('settings:get-tts-speed', engine),
   setTtsSpeed: (engine, value) => ipcRenderer.send('settings:set-tts-speed', { engine, value }),
+  // playback volume + output device + background-ducking
+  getTtsConfig: () => ipcRenderer.invoke('tts:get-config'),
+  setTtsVolume: (value) => ipcRenderer.send('settings:set-tts-volume', value),
+  setTtsSink: (deviceId) => ipcRenderer.send('settings:set-tts-sink', deviceId),
+  getTtsDuck: () => ipcRenderer.invoke('settings:get-tts-duck'),
+  setTtsDuck: (on) => ipcRenderer.send('settings:set-tts-duck', on),
+  ttsDuck: () => ipcRenderer.send('tts:duck'),
+  ttsUnduck: () => ipcRenderer.send('tts:unduck'),
+  onTtsConfig: (cb) => {
+    const h = (_e, c) => cb(c)
+    ipcRenderer.on('tts:config', h)
+    return () => ipcRenderer.removeListener('tts:config', h)
+  },
   onSupertonicProgress: (cb) => {
     const h = (_e, s) => cb(s)
     ipcRenderer.on('supertonic:progress', h)

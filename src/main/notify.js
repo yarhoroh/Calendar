@@ -10,7 +10,16 @@ import { recurs } from './recurrence'
 let win = null
 let opts = {}
 const timers = new Map()
+// during the FIRST startup with the fired-flag feature, past reminders have no flag yet;
+// catch-up runs "silent" (flags them without showing) so historical reminders don't all
+// pop at once. Cleared right after that startup's scheduling, so real misses show normally.
+let catchupSilent = false
+export function setCatchupSilent(v) {
+  catchupSilent = !!v
+}
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').trim()
+const pad = (n) => String(n).padStart(2, '0')
+const dayKeyOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
 function ensureWindow() {
   if (win && !win.isDestroyed()) return win
@@ -51,7 +60,10 @@ function placement(height) {
   return { width, height: h, x: wa.x + wa.width - width - 12, y: wa.y + wa.height - h - bottomGap }
 }
 
-function send(payload) {
+// dayKey = the calendar day this occurrence belongs to; passing it records the internal
+// "already fired" flag so the SAME occurrence is never shown twice — whether it fired now
+// (app running) or was caught up at startup. Independent of the user marking the task done.
+function send(payload, dayKey) {
   const w = ensureWindow()
   w.showInactive()
   raise(w)
@@ -62,6 +74,7 @@ function send(payload) {
   if (payload.speak) {
     opts.getMain?.()?.webContents?.send('reminder:speak', { title: payload.title || '', body: payload.body || '' })
   }
+  if (dayKey) opts.markReminderFired?.(payload.id, dayKey)
 }
 
 export function initNotify(options) {
@@ -71,12 +84,23 @@ export function initNotify(options) {
 
 function scheduleOnce(payload, whenMs) {
   const delay = whenMs - Date.now()
-  if (!Number.isFinite(delay) || delay <= 0 || delay > 2147483647) return
+  if (!Number.isFinite(delay) || delay > 2147483647) return
+  const dayKey = payload.dayKey // the note's own date (YYYY-MM-DD)
+  // overdue (app was off when it was due): catch up ONCE. The fired flag makes this
+  // safe to replay-guard — a later restart sees the flag and skips it, so the tray
+  // isn't spammed with reminders already shown.
+  if (delay <= 0) {
+    if (!opts.isReminderFired?.(payload.id, dayKey)) {
+      if (catchupSilent) opts.markReminderFired?.(payload.id, dayKey) // baseline: flag, don't show
+      else send(payload, dayKey)
+    }
+    return
+  }
   timers.set(
     payload.id,
     setTimeout(() => {
       timers.delete(payload.id)
-      send(payload)
+      send(payload, dayKey)
     }, delay)
   )
 }
@@ -93,8 +117,21 @@ function nextDaily(hh, mm) {
 // own `days`, else the global working days). Other days are skipped (still
 // rescheduled). See ./recurrence.
 function scheduleDaily(payload, hh, mm) {
+  // fire for a given day only if it recurs that day AND hasn't fired that day yet (the
+  // flag guards against a restart replaying it and against jitter double-fires)
+  const fireFor = (when) => {
+    if (!recurs(when, payload.days, payload.monthDays, opts.getWorkingDays?.())) return
+    const dk = dayKeyOf(when)
+    if (opts.isReminderFired?.(payload.id, dk)) return
+    if (catchupSilent) opts.markReminderFired?.(payload.id, dk) // baseline: flag, don't show
+    else send(payload, dk)
+  }
+  // catch up: today's slot already passed while the app was off → fire it once now
+  const slotToday = new Date()
+  slotToday.setHours(hh, mm, 0, 0)
+  if (slotToday.getTime() <= Date.now()) fireFor(new Date())
   const tick = () => {
-    if (recurs(new Date(), payload.days, payload.monthDays, opts.getWorkingDays?.())) send(payload)
+    fireFor(new Date())
     // reschedule for the NEXT occurrence, skipping any slot within the next minute — a timer
     // that fires a hair early (Windows/Electron jitter) must NOT immediately re-fire today,
     // which produced two popups for one daily reminder.
@@ -118,7 +155,6 @@ export function setReminder(payload, when) {
   if (payload.dayKey === 'everyday') {
     scheduleDaily(payload, hh, mm)
   } else {
-    const pad = (n) => String(n).padStart(2, '0')
     scheduleOnce(payload, new Date(`${payload.dayKey}T${pad(hh)}:${pad(mm)}`).getTime())
   }
 }

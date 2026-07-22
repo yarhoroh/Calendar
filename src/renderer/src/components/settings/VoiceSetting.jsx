@@ -19,7 +19,8 @@ const PIPER_VOICES = [{ id: 0, name: 'Lada' }, { id: 1, name: 'Mykyta' }, { id: 
 export default function VoiceSetting() {
   const { t, lang } = useI18n()
   const [engine, setEngine] = useState('piper')
-  const [voice, setVoice] = useState('F1') // Supertonic voice preset
+  const [voice, setVoice] = useState('F1') // Supertonic voice preset (or a custom cloned-voice id)
+  const [voices, setVoices] = useState({ builtin: VOICES, custom: [] }) // available Supertonic voices
   const [piperVoice, setPiperVoice] = useState(2) // piper uk speaker (default tetiana)
   const [speed, setSpeed] = useState(1) // speech speed for the selected engine
   const [volume, setVolume] = useState(1) // base playback volume (0..1)
@@ -32,6 +33,7 @@ export default function VoiceSetting() {
   useEffect(() => {
     Promise.resolve(api.getTtsEngine?.()).then((e) => e && setEngine(e))
     Promise.resolve(api.getSupertonicVoice?.()).then((v) => v && setVoice(v))
+    Promise.resolve(api.getSupertonicVoices?.()).then((v) => v && setVoices(v)) // built-in + cloned voices
     Promise.resolve(api.getPiperVoice?.()).then((v) => v != null && setPiperVoice(v))
     Promise.resolve(api.getTtsConfig?.()).then((c) => {
       if (!c) return
@@ -131,7 +133,7 @@ export default function VoiceSetting() {
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 6 }}>{t('settings.voicePreset')}</div>
           <div className="lang-switch" style={{ flexWrap: 'wrap' }}>
-            {VOICES.map((v) => (
+            {voices.builtin.map((v) => (
               <button
                 key={v}
                 className={'lang-switch__btn' + (voice === v ? ' lang-switch__btn--active' : '')}
@@ -141,6 +143,22 @@ export default function VoiceSetting() {
               </button>
             ))}
           </div>
+          {voices.custom.length > 0 && (
+            <>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '8px 0 6px' }}>{t('settings.voiceCustom')}</div>
+              <div className="lang-switch" style={{ flexWrap: 'wrap' }}>
+                {voices.custom.map((v) => (
+                  <button
+                    key={v}
+                    className={'lang-switch__btn' + (voice === v ? ' lang-switch__btn--active' : '')}
+                    onClick={() => pickVoice(v)}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import Database from 'better-sqlite3'
 import { readFileSync, existsSync, statSync } from 'fs'
 import { join } from 'path'
+import { HOMOGRAPHS, pickHomograph } from './homographs.js'
 
 // Adds word stress marks (combining acute U+0301) to Russian/Ukrainian text using the
 // bundled compact dictionaries (resources/stress/{ru,uk}.txt — one stressed word per
@@ -133,19 +134,43 @@ function applyCase(orig, repl) {
 // Drop any acute from a word that contains ё/Ё; the ё keeps the stress.
 const fixYo = (s) => (/[ёЁ]/.test(s) ? s.replaceAll(ACUTE, '') : s)
 
+// Russian genitive endings -ого/-его are pronounced with в, not г (его→ево,
+// краси́вого→краси́вово, всего→всево, того→тово). A handful of adverbs keep the г
+// (много, строго, дорого…) and are excluded — but their genitive forms (многого→
+// многово) still change, so only the bare adverb is listed. Applies to ru only:
+// in Ukrainian -ого keeps its г. Preserves case and any stress mark.
+const KEEP_G = new Set(['много', 'немного', 'строго', 'нестрого', 'дорого', 'недорого', 'убого', 'полого', 'отлого', 'ого'])
+function devoiceOgo(s) {
+  const bare = s.replaceAll(ACUTE, '').toLowerCase()
+  if (bare.length < 3 || !/(ого|его)$/.test(bare) || KEEP_G.has(bare)) return s
+  // final ending is [ое](́?)г(́?)о(́?): swap just that г → в
+  return s.replace(/([оОеЕ]́?)([гГ])(́?[оО]́?)$/, (_m, pre, g, post) => pre + (g === 'Г' ? 'В' : 'в') + post)
+}
+
 export function accentuate(text, lang) {
   if ((lang !== 'ru' && lang !== 'uk') || !text) return text
   const m = load(lang)
   const get = bigEnabled(lang) ? bigStmt(lang) : null
-  if (!m.size && !get) return text
+  const devoice = lang === 'ru' // -ого/-его genitive г→в runs even with no dictionary loaded
+  if (!m.size && !get && !devoice) return text
+  // ru: a lowercase word list (same tokenization + order as the replace below) so a
+  // homograph can be resolved by its neighbours before the word-by-word dictionary runs
+  const words = lang === 'ru' ? text.toLowerCase().match(/[А-Яа-яЁёІіЇїЄєҐґ'’]+/g) || [] : null
+  let wi = -1
   return text.replace(/[А-Яа-яЁёІіЇїЄєҐґ'’]+/g, (w) => {
     const lw = w.toLowerCase()
-    const e = m.get(lw) // curated dicts win
-    if (e) return fixYo(e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over))
-    if (get) {
-      const row = get.get(lw) // big dict fills the gap (indexed SQLite lookup)
-      if (row) return fixYo(restoreCase(w, row.over))
+    if (words) {
+      wi++
+      const h = HOMOGRAPHS[lw] // context-resolved homograph wins over the dict (and skips devoice)
+      if (h) return applyCase(w, pickHomograph(h, words, wi))
     }
-    return w
+    const e = m.get(lw) // curated dicts win
+    let out = w
+    if (e) out = fixYo(e.repl != null ? applyCase(w, e.repl) : restoreCase(w, e.over))
+    else if (get) {
+      const row = get.get(lw) // big dict fills the gap (indexed SQLite lookup)
+      if (row) out = fixYo(restoreCase(w, row.over))
+    }
+    return devoice ? devoiceOgo(out) : out
   })
 }

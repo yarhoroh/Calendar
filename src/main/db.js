@@ -90,6 +90,15 @@ export function initDb() {
       uid_validity INTEGER DEFAULT 0,
       PRIMARY KEY (account, folder)
     );
+    -- internal "this reminder already fired" flag, keyed per calendar day so a note that
+    -- was already shown/spoken in the tray is NOT replayed on restart (independent of
+    -- whether the user marks the task done). Everyday notes get one row per date.
+    CREATE TABLE IF NOT EXISTS reminder_fired (
+      note_id TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      fired_at TEXT,
+      PRIMARY KEY (note_id, day_key)
+    );
 
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
@@ -529,6 +538,29 @@ export function deleteAiTask(id) {
 }
 export function markAiTaskDone(id) {
   db.prepare('UPDATE ai_tasks SET done = 1 WHERE id = ?').run(id)
+}
+// remove any completed one-time tasks (older builds marked them done=1 and kept them,
+// which piled up in the AI TASKS list; fired tasks are now deleted outright)
+export function pruneDoneAiTasks() {
+  db.prepare('DELETE FROM ai_tasks WHERE done = 1').run()
+}
+
+// ---- reminder "already fired" flag (internal, per note per day) --------------
+export function isReminderFired(noteId, dayKey) {
+  return !!db.prepare('SELECT 1 FROM reminder_fired WHERE note_id = ? AND day_key = ?').get(noteId, dayKey)
+}
+export function markReminderFired(noteId, dayKey) {
+  db.prepare('INSERT OR IGNORE INTO reminder_fired (note_id, day_key, fired_at) VALUES (?, ?, ?)').run(
+    noteId,
+    dayKey,
+    new Date().toISOString()
+  )
+}
+// keep the table from growing forever: drop flags older than ~60 days (the occurrence
+// is long past; a note that recurs will just re-flag the current day)
+export function pruneReminderFired() {
+  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString()
+  db.prepare('DELETE FROM reminder_fired WHERE fired_at < ?').run(cutoff)
 }
 
 // ---- mail watcher tasks: periodic "watch this mailbox, tell me what matters" --

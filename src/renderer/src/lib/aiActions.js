@@ -611,7 +611,7 @@ const NO_REPORT = new Set([
 // id to file a note into it) or report a failure truthfully. Loops until the model
 // stops emitting actions or we hit MAX_ROUNDS. Returns the model's follow-up text
 // to show the user (or null if nothing more to say).
-export async function runActions(actions, onCommand, channel) {
+export async function runActions(actions, onCommand, channel, allowVoice = false) {
   const isTelegram = typeof channel === 'string' && channel.startsWith('telegram:')
   let pending = actions || []
   // only the LAST round's prose reaches the user — intermediate "now I'll…" narration of a long
@@ -623,7 +623,9 @@ export async function runActions(actions, onCommand, channel) {
   const PROG = { pdfInfo: '🔍 читаю документ', pdfInsert: '✍️ вставляю текст', pdfDelete: '🗑 удаляю', pdfEditText: '✏️ правлю текст', pdfRestyle: '🎨 меняю шрифт', pdfMove: '↔️ двигаю', pdfShape: '▭ рисую', createVariable: '🔗 создаю переменную', pdfSetVariable: '🔁 меняю переменную', pdfSave: '💾 сохраняю', pdfWorkOnCopy: '📄 делаю копию', openPdf: '📂 открываю PDF', telegramFile: '📤 отправляю в Telegram', composeMail: '✉️ готовлю письмо' }
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    if (isTelegram) pending = pending.filter((a) => a.action !== 'speak') // never speak for a messenger
+    // never speak for a messenger — UNLESS the caller explicitly allows voice (a scheduled
+    // Telegram task the user asked to also hear aloud on the PC)
+    if (isTelegram && !allowVoice) pending = pending.filter((a) => a.action !== 'speak')
     if (!pending.length) break
     // cooperative STOP: the user hit "стоп" during a long chain → halt between rounds, tell them
     if (isAborted()) { pushChat('⏹ Остановлено.', 'system'); return null }

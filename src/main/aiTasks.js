@@ -1,4 +1,4 @@
-import { pendingAiTasks, markAiTaskDone } from './db'
+import { pendingAiTasks, deleteAiTask, pruneDoneAiTasks } from './db'
 
 // Scheduler for AI self-tasks: each pending task has a local datetime `at`. When
 // it arrives we mark it done and "pinch" the AI (via the onFire callback) so it
@@ -14,7 +14,7 @@ export function initAiTasks(opts) {
 
 function trigger(task) {
   timers.delete(task.id)
-  markAiTaskDone(task.id)
+  deleteAiTask(task.id) // one-time task fired → remove it so completed tasks don't pile up
   try {
     onFire(task)
   } catch {
@@ -75,15 +75,18 @@ function schedule(task) {
   // one-time task
   const delay = new Date(task.at).getTime() - Date.now()
   if (Number.isNaN(delay)) return
-  // overdue (app was off when it was due): mark done silently, don't surprise.
+  // overdue (app was off when it was due): catch up now — fire it, then it's removed.
+  // Safe to fire immediately because scheduleAllAiTasks runs after the renderer has
+  // loaded (see index.js), so the listener is ready.
   if (delay <= 0) {
-    markAiTaskDone(task.id)
+    trigger(task)
     return
   }
   timers.set(task.id, setTimeout(() => trigger(task), Math.min(delay, MAX_DELAY)))
 }
 
 export function scheduleAllAiTasks() {
+  pruneDoneAiTasks() // clear legacy done=1 rows (older builds left completed tasks behind)
   for (const t of pendingAiTasks()) schedule(t)
 }
 export function scheduleAiTask(task) {

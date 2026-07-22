@@ -1,4 +1,5 @@
 import { join } from 'path'
+import { existsSync, readdirSync } from 'fs'
 import * as ort from 'onnxruntime-node'
 import { loadTextToSpeech, loadVoiceStyle } from './helper.js'
 import { assetsDir, isReady } from './download.js'
@@ -37,11 +38,29 @@ async function getTts() {
   return ttsCache
 }
 
-const VOICES = new Set(['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'])
+const BUILTIN_VOICES = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5']
 function getStyle(voice) {
-  const v = VOICES.has(voice) ? voice : 'F1' // all 10 presets are downloaded
+  // built-in (F1..M5) OR a custom style dropped into voice_styles/<id>.json (e.g. a cloned voice)
+  const id = String(voice || '').replace(/[^\w-]/g, '') // guard against path traversal
+  const p = id && join(assetsDir(), 'voice_styles', id + '.json')
+  const v = p && existsSync(p) ? id : 'F1'
   if (!styleCache.has(v)) styleCache.set(v, loadVoiceStyle([join(assetsDir(), 'voice_styles', v + '.json')], false))
   return styleCache.get(v)
+}
+
+// all selectable voices: built-in F1..M5 + any custom <id>.json added to voice_styles/
+export function listVoiceIds() {
+  let custom = []
+  try {
+    custom = readdirSync(join(assetsDir(), 'voice_styles'))
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => f.slice(0, -5))
+      .filter((id) => !BUILTIN_VOICES.includes(id))
+      .sort()
+  } catch {
+    /* voices dir missing → just the built-ins */
+  }
+  return { builtin: BUILTIN_VOICES, custom }
 }
 
 // raw float samples → 16-bit PCM mono WAV Buffer (same format as helper.writeWavFile)

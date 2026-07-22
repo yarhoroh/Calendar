@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, dialog, shell, clipboard } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync } from 'fs'
 import { detectClaude, detectCodex, warmUp } from './ai'
 import { warmClaude, stopClaude, clearClaude, askClaude, askClaudeRaw } from './claudeAgent'
 import { askCodex, resetCodex } from './codex'
@@ -63,7 +63,10 @@ import {
   unmarkImport,
   listMailMessages,
   clearMailCache,
-  getSavedAttachment
+  getSavedAttachment,
+  isReminderFired,
+  markReminderFired,
+  pruneReminderFired
 } from './db'
 import {
   connectAccount as googleConnect,
@@ -96,7 +99,8 @@ import {
   pushMessage,
   resizeToContent,
   openInMain,
-  sendTheme
+  sendTheme,
+  setCatchupSilent
 } from './notify'
 
 let mainWindow = null
@@ -1314,6 +1318,25 @@ ipcMain.handle('tts:speak', (_e, payload) => speak(payload))
 ipcMain.handle('tts:synth', (_e, payload) => synthesize(payload))
 ipcMain.handle('supertonic:status', () => getSupertonicStatus())
 ipcMain.handle('supertonic:download', () => startSupertonicDownload())
+// all selectable Supertonic voices: built-in F1..M5 + any custom <id>.json a user added
+// (e.g. a cloned voice) to userData/supertonic/voice_styles
+const BUILTIN_SUPERTONIC = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5']
+function voiceStylesDir() {
+  return join(app.getPath('userData'), 'supertonic', 'voice_styles')
+}
+ipcMain.handle('supertonic:voices', () => {
+  let custom = []
+  try {
+    custom = readdirSync(voiceStylesDir())
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => f.slice(0, -5))
+      .filter((id) => !BUILTIN_SUPERTONIC.includes(id))
+      .sort()
+  } catch {
+    /* dir missing → built-ins only */
+  }
+  return { builtin: BUILTIN_SUPERTONIC, custom }
+})
 ipcMain.handle('settings:get-tts-engine', () => loadSettings().ttsEngine || 'piper')
 ipcMain.on('settings:set-tts-engine', (_e, engine) => {
   const s = loadSettings()
@@ -1322,9 +1345,11 @@ ipcMain.on('settings:set-tts-engine', (_e, engine) => {
 })
 ipcMain.handle('settings:get-supertonic-voice', () => loadSettings().supertonicVoice || 'F1')
 ipcMain.on('settings:set-supertonic-voice', (_e, voice) => {
-  const ok = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'].includes(voice)
+  const id = String(voice || '').replace(/[^\w-]/g, '') // no path traversal
+  // accept a built-in preset OR a custom style file that actually exists
+  const ok = BUILTIN_SUPERTONIC.includes(id) || (id && existsSync(join(voiceStylesDir(), id + '.json')))
   const s = loadSettings()
-  s.supertonicVoice = ok ? voice : 'F1'
+  s.supertonicVoice = ok ? id : 'F1'
   saveSettings(s)
 })
 ipcMain.handle('settings:get-piper-voice', () => {
@@ -1578,14 +1603,14 @@ if (!gotLock) {
       getMain: () => mainWindow,
       showMain: showWindow,
       getSound: () => loadSettings().reminderSound !== false,
-      getWorkingDays: () => workingDays()
+      getWorkingDays: () => workingDays(),
+      isReminderFired: (id, dayKey) => isReminderFired(id, dayKey),
+      markReminderFired: (id, dayKey) => markReminderFired(id, dayKey)
     })
-    scheduleStoredReminders()
     initAiTasks({
       onFire: (task) =>
         mainWindow?.webContents?.send('aiTask:fire', { text: task.text, channel: task.channel, notify: task.notify })
     })
-    scheduleAllAiTasks()
     // mail watcher: new mail (only) → pinch the AI with the task prompt + the new messages
     initMailWatch({
       onFire: (task, messages) =>
@@ -1604,9 +1629,34 @@ if (!gotLock) {
           }))
         })
     })
-    scheduleAllMailTasks()
-    rescheduleGoogleSync()
     initTts({ getMain: () => mainWindow })
+    // Arm all schedulers only AFTER the renderer has finished loading, so any overdue
+    // one-time tasks/reminders that catch up at startup fire INTO a mounted renderer
+    // (its aiTask:fire / reminder listeners are ready) instead of vanishing before anyone
+    // is listening. Future timers are unaffected; mail watch / Google sync just start a beat later.
+    const armSchedulers = () => {
+      pruneReminderFired() // drop reminder-fired flags older than ~60 days
+      // FIRST run with the fired-flag feature: flag all currently-overdue reminders
+      // silently (baseline) so historical reminders don't all pop at once. Later runs
+      // catch up on genuinely-missed reminders once.
+      const firstRun = !loadSettings().reminderBaselined
+      if (firstRun) setCatchupSilent(true)
+      scheduleStoredReminders()
+      if (firstRun) {
+        setCatchupSilent(false)
+        const s = loadSettings()
+        s.reminderBaselined = true
+        saveSettings(s)
+      }
+      scheduleAllAiTasks()
+      scheduleAllMailTasks()
+      rescheduleGoogleSync()
+    }
+    if (mainWindow?.webContents?.isLoading()) {
+      mainWindow.webContents.once('did-finish-load', () => setTimeout(armSchedulers, 600))
+    } else {
+      setTimeout(armSchedulers, 600)
+    }
     initSupertonicDownload({ onState: (s) => mainWindow?.webContents?.send('supertonic:progress', s) })
     initStressBigDownload({ onState: (s) => mainWindow?.webContents?.send('stressBig:progress', s) })
     setBigDict((lang) => loadSettings().bigDict?.[lang] === true)

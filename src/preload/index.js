@@ -139,6 +139,7 @@ const api = {
   supertonicDownload: () => ipcRenderer.invoke('supertonic:download'),
   getSupertonicVoice: () => ipcRenderer.invoke('settings:get-supertonic-voice'),
   setSupertonicVoice: (voice) => ipcRenderer.send('settings:set-supertonic-voice', voice),
+  getSupertonicVoices: () => ipcRenderer.invoke('supertonic:voices'), // { builtin:[...], custom:[...] }
   getPiperVoice: () => ipcRenderer.invoke('settings:get-piper-voice'),
   setPiperVoice: (voice) => ipcRenderer.send('settings:set-piper-voice', voice),
   getTtsSpeed: (engine) => ipcRenderer.invoke('settings:get-tts-speed', engine),

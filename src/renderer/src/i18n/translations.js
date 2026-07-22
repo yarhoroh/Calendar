@@ -199,6 +199,7 @@ export const translations = {
       voiceDownloading: 'Downloading model…',
       voiceReady: 'Model ready',
       voicePreset: 'Voice',
+      voiceCustom: 'Cloned voices',
       bigDict: 'Big pronunciation dictionary',
       bigDictDesc:
         'Full stress coverage (millions of word forms). Downloaded on demand and stored on disk as an indexed database — looked up per word, so it barely uses any memory.',
@@ -533,6 +534,7 @@ export const translations = {
       voiceDownloading: 'Завантаження моделі…',
       voiceReady: 'Модель готова',
       voicePreset: 'Голос',
+      voiceCustom: 'Клоновані голоси',
       bigDict: 'Великий словник вимови',
       bigDictDesc:
         'Повне покриття наголосів (мільйони словоформ). Завантажується за потреби й зберігається на диску як індексована база — пошук іде по словах, тож пам’яті майже не займає.',

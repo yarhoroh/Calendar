@@ -108,8 +108,15 @@ async function poll() {
           }
         }
       } else if (r && r.ok === false) {
-        // bad token / API error — stop polling to avoid a tight error loop
-        running = false
+        if (r.error_code === 401 || r.error_code === 404) {
+          running = false // bad token — retrying can't help
+        } else {
+          // transient API error: 409 = another instance is polling this bot
+          // (installed + dev running together), 429/5xx = flood/outage — back
+          // off and keep polling instead of dying silently until restart
+          console.warn(`[telegram] getUpdates ${r.error_code}: ${r.description || 'error'} — retry in 5s`)
+          await new Promise((res) => setTimeout(res, (r.parameters?.retry_after || 5) * 1000))
+        }
       }
     } catch {
       await new Promise((res) => setTimeout(res, 3000)) // network hiccup → back off
